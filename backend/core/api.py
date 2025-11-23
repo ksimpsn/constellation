@@ -11,6 +11,7 @@ result retrieval, and verification.
 
 API responsible for managing the job lifecycle (submission -> tracking -> results -> verification)
 """
+import logging
 from typing import List, Any
 
 import ray
@@ -42,7 +43,7 @@ class ConstellationAPI:
     def submit_project(self, data):
         """
         Accepts a list or dataset from the researcher and submits it
-        to the Ray backend for distributed computation.
+        to the Ray backend for distributed computation. # TODO: in future, will accept a function to apply to the dataset
 
         Example:
             api.submit_project([1,2,3,4])
@@ -51,14 +52,27 @@ class ConstellationAPI:
         """
         print(f"[ConstellationAPI] Submitting new project with data: {data}")
 
-        job_id = self.server.submit_tasks(data)
+        # generate job_id
+        job_id = self.counter
+        self.counter += 1
 
-        job_id = f"job-{len(self.jobs)}"
+        # convert data into payloads
+        payloads = [
+            {"task_id": i, "chunk": item, "params": None} for i, item in enumerate(data)
+        ]
+
+        # submit tasks to Ray
+        futures = self.server.submit_tasks(payloads)
+
+        # store metadata in DB TODO: put in DB instead
         self.jobs[job_id] = {
-            "data": data,
-            "status": "submitted",
+            "status": "submitted", # FIXME: maybe status should be running?
+            "data": payloads,
             "results": None
         }
+
+        # store futures in memory
+        self.futures[job_id] = futures
 
         return job_id
 
@@ -70,39 +84,87 @@ class ConstellationAPI:
         Returns the current status of the job.
         Status could be: submitted, running, complete, failed, etc.
         """
-        print(f"[ConstellationAPI] Checking status for job: {job_id}")
+        # TODO: add support for failed as well
+        logging.info(f"[ConstellationAPI] Status check for job_id={job_id}")
 
         if job_id not in self.jobs:
-            return "not-found"
+            logging.warning(f"[ConstellationAPI] Job {job_id} not found in self.jobs")
+            raise Exception("Job not found")
 
-        return self.jobs[job_id]["status"]
+        job = self.jobs[job_id]
+
+        current_status = job.get("status")
+        logging.info(f"[ConstellationAPI] Current stored status for job {job_id}: {current_status}")
+
+        # If already complete, no need to re-check
+        if current_status == "complete":
+            logging.info(f"[ConstellationAPI] Job {job_id} already marked complete")
+            return "complete"
+
+        # retrieve futures, may be empty
+        futures = self.futures.get(job_id, [])
+        if not futures:
+            logging.warning(f"[ConstellationAPI] No futures found for job {job_id}; marking as submitted")
+            return "submitted"
+
+        logging.info(f"[ConstellationAPI] Checking {len(futures)} Ray futures for job {job_id}")
+
+        done, not_done = ray.wait(futures, timeout=0)
+
+        logging.info(
+            f"[ConstellationAPI] Job {job_id} -> "
+            f"{len(done)} done, {len(not_done)} not done"
+        )
+
+        if len(done) == len(futures):
+            logging.info(f"[ConstellationAPI] All futures completed for job {job_id}")
+            job["status"] = "complete"
+        else:
+            logging.info(f"[ConstellationAPI] Job {job_id} still running")
+            job["status"] = "running"
+
+        return job["status"]
 
     # ---------------------------------------------------------
     # Result Retrieval
     # ---------------------------------------------------------
     def get_results(self, job_id):
         """
-        Returns computed results for a given job once complete.
+        Retrieve results for a completed job.
+        Blocks until results are ready.
         """
-        print(f"[ConstellationAPI] Fetching results for job: {job_id}")
+        logging.info(f"[ConstellationAPI] Fetching results for job_id={job_id}")
 
+        # job must exist
         if job_id not in self.jobs:
+            logging.error(f"[ConstellationAPI] Job {job_id} not found in self.jobs")
             raise Exception("Job not found")
 
         job = self.jobs[job_id]
+
         if job["results"] is not None:
+            logging.info(f"[ConstellationAPI] Returning cached results for job {job_id}")
             return job["results"]
 
-        # results = self.server.get_results(job_id)
-        # job["results"] = results
-        # job["status"] = "complete"
+        futures = self.futures.get(job_id, [])
 
-        # TODO: delete when above logic is implemented
-        dummy_results = [x ** 2 for x in job["data"]]
-        job["results"] = dummy_results
+        if not futures:
+            logging.error(f"[ConstellationAPI] No futures for job {job_id}; cannot fetch results")
+            raise Exception("No futures available to fetch results for this job")
+
+        logging.info(f"[ConstellationAPI] Blocking until Ray returns results for {len(futures)} tasks")
+
+        results = self.server.get_results(futures)
+
+        logging.info(f"[ConstellationAPI] Results retrieved for job {job_id}: {results}")
+
+        # Cache results + update status
+        job["results"] = results
         job["status"] = "complete"
-        return dummy_results
 
+        logging.info(f"[ConstellationAPI] Job {job_id} marked complete")
+
+        return results
     # ---------------------------------------------------------
     # (Optional) Verification Stub
     # ---------------------------------------------------------
