@@ -17,7 +17,7 @@ from typing import List, Any
 import ray
 from backend.core.server import Cluster
 
-from database import get_session, Job
+from database import get_session, Job, save_job, update_job, get_job
 
 class ConstellationAPI:
     """
@@ -68,15 +68,8 @@ class ConstellationAPI:
         # store futures in memory
         self.futures[job_id] = futures
 
-        # store metadata in DB TODO: put in DB instead
-        db_job = Job(
-            id=job_id,
-            status="submitted", # FIXME: maybe status should be running?
-            data=payloads,
-            result=None
-        )
-        self.db.add(db_job)
-        self.db.commit()
+        # store metadata in DB
+        save_job(job_id=job_id, data=data, status="submitted")
 
         print("[ConstellationAPI] Job {job_id} saved in DB.")
         return job_id
@@ -92,12 +85,12 @@ class ConstellationAPI:
         # TODO: add support for failed as well
         logging.info(f"[ConstellationAPI] Status check for job_id={job_id}")
 
-        db_job = self.db.get(Job, job_id)
-        if not db_job:
+        job = get_job(job_id)
+        if not job:
             logging.error(f"[ConstellationAPI] Job {job_id} not found in DB")
             raise Exception("Job not found")
 
-        current_status = db_job.get("status")
+        current_status = job.get("status")
         logging.info(f"[ConstellationAPI] Current stored status for job {job_id}: {current_status}")
 
         # If already complete, no need to re-check
@@ -122,13 +115,12 @@ class ConstellationAPI:
 
         if len(done) == len(futures):
             logging.info(f"[ConstellationAPI] All futures completed for job {job_id}")
-            db_job.status = "complete"
+            job.status = "complete"
         else:
             logging.info(f"[ConstellationAPI] Job {job_id} still running")
-            db_job.status = "running"
+            job.status = "running"
 
-        self.db.commit()
-        return db_job.status
+        return job.status
 
     # ---------------------------------------------------------
     # Result Retrieval
@@ -141,15 +133,15 @@ class ConstellationAPI:
         logging.info(f"[ConstellationAPI] Fetching results for job_id={job_id}")
 
         # job must exist
-        db_job = self.db.get(Job, job_id)
-        if not db_job:
+        job = get_job(job_id)
+        if not job:
             logging.error(f"[ConstellationAPI] Job {job_id} not found in self.jobs")
             raise Exception("Job not found")
 
         # If already cached in DB, return
-        if db_job.result is not None:
+        if job.result is not None:
             logging.info(f"[ConstellationAPI] Returning cached results for job {job_id}")
-            return db_job.result
+            return job.result
 
         futures = self.futures.get(job_id, [])
 
@@ -164,9 +156,7 @@ class ConstellationAPI:
         logging.info(f"[ConstellationAPI] Results retrieved for job {job_id}: {results}")
 
         # Cache results + update status
-        db_job.result = results
-        db_job.status = "complete"
-        self.db.commit()
+        update_job(job_id, results=results, status="complete")
 
         logging.info(f"[ConstellationAPI] Job {job_id} marked complete")
         

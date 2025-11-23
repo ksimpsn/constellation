@@ -31,6 +31,26 @@ def init_db():
 def get_session():
     return SessionLocal()
 
+def save_job(job_id, data, status):
+    with SessionLocal() as session:
+        job = Job(job_id=job_id, data=data, status=status)
+        session.add(job)
+        session.commit()
+
+def update_job(job_id, **kwargs):
+    with SessionLocal() as session:
+        job = session.query(Job).filter_by(job_id=job_id).first()
+        if not job:
+            return False
+        for key, value in kwargs.items():
+            setattr(job, key, value)
+        session.commit()
+        return True
+
+def get_job(job_id):
+    with SessionLocal() as session:
+        job = session.query(Job).filter_by(job_id=job_id).first()
+        return job
 
 # Simple test connection function
 if __name__ == "__main__":
