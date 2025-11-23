@@ -10,7 +10,7 @@ Need to coordinate job submission, progress tracking,
 result retrieval, and verification.
 """
 
-from backend.core.server import ConstellationServer
+from backend.core.server import Cluster
 
 class ConstellationAPI:
     """
@@ -19,7 +19,7 @@ class ConstellationAPI:
     """
 
     def __init__(self):
-        self.server = ConstellationServer()
+        self.server = Cluster()
 
         # TODO: switch from in-memory job tracking
         self.jobs = {}
