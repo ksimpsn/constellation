@@ -3,12 +3,17 @@ ConstellationAPI
 
 Python interface for managing distributed
 computation jobs. Bridge between:
-  - Flask app (backend/web/app.py)
-  - Ray cluster logic (backend/core/server.py, worker.py)
+  - Flask app (backend/web/app.py): the thing researchers/volunteers interact with
+  - Ray cluster logic (backend/core/server.py, worker.py): what actually executes the tasks
 
 Need to coordinate job submission, progress tracking,
 result retrieval, and verification.
+
+API responsible for managing the job lifecycle (submission -> tracking -> results -> verification)
 """
+from typing import List, Any
+
+import ray
 
 from backend.core.server import Cluster
 
@@ -19,10 +24,16 @@ class ConstellationAPI:
     """
 
     def __init__(self):
-        self.server = Cluster()
-
-        # TODO: switch from in-memory job tracking
-        self.jobs = {}
+        self.server = Cluster() # start_cluster, submit_tasks, get_results
+        # self.jobs maps job_id to a dict with below mapping:
+        # status: str -> "submitted" | "running" | "complete" | "failed" | "cancelled"
+        # data: list[Any] (chunked payload) -> ex: [1, 2, 3]
+        # results: None | list[Any] -> None if job isn't complete, list[Any] after retrieved from compute_task
+        self.jobs: dict[int, dict[str, Any]] = {} # TODO: Annabella - switch from in-memory job tracking
+        self.futures: dict[int, List[ray.ObjectRef]] = {} # need futures b/c ObjectRefs cannot be stored in DB
+        # TODO: DB will store users, jobs, job_data (payloads/dataset), job_results, permissions
+        self.counter = 0 # for unique job_ids
+        # TODO: later implement user-uploaded functions job_id -> function, parameters, chunked dataset, ray futures, results
         print("[ConstellationAPI] Initialized API layer.")
 
     # ---------------------------------------------------------
