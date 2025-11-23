@@ -1,11 +1,11 @@
 import GradientBackground from "../components/GradientBackground";
-import Navbar from "../components/Navbar";
+import ProfileMenu from "../components/ProfileMenu";
 
 export default function Security() {
   return (
     <GradientBackground>
       <div style={{ alignSelf: "flex-end" }}>
-        <Navbar />
+        <ProfileMenu />
       </div>
       <h1>Privacy and Security Statements</h1>
 
