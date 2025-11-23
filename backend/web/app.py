@@ -7,7 +7,7 @@ Need to expose endpoints for:
   - retrieving results
 
 Later, it will connect to:
-  backend/core/api.py → ConstellationAPI → ConstellationServer (Ray)
+  backend/core/api.py → ConstellationAPI → Cluster (Ray)
 """
 
 from flask import Flask, request, jsonify
