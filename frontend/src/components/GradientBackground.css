@@ -2,25 +2,24 @@
 .gradient-wrapper {
     min-height: 100vh;
     width: 100%;
-    padding: 20px;
+    padding: 40px;
     background: linear-gradient(135deg, #5a1d91, #000000, #c03444);
-  
+    box-sizing: border-box;
+
     /* REMOVE centering */
-    display: block;
+    display: flex;
+    justify-content: center;
+    align-items: center;
   }
-  
+
   /* FULL-SCREEN WHITE CONTAINER */
   .gradient-inner {
     background: white;
     border-radius: 8px;
-  
+
     /* FILL the entire width */
     width: 100%;
-  
-    /* FILL full height inside border */
-    min-height: calc(100vh - 40px);
-  
+    min-height: calc(100vh - 80px);
     padding: 40px;
     box-sizing: border-box;
   }
-  
