@@ -14,7 +14,8 @@
 
   /* FULL-SCREEN WHITE CONTAINER */
   .gradient-inner {
-    background: white;
+    position: relative;
+    background: rgba(255, 255, 255, 0.677);
     border-radius: 8px;
 
     /* FILL the entire width */
@@ -25,4 +26,21 @@
     display: flex;
     flex-direction: column;
     align-items: flex-start;
+    overflow: hidden;
+  }
+
+  .gradient-inner::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image: url("/src/assets/constellation.avif");
+    background-size: cover;
+    background-position: center;
+    opacity: 0.4;
+    z-index: 0;
+  }
+
+  .gradient-inner > * {
+    position: relative;
+    z-index: 1;
   }

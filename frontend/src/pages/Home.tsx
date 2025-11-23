@@ -1,11 +1,11 @@
 import GradientBackground from "../components/GradientBackground";
-import Navbar from "../components/Navbar";
+import ProfileMenu from "../components/ProfileMenu";
 
 export default function Home() {
   return (
     <GradientBackground>
       <div style={{ alignSelf: "flex-end" }}>
-        <Navbar />
+        <ProfileMenu />
       </div>
 
       <h1 style={{ fontSize: "48px", marginTop: "40px" }}>
