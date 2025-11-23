@@ -4,7 +4,9 @@ import Navbar from "../components/Navbar";
 export default function Dashboard() {
   return (
     <GradientBackground>
-      <Navbar />
+      <div style={{ alignSelf: "flex-end" }}>
+              <Navbar />
+      </div>
 
       <h1>My Dashboard</h1>
 

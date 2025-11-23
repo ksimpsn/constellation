@@ -4,7 +4,9 @@ import Navbar from "../components/Navbar";
 export default function Security() {
   return (
     <GradientBackground>
-      <Navbar />
+      <div style={{ alignSelf: "flex-end" }}>
+        <Navbar />
+      </div>
       <h1>Privacy and Security Statements</h1>
 
       <div style={section}>Detailed Overview of Security</div>
