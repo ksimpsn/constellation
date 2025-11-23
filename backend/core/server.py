@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, List
 
 import ray
 import logging
@@ -52,16 +52,36 @@ class Cluster:
     # TODO: Not finished as of 11/23
     # data is a tuple of the python function / model and the subset of data
     def submit_tasks(self, data: list[dict]) -> list[ray.ObjectRef]:
+        """
+        Submit chunked data to Ray for computation.
+
+            Parameters:
+                 data: A list of task payloads (dicts).
+                 Each dict is one chunk to be processed by compute_task().
+                 FIXME: dict could contain task_id, chunk, params, etc.
+
+            Returns:
+                List[ray.ObjectRef]: list of Ray futures.
+        """
         if not ray.is_initialized():
             logging.exception("[ERROR] Ray backend not initialized. Call start_cluster first.")
             raise RuntimeError("[ERROR] Ray backend not initialized. Call start_cluster first.")
-        futures = []
-        for item in data:
-            futures.append(compute_task.remote(item))
+        futures: List[ray.ObjectRef] = []
+        for payload in data:
+            futures.append(compute_task.remote(payload))
         return futures
 
     # TODO: Not finished as of 11/23
     def get_results(self, futures: list[ray.ObjectRef]) -> list[Any]:
+        """
+        Given a list of Ray ObjectRefs (futures), return actual results.
+
+            Parameters:
+                futures: List of Ray ObjectRef returned by submit_tasks()
+
+            Returns:
+                List[Any]: actual outputs from compute_task()
+        """
         if not ray.is_initialized():
             logging.exception("[ERROR] Ray backend not initialized. Call start_cluster first.")
             raise RuntimeError("[ERROR] Ray backend not initialized. Call start_cluster first.")
