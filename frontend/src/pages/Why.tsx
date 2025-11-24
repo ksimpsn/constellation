@@ -4,7 +4,9 @@ import Navbar from "../components/Navbar";
 export default function Why() {
   return (
     <GradientBackground>
-      <Navbar />
+      <div style={{ alignSelf: "flex-end" }}>
+        <Navbar />
+      </div>
       <h1>Why Constellation?</h1>
 
       <div style={section}>Detailed overview of Constellation</div>
