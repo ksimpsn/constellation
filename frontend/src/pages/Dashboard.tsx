@@ -1,12 +1,8 @@
 import GradientBackground from "../components/GradientBackground";
-import ProfileMenu from "../components/ProfileMenu";
 
 export default function Dashboard() {
   return (
     <GradientBackground>
-      <div style={{ alignSelf: "flex-end" }}>
-              <ProfileMenu />
-      </div>
 
       <h1>My Dashboard</h1>
 
