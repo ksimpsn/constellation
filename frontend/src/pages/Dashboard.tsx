@@ -12,15 +12,15 @@ export default function Dashboard() {
           justifyContent: "space-between",
           width: "100%",
           marginTop: "40px",
-          gap: "20px", // ⭐ spacing between the columns
+          gap: "20px", 
         }}
       >
         <div style={card}>
           <h2 style={cardTitle}>In-Progress</h2>
           <ul style={list}>
-            <li>Penn Planner — UI redesign</li>
-            <li>AI Quiz Generator — LLM testing</li>
-            <li>Constellation — dashboard layout</li>
+            <li>NeuroStream: Adaptive Modeling</li>
+            <li>HelixCompute: Task-Sharding</li>
+            <li>AuroraML: Diagnostic Prediction</li>
           </ul>
         </div>
 
@@ -28,7 +28,7 @@ export default function Dashboard() {
           <h2 style={cardTitle}>Completed</h2>
           <ul style={list}>
             <li>Berlin Marathon Analytics</li>
-            <li>Twitter Bot (Markov Chains)</li>
+            <li>Deep Learning Research</li>
             <li>PTSD Detection Model</li>
           </ul>
         </div>
@@ -36,9 +36,9 @@ export default function Dashboard() {
         <div style={card}>
           <h2 style={cardTitle}>Rewards</h2>
           <ul style={list}>
-            <li>⭐ 10 project streak</li>
-            <li>🎉 Finished 3 major builds</li>
-            <li>🔥 Logged 50 coding sessions</li>
+            <li>⭐ First project! </li>
+            <li>⭐ Contributed to 1 major published paper</li>
+            <li>⭐ Logged 50 sessions</li>
           </ul>
         </div>
       </div>
