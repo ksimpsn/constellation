@@ -4,7 +4,9 @@ import Navbar from "../components/Navbar";
 export default function Home() {
   return (
     <GradientBackground>
-      <Navbar />
+      <div style={{ alignSelf: "flex-end" }}>
+        <Navbar />
+      </div>
 
       <h1 style={{ fontSize: "48px", marginTop: "40px" }}>
         Welcome to Constellation.
@@ -29,7 +31,7 @@ export default function Home() {
         Sign Up Here
       </button>
 
-      <div style={{ marginTop: "40px", textAlign: "center" }}>
+      <div style={{ marginTop: "auto", textAlign: "center", alignSelf: "center" }}>
         <a href="/why" style={{ fontSize: "18px", color: "black" }}>
           Why Constellation? ↓
         </a>
