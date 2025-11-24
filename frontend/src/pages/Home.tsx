@@ -1,12 +1,8 @@
 import GradientBackground from "../components/GradientBackground";
-import ProfileMenu from "../components/ProfileMenu";
 
 export default function Home() {
   return (
     <GradientBackground>
-      <div style={{ alignSelf: "flex-end" }}>
-        <ProfileMenu />
-      </div>
 
       <h1 style={{ fontSize: "48px", marginTop: "40px" }}>
         Welcome to Constellation.

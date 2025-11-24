@@ -10,6 +10,21 @@
     display: flex;
     justify-content: center;
     align-items: center;
+    overflow: hidden;
+  }
+
+  .gradient-wrapper::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+
+    /* use your .avif or .png here */
+    background-image: url("/src/assets/constellation.png");
+    background-size: cover;
+    background-position: center;
+
+    opacity: 0.4;
+    z-index: 0;
   }
 
   /* FULL-SCREEN WHITE CONTAINER */
@@ -20,27 +35,51 @@
 
     /* FILL the entire width */
     width: 100%;
-    min-height: calc(100vh - 80px);
+    height: calc(100vh - 80px);
     padding: 40px;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: visible;
   }
 
-  .gradient-inner::before {
+  /* .gradient-inner::before {
     content: "";
     position: absolute;
     inset: 0;
-    background-image: url("/src/assets/constellation.avif");
+    background-image: url("/src/assets/constellation.png");
     background-size: cover;
     background-position: center;
     opacity: 0.4;
     z-index: 0;
-  }
+  } */
 
   .gradient-inner > * {
     position: relative;
     z-index: 1;
   }
+
+  /* Horizontal bar for home + profile menu */
+.top-bar {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;  /* left + right */
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+/* Home icon same size as the gray profile icon */
+.home-icon {
+  width: 60px;
+  height: 60px;
+  cursor: pointer;
+  opacity: 0.9;
+  transition: opacity 0.2s ease;
+}
+
+.home-icon:hover {
+  opacity: 1;
+}
+
