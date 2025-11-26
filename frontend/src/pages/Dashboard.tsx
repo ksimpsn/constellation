@@ -12,7 +12,7 @@ export default function Dashboard() {
           justifyContent: "space-between",
           width: "100%",
           marginTop: "40px",
-          gap: "20px", 
+          gap: "20px",
         }}
       >
         <div style={card}>
@@ -46,7 +46,7 @@ export default function Dashboard() {
   );
 }
 
-const card = {
+const card: React.CSSProperties = {
   width: "30%",
   height: "300px",
   background: "rgba(255,255,255,0.15)",
