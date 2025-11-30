@@ -1,3 +1,4 @@
+import dill
 import ray
 import time
 
@@ -8,7 +9,7 @@ def compute_task(payload: dict):
 
         Accepts a payload dict containing:
           - task_id: int
-          - chunk: Any (e.g., number, dict, string)
+          - rows: Any (e.g., number, dict, string)
           - params: dict or None
 
         For now, simply returns the chunk squared if numeric,
@@ -25,3 +26,52 @@ def compute_task(payload: dict):
     except:
         results = chunk
     return {"task_id": task_id, "results": results}
+
+@ray.remote
+def compute_uploaded_task(payload, func_bytes):
+    """
+    Executes a user-uploaded function against a batch of rows.
+
+    payload:
+        {
+            "task_id": int,
+            "rows": [dict, dict, ...]
+        }
+    """
+
+    task_id = payload.get("task_id")
+
+    # 1. Try to load the uploaded function
+    try:
+        fn = dill.loads(func_bytes)
+    except Exception as e:
+        print("[WORKER ERROR] Failed to load function bytes:", e)
+        return {
+            "task_id": task_id,
+            "error": f"Function load failed: {type(e).__name__}: {e}"
+        }
+
+    # 2. Retrieve rows from payload
+    rows = payload.get("rows", [])
+
+    results = []
+    for idx, row in enumerate(rows):
+        try:
+            out = fn(row)
+        except Exception as e:
+            print(f"[WORKER ERROR] Function failed on row {idx}: {e}")
+            results.append({
+                "row_index": idx,
+                "error": f"Row failed: {type(e).__name__}: {e}"
+            })
+            continue
+
+        results.append({
+            "row_index": idx,
+            "output": out
+        })
+
+    return {
+        "task_id": task_id,
+        "results": results
+    }
