@@ -1,6 +1,7 @@
 from sqlalchemy import create_engine, Column, Integer, String, Text, JSON, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+from contextlib import contextmanager
 from datetime import datetime
 
 # Create SQLite database (local file: constellation.db)
@@ -29,12 +30,22 @@ def init_db():
     print("Database initialized and tables created.")
 
 
-# Helper for getting a new database session
+# Context-managed database session helper
+@contextmanager
 def get_session():
-    return SessionLocal()
+    """
+    Context-managed DB session.
+    Use like: `with get_session() as session:` so sessions are always closed.
+    """
+    session = SessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()
 
 def save_job(job_id, data, status):
     with SessionLocal() as session:
+        # create or replace job with provided id
         job = session.query(Job).filter_by(id=job_id).first()
         if job is None:
             job = Job(id=job_id, data=data, status=status)
@@ -57,6 +68,7 @@ def update_job(job_id, **kwargs):
         session.commit()
         return True
 
+# will return None if job_id not found
 def get_job(job_id):
     with SessionLocal() as session:
         job = session.query(Job).filter_by(id=job_id).first()
@@ -88,10 +100,9 @@ def delete_job(job_id):
         session.delete(job)
         session.commit()
         return True
-    
+
 # Simple test connection function
 if __name__ == "__main__":
     init_db()
-    session = SessionLocal()
-    print("Test DB session created successfully.")
-    session.close()
+    with get_session() as session:
+        print("Test DB session created successfully.")
