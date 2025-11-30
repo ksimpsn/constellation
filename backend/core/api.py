@@ -13,13 +13,16 @@ API responsible for managing the job lifecycle (submission -> tracking -> result
 """
 import logging
 from typing import List, Any
+import os
+import csv
+import json
 
 import csv, json, os, importlib.util
 import dill
 import ray
 from backend.core.server import Cluster
 
-from database import get_session, Job, save_job, update_job, get_job
+from backend.core.database import get_session, Job, save_job, update_job, get_job
 
 class ConstellationAPI:
     """
@@ -44,6 +47,56 @@ class ConstellationAPI:
     # ---------------------------------------------------------
     # Job Submission
     # ---------------------------------------------------------
+    # TODO: custom functions are not handled currently
+    def csv_parser(self, csv_file_path: str, function_file_path: str = None) -> int:
+        """
+        Parse a CSV file and submit its rows as a project to the Ray backend.
+        Expects a header row.
+        Each row of the CSV becomes one item in the dataset passed to
+        `submit_project`. Returns the created `job_id`.
+        """
+
+        if not os.path.isfile(csv_file_path):
+            logging.exception(f"[ERROR] File {csv_file_path} does not exist.")
+            raise FileNotFoundError(f"[ERROR] File {csv_file_path} does not exist.")
+
+        data: List[dict] = []
+        with open(csv_file_path, mode='r', encoding='utf-8', newline='') as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                data.append(row)
+
+        logging.info(f"[INFO] Parsed {len(data)} rows from {csv_file_path}")
+
+        job_id = self.submit_project(data)
+        logging.info(f"[INFO] Submitted CSV project as job {job_id}")
+        return job_id
+    # TODO: custom functions are not handled currently
+    def json_parser(self, json_file_path: str, function_file_path: str = None) -> int:
+        """
+        Parse a JSON file and submit its contents as a project to the Ray backend.
+
+        If the JSON root is a list, each element becomes an item in the dataset.
+        If it's an object/dict, the object is submitted as a single-item dataset.
+        """
+
+        if not os.path.isfile(json_file_path):
+            logging.exception(f"[ERROR] File {json_file_path} does not exist.")
+            raise FileNotFoundError(f"[ERROR] File {json_file_path} does not exist.")
+
+        with open(json_file_path, 'r', encoding='utf-8') as jf:
+            parsed = json.load(jf)
+
+        if isinstance(parsed, list):
+            data = parsed
+        else:
+            data = [parsed]
+
+        logging.info(f"[INFO] Parsed JSON data from {json_file_path} (items: {len(data)})")
+
+        job_id = self.submit_project(data)
+        logging.info(f"[INFO] Submitted JSON project as job {job_id}")
+        return job_id
     def submit_project(self, data):
         """
         Accepts a list or dataset from the researcher and submits it
@@ -71,7 +124,7 @@ class ConstellationAPI:
         self.futures[job_id] = futures
 
         # store metadata in DB
-        save_job(job_id=job_id, data=data, status="submitted")
+        save_job(job_id=job_id, data=payloads, status="submitted")
 
         print("[ConstellationAPI] Job {job_id} saved in DB.")
         return job_id
@@ -92,7 +145,7 @@ class ConstellationAPI:
             logging.error(f"[ConstellationAPI] Job {job_id} not found in DB")
             raise Exception("Job not found")
 
-        current_status = job.get("status")
+        current_status = job.status
         logging.info(f"[ConstellationAPI] Current stored status for job {job_id}: {current_status}")
 
         # If already complete, no need to re-check
@@ -117,12 +170,12 @@ class ConstellationAPI:
 
         if len(done) == len(futures):
             logging.info(f"[ConstellationAPI] All futures completed for job {job_id}")
-            job.status = "complete"
+            update_job(job_id, status="complete")
+            return "complete"
         else:
             logging.info(f"[ConstellationAPI] Job {job_id} still running")
-            job.status = "running"
-
-        return job.status
+            update_job(job_id, status="running")
+            return "running"
 
     # ---------------------------------------------------------
     # Result Retrieval
@@ -141,9 +194,9 @@ class ConstellationAPI:
             raise Exception("Job not found")
 
         # If already cached in DB, return
-        if job.result is not None:
+        if job.results is not None:
             logging.info(f"[ConstellationAPI] Returning cached results for job {job_id}")
-            return job.result
+            return job.results
 
         futures = self.futures.get(job_id, [])
 
