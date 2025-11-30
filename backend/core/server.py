@@ -5,7 +5,7 @@ import logging
 from datetime import datetime
 import os
 import warnings
-from backend.core.worker import compute_task
+from backend.core.worker import compute_task, compute_uploaded_task
 
 logging.basicConfig(level=logging.INFO)
 
@@ -69,6 +69,26 @@ class Cluster:
         futures: List[ray.ObjectRef] = []
         for payload in data:
             futures.append(compute_task.remote(payload))
+        return futures
+
+    def submit_uploaded_tasks(self, data: list[dict], func_bytes) -> list[ray.ObjectRef]:
+        """
+        Submit chunked data to Ray for computation.
+
+            Parameters:
+                 data: A list of task payloads (dicts).
+                 Each dict is one chunk to be processed by compute_task().
+                 FIXME: dict could contain task_id, chunk, params, etc.
+
+            Returns:
+                List[ray.ObjectRef]: list of Ray futures.
+        """
+        if not ray.is_initialized():
+            logging.exception("[ERROR] Ray backend not initialized. Call start_cluster first.")
+            raise RuntimeError("[ERROR] Ray backend not initialized. Call start_cluster first.")
+        futures: List[ray.ObjectRef] = []
+        for payload in data:
+            futures.append(compute_uploaded_task.remote(payload, func_bytes))
         return futures
 
     # TODO: Not finished as of 11/23
