@@ -22,3 +22,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+public/downloads/*.dmg
+public/downloads/*.exe
+public/downloads/*.AppImage
+**/*.dmg
+**/*.exe
+**/*.AppImage

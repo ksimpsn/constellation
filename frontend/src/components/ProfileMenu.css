@@ -1,0 +1,89 @@
+.profile-container {
+    position: relative;
+    align-self: flex-end;   /* sits at top right inside GradientInner */
+  }
+
+  /* Profile button */
+  .profile-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+
+    background: rgba(255, 255, 255, 0.677);
+    border: 1px solid #ddd;
+    padding: 6px 10px;
+    border-radius: 20px;
+    cursor: pointer;
+
+    font-size: 14px;
+    color: black;
+
+    transition: background 0.15s ease;
+  }
+
+  .profile-btn:hover {
+    background: #f2f2f2;
+  }
+
+  /* Avatar circle */
+  .profile-avatar {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: #eee;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 600;
+    color: black;
+  }
+
+  /* Dropdown arrow */
+  .profile-arrow {
+    font-size: 10px;
+    margin-top: 2px;
+  }
+
+  /* Dropdown card */
+  .profile-dropdown {
+    position: absolute;
+    right: 0;
+    top: 40px;
+
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0px 8px 20px rgba(0,0,0,0.08);
+    padding: 10px 0;
+    width: 190px;
+
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Dropdown items */
+  .dropdown-item {
+    padding: 10px 16px;
+    cursor: pointer;
+    font-size: 14px;
+    color: #222;
+
+    transition: background 0.15s ease;
+  }
+
+  .dropdown-item:hover {
+    background: #f5f5f5;
+  }
+
+  /* Divider line */
+  .dropdown-divider {
+    height: 1px;
+    background: #eee;
+    margin: 6px 0;
+  }
+
+  /* Log out item */
+  .logout {
+    color: #b00020;
+    font-weight: 500;
+  }
