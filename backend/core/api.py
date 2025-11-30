@@ -17,7 +17,7 @@ from typing import List, Any
 import ray
 from backend.core.server import Cluster
 
-from database import get_session, Job, save_job, update_job, get_job
+from backend.core.database import get_session, Job, save_job, update_job, get_job
 
 class ConstellationAPI:
     """
@@ -69,7 +69,7 @@ class ConstellationAPI:
         self.futures[job_id] = futures
 
         # store metadata in DB
-        save_job(job_id=job_id, data=data, status="submitted")
+        save_job(job_id=job_id, data=payloads, status="submitted")
 
         print("[ConstellationAPI] Job {job_id} saved in DB.")
         return job_id
@@ -90,7 +90,7 @@ class ConstellationAPI:
             logging.error(f"[ConstellationAPI] Job {job_id} not found in DB")
             raise Exception("Job not found")
 
-        current_status = job.get("status")
+        current_status = job.status
         logging.info(f"[ConstellationAPI] Current stored status for job {job_id}: {current_status}")
 
         # If already complete, no need to re-check
@@ -139,9 +139,9 @@ class ConstellationAPI:
             raise Exception("Job not found")
 
         # If already cached in DB, return
-        if job.result is not None:
+        if job.results is not None:
             logging.info(f"[ConstellationAPI] Returning cached results for job {job_id}")
-            return job.result
+            return job.results
 
         futures = self.futures.get(job_id, [])
 

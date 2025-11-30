@@ -21,7 +21,7 @@ def compute_task(payload: dict):
     params = payload["params"]
 
     try:
-        result = chunk * chunk
+        results = chunk * chunk
     except:
-        result = chunk
-    return {"task_id": task_id, "result": result}
+        results = chunk
+    return {"task_id": task_id, "results": results}
