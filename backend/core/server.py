@@ -5,7 +5,7 @@ import logging
 from datetime import datetime
 import os
 import warnings
-from worker import compute_task
+from backend.core.worker import compute_task
 
 logging.basicConfig(level=logging.INFO)
 
