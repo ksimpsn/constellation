@@ -1,15 +1,16 @@
 import GradientBackground from "../components/GradientBackground";
-import Navbar from "../components/Navbar";
 
 export default function Security() {
   return (
     <GradientBackground>
-      <div style={{ alignSelf: "flex-end" }}>
-        <Navbar />
+      <div style={{ marginTop: "auto", textAlign: "center", alignSelf: "center" }}>
+        <a href="/why" style={{ fontSize: "18px", color: "black" }}>
+          Why Constellation? ↑
+        </a>
       </div>
       <h1>Privacy and Security Statements</h1>
 
-      <div style={section}>Detailed Overview of Security</div>
+      <div style={section}>Constellation is built with privacy and security as core design principles. When a user chooses to volunteer their computing power, their personal information, identity, and browsing data remain fully protected — the platform never collects or exposes anything beyond what is strictly necessary for computation. All third-party projects run inside secure, sandboxed environments, ensuring that no harmful code, malware, or unauthorized processes can ever access your device. Distributed systems have a long history of being safe and effective when implemented correctly, and Constellation strengthens this model with modern security practices, continuous verification, and strict isolation between tasks. You can contribute to scientific and technological progress without ever compromising your privacy or the safety of your machine.</div>
 
       <div style={{ textAlign: "center", marginTop: "40px" }}>
         <button
@@ -29,14 +30,16 @@ export default function Security() {
   );
 }
 
-const section = {
+const section: React.CSSProperties = {
   height: "350px",
-  background: "#eee",
+  background: "transparent",
   borderRadius: "8px",
   marginTop: "20px",
   display: "flex",
   justifyContent: "center",
   alignItems: "center",
-  color: "#555",
-  fontSize: "20px"
+  color: "black",
+  fontSize: "20px",
+  overflowY: "auto",
+  overflowX: "hidden",
 };
