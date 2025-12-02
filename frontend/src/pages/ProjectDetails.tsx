@@ -10,7 +10,7 @@ const projectData: Record<string, { name: string; progress: number }> = {
   'PTSD Detection Model': { name: 'PTSD Detection Model', progress: 100 },
 };
 
-export default function BerlinMarathon() {
+export default function ProjectDetails() {
   const { projectName } = useParams<{ projectName: string }>();
   const navigate = useNavigate();
   const project = projectData[projectName || 'Berlin Marathon Analytics'] || { name: 'Unknown Project', progress: 0 };
