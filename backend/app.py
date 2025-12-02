@@ -24,7 +24,16 @@ CORS(app)
 #      allow_headers=["Content-Type"],
 #      supports_credentials=False)
 
-api = ConstellationAPI()
+# Module-level variable that persists across Flask reloads
+_api_instance = None
+
+def get_api():
+    global _api_instance
+    if _api_instance is None:
+        _api_instance = ConstellationAPI()
+    return _api_instance
+
+api = get_api()
 
 # -------------------------------------------------
 # Routes
@@ -73,7 +82,6 @@ def submit_job():
     #     "job_id": job_id
     # }), 200
 
-    print("inside python backend")
     
     title = request.form.get("title")
     description = request.form.get("description")
@@ -104,14 +112,12 @@ def submit_job():
         func_name="main"  # optional
     )
 
-    print("end of the submit request")
-
     return jsonify({
         "message": "Job submitted successfully",
         "job_id": job_id
     }), 200
 
-@app.route("/status/<job_id>", methods=["GET"])
+@app.route("/status/<int:job_id>", methods=["GET"])
 def get_status(job_id):
     """
     Endpoint: GET /status/<job_id>
@@ -126,7 +132,7 @@ def get_status(job_id):
     }), 200
 
 
-@app.route("/results/<job_id>", methods=["GET"])
+@app.route("/results/<int:job_id>", methods=["GET"])
 def get_results(job_id):
     """
     Endpoint: GET /results/<job_id>

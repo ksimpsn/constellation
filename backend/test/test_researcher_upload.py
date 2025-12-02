@@ -1,6 +1,7 @@
 import time
 from backend.core.api import ConstellationAPI
 from backend.core.database import init_db
+import os
 
 def main():
     print("=== Constellation Uploaded Project End-to-End Test ===")
