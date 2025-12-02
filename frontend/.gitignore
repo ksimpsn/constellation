@@ -29,3 +29,7 @@ public/downloads/*.AppImage
 **/*.dmg
 **/*.exe
 **/*.AppImage
+
+# Electron Builder files
+dist/builder-debug.yml
+dist/builder-effective-config.yaml

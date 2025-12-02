@@ -18,17 +18,14 @@ function createWindow() {
     win.webContents.openDevTools();
   } else {
     // Load built app from /dist
-    const indexPath = path.join(__dirname, "..", "dist", "index.html");
+    const indexPath = path.join(process.resourcesPath, "app", "dist", "index.html");
+    console.log("Loading UI from:", indexPath);
     win.loadFile(indexPath);
-    console.log();
   }
 }
 
 app.whenReady().then(() => {
   createWindow();
-
-  // REGISTER PROTOCOL *AFTER* APP IS READY
-  app.setAsDefaultProtocolClient("constellation");
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

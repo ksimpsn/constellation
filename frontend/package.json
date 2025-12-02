@@ -5,30 +5,31 @@
   "type": "module",
   "main": "electron/main.cjs",
   "build": {
-    "appId": "com.constellation.app",
-    "productName": "Constellation",
-    "files": [
-      "dist/**/*",
-      "electron/**/*",
-      "package.json"
-    ],
-    "directories": {
-      "buildResources": "assets"
-    },
-    "mac": {
-      "target": "dmg"
-    },
-    "win": {
-      "target": "nsis"
-    }
+  "appId": "com.constellation.app",
+  "productName": "Constellation",
+  "directories": {
+    "output": "release",
+    "buildResources": "assets"
   },
+  "files": [
+    "dist/**/*",
+    "electron/**/*",
+    "package.json"
+  ],
+  "mac": {
+    "target": "dmg"
+  },
+  "win": {
+    "target": "nsis"
+  }
+},
   "scripts": {
     "dev:web": "vite",
     "dev:electron": "cross-env ELECTRON_START_URL=http://localhost:5173 electron .",
     "dev": "concurrently -k \"npm run dev:web\" \"npm run dev:electron\"",
     "build:web": "vite build",
-    "build": "npm run build:web",
-    "electron:build": "electron-builder",
+    "build:electron": "electron-builder",
+    "build": "npm run build:web && npm run build:electron",
     "lint": "eslint .",
     "preview": "vite preview"
   },
