@@ -206,7 +206,6 @@ class ConstellationAPI:
 
         # ---------------------------------------------------------
         # 3. Chunk dataset
-        # ---------------------------------------------------------
         chunks = [
             data[i:i + chunk_size]
             for i in range(0, len(data), chunk_size)
@@ -214,7 +213,6 @@ class ConstellationAPI:
 
         # ---------------------------------------------------------
         # 4. Create Ray payloads
-        # ---------------------------------------------------------
         payloads = []
         for idx, chunk in enumerate(chunks):
             payloads.append({
@@ -225,12 +223,14 @@ class ConstellationAPI:
 
         # ---------------------------------------------------------
         # 5. Submit tasks to Ray
-        # ---------------------------------------------------------
         job_id = self.counter
         self.counter += 1
 
+        print(f"[DEBUG] About to submit: {len(payloads)} payloads")
         futures = self.server.submit_uploaded_tasks(payloads, fn_bytes)
+        print(f"[DEBUG] Received {len(futures)} futures from submit_uploaded_tasks")
         self.futures[job_id] = futures
+        print(f"[DEBUG] submit_uploaded_project: stored job_id={job_id}, futures_count={len(futures)}, self.futures keys={list(self.futures.keys())}")
 
         # ---------------------------------------------------------
         # 6. Copy user code and dataset to local storage FIXME: this will be updated to S3 bucket path later
@@ -297,7 +297,6 @@ class ConstellationAPI:
         Returns the current status of the job.
         Status could be: submitted, running, complete, failed, etc.
         """
-        # TODO: add support for failed as well
         logging.info(f"[ConstellationAPI] Status check for job_id={job_id}")
 
         job = get_job(job_id)
@@ -369,6 +368,7 @@ class ConstellationAPI:
         results = self.server.get_results(futures)
 
         logging.info(f"[ConstellationAPI] Results retrieved for job {job_id}: {results}")
+        print(f"[ConstellationAPI] Job {job_id} results:", results)  # Keep this - useful!
 
         # Cache results + update status
         update_job(job_id, results=results, status="complete")

@@ -87,8 +87,18 @@ class Cluster:
             logging.exception("[ERROR] Ray backend not initialized. Call start_cluster first.")
             raise RuntimeError("[ERROR] Ray backend not initialized. Call start_cluster first.")
         futures: List[ray.ObjectRef] = []
-        for payload in data:
-            futures.append(compute_uploaded_task.remote(payload, func_bytes))
+        print(f"[DEBUG] submit_uploaded_tasks: received {len(data)} payloads")
+        for idx, payload in enumerate(data):
+            try:
+                print(f"[DEBUG] Creating future {idx}...")
+                future = compute_uploaded_task.remote(payload, func_bytes)
+                futures.append(future)
+                print(f"[DEBUG] Created future {idx}: {future}")
+            except Exception as e:
+                logging.error(f"[ERROR] Failed to create future {idx}: {e}")
+                import traceback
+                traceback.print_exc()
+        print(f"[DEBUG] submit_uploaded_tasks: returning {len(futures)} futures")
         return futures
 
     # TODO: Not finished as of 11/23
