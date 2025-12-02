@@ -7,6 +7,10 @@ import Security from "./pages/Security.tsx";
 import BrowseProjects from "./pages/BrowseProjects.tsx";
 import SubmitProject from "./pages/SubmitProject.tsx";
 import ResearcherDashboard from "./pages/ResearcherDashboard.tsx";
+import Signup from "./pages/Signup.tsx";
+import BerlinMarathon from "./pages/BerlinMarathon.tsx";
+import Profile from "./pages/Profile.tsx";
+import Settings from "./pages/Settings.tsx";
 
 function App() {
   return (
@@ -19,6 +23,10 @@ function App() {
         <Route path="/browse" element={<BrowseProjects />} />
         <Route path="/submit" element={<SubmitProject />} />
         <Route path="/researcher" element={<ResearcherDashboard />} />
+        <Route path="/signup" element={<Signup />} />
+        <Route path="/profile" element={<Profile />} />
+        <Route path="/settings" element={<Settings />} />
+        <Route path="/project/:projectName" element={<BerlinMarathon />} />
       </Routes>
     </BrowserRouter>
   );

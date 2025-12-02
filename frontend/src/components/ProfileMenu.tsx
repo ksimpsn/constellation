@@ -39,7 +39,15 @@ export default function ProfileMenu() {
       {/* Dropdown */}
       {open && (
         <div className="profile-dropdown">
-          <div className="dropdown-item">My Profile</div>
+          <div
+            className="dropdown-item"
+            onClick={() => {
+              setOpen(false);
+              navigate("/profile");
+            }}
+          >
+            My Profile
+          </div>
           <div
             className="dropdown-item"
             onClick={() => {
@@ -49,7 +57,15 @@ export default function ProfileMenu() {
           >
             My Dashboard
           </div>
-          <div className="dropdown-item">Settings</div>
+          <div
+            className="dropdown-item"
+            onClick={() => {
+              setOpen(false);
+              navigate("/settings");
+            }}
+          >
+            Settings
+          </div>
 
           <div className="dropdown-divider"></div>
 
