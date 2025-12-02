@@ -8,7 +8,7 @@ export default function SubmitProject() {
   const [dataFile, setDataFile] = useState<File | null>(null);
   const [message, setMessage] = useState("");
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!title.trim()) {
       setMessage("Please enter a project title.");
       return;
@@ -18,14 +18,44 @@ export default function SubmitProject() {
       return;
     }
 
-    // TODO: connect to backend submit_project(pyFile, dataFile, metadata)
-    console.log("Submitting project:");
-    console.log("Title:", title);
-    console.log("Description:", description);
-    console.log("Python file:", pyFile);
-    console.log("Dataset:", dataFile);
+    console.log("inside handle submit")
 
-    setMessage("Project submitted successfully!");
+    // // TODO: connect to backend submit_project(pyFile, dataFile, metadata)
+    // console.log("Submitting project:");
+    // console.log("Title:", title);
+    // console.log("Description:", description);
+    // console.log("Python file:", pyFile);
+    // console.log("Dataset:", dataFile);
+
+    // setMessage("Project submitted successfully!");
+    const formData = new FormData();
+    formData.append("title", title);
+    formData.append("description", description);
+    formData.append("py_file", pyFile);
+    formData.append("data_file", dataFile);
+    console.log(title);
+    console.log(description);
+    console.log(pyFile.text());
+    console.log(dataFile.text())
+
+    try {
+      const response = await fetch("http://localhost:5001/submit", {
+        method: "POST",
+        body: formData,
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        setMessage("Error: " + result.error);
+        return;
+      }
+
+      setMessage("Project submitted successfully!");
+    } catch (err) {
+      console.error(err);
+      setMessage("Failed to submit project.");
+    }
   };
 
   return (
@@ -58,6 +88,7 @@ export default function SubmitProject() {
               fontSize: "16px",
               borderRadius: "6px",
               background: "white",
+              color: "black",
               border: "1px solid #ccc",
               boxShadow: "0 2px 4px rgba(0,0,0,0.08)",
             }}
@@ -79,6 +110,7 @@ export default function SubmitProject() {
               fontSize: "16px",
               borderRadius: "6px",
               background: "white",
+              color: "black",
               boxShadow: "0 2px 4px rgba(0,0,0,0.08)",
               border: "1px solid #ccc",
               resize: "vertical",
