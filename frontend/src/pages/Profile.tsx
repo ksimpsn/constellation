@@ -1,5 +1,5 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import GradientBackground from '../components/GradientBackground';
 
 export default function Profile() {
@@ -67,7 +67,9 @@ export default function Profile() {
 
         <div style={actionsSection}>
           <button style={editButton}>Edit Profile</button>
-          <button style={settingsButton}>Account Settings</button>
+          <Link to="/settings" style={{ textDecoration: 'none' }}>
+            <button style={settingsButton}>Account Settings</button>
+          </Link>
           <button style={logoutButton} onClick={handleLogout}>
             Log Out
           </button>
