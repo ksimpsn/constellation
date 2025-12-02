@@ -4,6 +4,9 @@ import Home from "./pages/Home.tsx";
 import Dashboard from "./pages/Dashboard.tsx";
 import Why from "./pages/Why.tsx";
 import Security from "./pages/Security.tsx";
+import BrowseProjects from "./pages/BrowseProjects.tsx";
+import SubmitProject from "./pages/SubmitProject.tsx";
+import ResearcherDashboard from "./pages/ResearcherDashboard.tsx";
 
 function App() {
   return (
@@ -13,6 +16,9 @@ function App() {
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/why" element={<Why />} />
         <Route path="/security" element={<Security />} />
+        <Route path="/browse" element={<BrowseProjects />} />
+        <Route path="/submit" element={<SubmitProject />} />
+        <Route path="/researcher" element={<ResearcherDashboard />} />
       </Routes>
     </BrowserRouter>
   );
