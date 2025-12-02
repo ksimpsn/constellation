@@ -10,6 +10,7 @@ import ResearcherDashboard from "./pages/ResearcherDashboard.tsx";
 import Signup from "./pages/Signup.tsx";
 import BerlinMarathon from "./pages/BerlinMarathon.tsx";
 import Profile from "./pages/Profile.tsx";
+import Settings from "./pages/Settings.tsx";
 
 function App() {
   return (
@@ -24,6 +25,7 @@ function App() {
         <Route path="/researcher" element={<ResearcherDashboard />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/profile" element={<Profile />} />
+        <Route path="/settings" element={<Settings />} />
         <Route path="/project/:projectName" element={<BerlinMarathon />} />
       </Routes>
     </BrowserRouter>

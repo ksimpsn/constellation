@@ -57,7 +57,15 @@ export default function ProfileMenu() {
           >
             My Dashboard
           </div>
-          <div className="dropdown-item">Settings</div>
+          <div
+            className="dropdown-item"
+            onClick={() => {
+              setOpen(false);
+              navigate("/settings");
+            }}
+          >
+            Settings
+          </div>
 
           <div className="dropdown-divider"></div>
 
