@@ -17,7 +17,7 @@ The system is built on **Ray**, enabling scalable task distribution, progress tr
     pip install flask flask-cors ray sqlalchemy dill
 4. **Initialize the database:**
     python3 -c "from backend.core.database import init_db; init_db()"
-5. **Run the Flask backend server:**h
+5. **Run the Flask backend server:**
     python3 -m flask --app backend.app run --reload --host 0.0.0.0 --port 5001
 
     The backend API will be available at `http://localhost:5001`
