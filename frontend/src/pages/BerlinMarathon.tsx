@@ -27,15 +27,92 @@ export default function BerlinMarathon() {
     bright: i === 0, // First star is bright (YOU)
   }));
 
-  // Create lines connecting stars (simple connections for constellation effect)
-  const lines = [];
-  for (let i = 0; i < stars.length - 1; i++) {
-    lines.push({
-      x1: stars[i].x,
-      y1: stars[i].y,
-      x2: stars[i + 1].x,
-      y2: stars[i + 1].y,
-    });
+  // Create a fully connected constellation - one single connected component
+  const lines: Array<{x1: number, y1: number, x2: number, y2: number}> = [];
+  const usedPairs = new Set<string>(); // Track used connections to avoid duplicates
+  const connectedStars = new Set<number>(); // Track which stars are connected to the main network
+
+  // Start with the bright star (user's contribution) as the root
+  const brightStarIndex = stars.findIndex(star => star.bright);
+  connectedStars.add(brightStarIndex);
+
+  // Phase 1: Build the main connected network using a greedy approach
+  // Connect each star to the nearest star that's already in the connected network
+  for (let i = 0; i < stars.length; i++) {
+    if (connectedStars.has(i)) continue; // Already connected
+
+    // Find the closest star that's already connected
+    const closestConnected = Array.from(connectedStars)
+      .map(connectedIndex => ({
+        index: connectedIndex,
+        distance: Math.sqrt(
+          (stars[i].x - stars[connectedIndex].x) ** 2 +
+          (stars[i].y - stars[connectedIndex].y) ** 2
+        )
+      }))
+      .sort((a, b) => a.distance - b.distance)[0];
+
+    if (closestConnected) {
+      const pairKey = `${Math.min(i, closestConnected.index)}-${Math.max(i, closestConnected.index)}`;
+      if (!usedPairs.has(pairKey)) {
+        lines.push({
+          x1: stars[i].x,
+          y1: stars[i].y,
+          x2: stars[closestConnected.index].x,
+          y2: stars[closestConnected.index].y,
+        });
+        usedPairs.add(pairKey);
+        connectedStars.add(i);
+      }
+    }
+  }
+
+  // Phase 2: Add additional connections to create a more robust network
+  // Connect nearby stars that aren't too far apart, but only if both are already connected
+  const maxAdditionalConnections = Math.min(stars.length * 2, 50); // Limit total connections
+  let additionalConnections = 0;
+
+  for (let i = 0; i < stars.length && additionalConnections < maxAdditionalConnections; i++) {
+    // Find nearby stars within a reasonable distance
+    const nearbyStars = stars
+      .map((star, index) => ({
+        star,
+        index,
+        distance: Math.sqrt((star.x - stars[i].x) ** 2 + (star.y - stars[i].y) ** 2)
+      }))
+      .filter(item => item.index !== i && item.distance < 25 && item.distance > 5) // Close but not too close
+      .sort((a, b) => a.distance - b.distance)
+      .slice(0, 2); // Take up to 2 closest
+
+    for (const { index: targetIndex } of nearbyStars) {
+      if (additionalConnections >= maxAdditionalConnections) break;
+
+      const pairKey = `${Math.min(i, targetIndex)}-${Math.max(i, targetIndex)}`;
+      if (!usedPairs.has(pairKey)) {
+        // Count existing connections for both stars to avoid overcrowding
+        const iConnections = lines.filter(line =>
+          (line.x1 === stars[i].x && line.y1 === stars[i].y) ||
+          (line.x2 === stars[i].x && line.y2 === stars[i].y)
+        ).length;
+
+        const targetConnections = lines.filter(line =>
+          (line.x1 === stars[targetIndex].x && line.y1 === stars[targetIndex].y) ||
+          (line.x2 === stars[targetIndex].x && line.y2 === stars[targetIndex].y)
+        ).length;
+
+        // Only add if both stars have fewer than 4 connections
+        if (iConnections < 4 && targetConnections < 4) {
+          lines.push({
+            x1: stars[i].x,
+            y1: stars[i].y,
+            x2: stars[targetIndex].x,
+            y2: stars[targetIndex].y,
+          });
+          usedPairs.add(pairKey);
+          additionalConnections++;
+        }
+      }
+    }
   }
 
   return (
