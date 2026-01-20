@@ -21,9 +21,21 @@ import json
 import csv, json, os, importlib.util
 import dill
 import ray
+from datetime import datetime
 from backend.core.server import Cluster
 
-from backend.core.database import get_session, Job, save_job, update_job, get_job
+from backend.core.database import (
+    get_session, 
+    # Legacy functions (for backward compatibility)
+    Job, save_job, update_job, get_job,
+    # New schema models and functions
+    Project, Run, Task, TaskResult, Worker, WorkerHeartbeat,
+    create_project, get_project,
+    create_run, get_run, update_run,
+    create_task, get_pending_tasks, assign_task, update_task,
+    create_task_result,
+    register_worker, update_worker_heartbeat, get_available_workers
+)
 
 class ConstellationAPI:
     """
@@ -34,16 +46,11 @@ class ConstellationAPI:
     def __init__(self):
         self.server = Cluster() # start_cluster, submit_tasks, get_results
         self.server.start_cluster()
-        # self.jobs maps job_id to a dict with below mapping:
-        # status: str -> "submitted" | "running" | "complete" | "failed" | "cancelled"
-        # data: list[Any] (chunked payload) -> ex: [1, 2, 3]
-        # results: None | list[Any] -> None if job isn't complete, list[Any] after retrieved from compute_task
-        # self.jobs: dict[int, dict[str, Any]] = {} # TODO: Annabella - switch from in-memory job tracking
-        # DB will store users, jobs, job_data (payloads/dataset), job_results, permissions
-        self.db = get_session()
-        self.futures: dict[int, List[ray.ObjectRef]] = {} # need futures b/c ObjectRefs cannot be stored in DB
-        self.counter = 0 # for unique job_ids
-        # TODO: later implement user-uploaded functions job_id -> function, parameters, chunked dataset, ray futures, results
+        # Map run_id to Ray futures (since ObjectRefs cannot be stored in DB)
+        self.futures: dict[str, List[ray.ObjectRef]] = {}  # run_id -> List[ray.ObjectRef]
+        # Map legacy job_id (integer) to run_id (string) for backward compatibility
+        self.job_id_to_run_id: dict[int, str] = {}
+        self.counter = 0  # for legacy job_id compatibility
         print("[ConstellationAPI] Initialized API layer.")
 
     # ---------------------------------------------------------
@@ -168,7 +175,10 @@ class ConstellationAPI:
             dataset_path: str,
             file_type: str,
             func_name: str = "main",
-            chunk_size: int = 1000
+            chunk_size: int = 1000,
+            researcher_id: str = None,
+            title: str = None,
+            description: str = None
     ) -> int:
         """
         Full pipeline for researcher-uploaded projects.
@@ -178,8 +188,12 @@ class ConstellationAPI:
           2. Serialize function to bytes (fn_bytes)
           3. Load dataset (CSV or JSON)
           4. Chunk dataset
-          5. Submit Ray tasks (each receives rows + fn_bytes)
-          6. Record job in DB
+          5. Create Project, Run, and Tasks in DB
+          6. Submit Ray tasks (each receives rows + fn_bytes)
+          7. Store files locally (will be S3 later)
+
+        Returns:
+            job_id (int): Legacy job ID for backward compatibility with frontend
         """
 
         # ---------------------------------------------------------
@@ -206,54 +220,96 @@ class ConstellationAPI:
 
         # ---------------------------------------------------------
         # 3. Chunk dataset
+        # ---------------------------------------------------------
         chunks = [
             data[i:i + chunk_size]
             for i in range(0, len(data), chunk_size)
         ]
 
         # ---------------------------------------------------------
-        # 4. Create Ray payloads
-        payloads = []
+        # 4. Create Project in DB
+        # ---------------------------------------------------------
+        # Default researcher_id if not provided (for backward compatibility)
+        if not researcher_id:
+            researcher_id = "user-default"  # TODO: Get from auth context
+        
+        if not title:
+            title = f"Project {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        
+        project = create_project(
+            researcher_id=researcher_id,
+            title=title,
+            description=description or "",
+            code_path=code_path,  # Will be S3 path later
+            dataset_path=dataset_path,  # Will be S3 path later
+            dataset_type=file_type,
+            func_name=func_name,
+            chunk_size=chunk_size
+        )
+        
+        # Copy files to project directory
+        os.makedirs(f"uploads/{project.project_id}", exist_ok=True)
+        stored_code_path = f"uploads/{project.project_id}/project.py"
+        stored_dataset_path = f"uploads/{project.project_id}/dataset.{file_type}"
+        shutil.copyfile(code_path, stored_code_path)
+        shutil.copyfile(dataset_path, stored_dataset_path)
+        
+        # Update project with stored paths
+        project.code_s3_path = stored_code_path
+        project.dataset_s3_path = stored_dataset_path
+        with get_session() as session:
+            session.merge(project)
+            session.commit()
+
+        # ---------------------------------------------------------
+        # 5. Create Run and Tasks in DB
+        # ---------------------------------------------------------
+        run = create_run(project_id=project.project_id, total_tasks=len(chunks))
+        run.started_at = datetime.utcnow()
+        run.status = "running"
+        with get_session() as session:
+            session.merge(run)
+            session.commit()
+        
+        # Create Task records for each chunk
+        tasks = []
         for idx, chunk in enumerate(chunks):
+            task = create_task(run_id=run.run_id, task_index=idx)
+            tasks.append(task)
+
+        # ---------------------------------------------------------
+        # 6. Create Ray payloads (using DB task_ids)
+        # ---------------------------------------------------------
+        payloads = []
+        for task in tasks:
+            chunk = chunks[task.task_index]
             payloads.append({
-                "task_id": idx,
+                "task_id": task.task_id,  # Use DB task_id instead of index
                 "rows": chunk,
-                "params": None  # can extend later for extra args
+                "params": None
             })
 
         # ---------------------------------------------------------
-        # 5. Submit tasks to Ray
-        job_id = self.counter
-        self.counter += 1
-
+        # 7. Submit tasks to Ray
+        # ---------------------------------------------------------
         print(f"[DEBUG] About to submit: {len(payloads)} payloads")
         futures = self.server.submit_uploaded_tasks(payloads, fn_bytes)
         print(f"[DEBUG] Received {len(futures)} futures from submit_uploaded_tasks")
-        self.futures[job_id] = futures
-        print(f"[DEBUG] submit_uploaded_project: stored job_id={job_id}, futures_count={len(futures)}, self.futures keys={list(self.futures.keys())}")
+        
+        # Store futures mapped to run_id
+        self.futures[run.run_id] = futures
+        
+        # For backward compatibility: map legacy job_id to run_id
+        legacy_job_id = self.counter
+        self.counter += 1
+        self.job_id_to_run_id[legacy_job_id] = run.run_id
+        
+        # Also save to legacy Job table for backward compatibility
+        save_job(job_id=legacy_job_id, data={"run_id": run.run_id, "project_id": project.project_id}, status="submitted")
 
-        # ---------------------------------------------------------
-        # 6. Copy user code and dataset to local storage FIXME: this will be updated to S3 bucket path later
-        # ---------------------------------------------------------
-        os.makedirs(f"uploads/job_{job_id}", exist_ok=True)
+        logging.info(f"[INFO] Submitted uploaded project: project_id={project.project_id}, run_id={run.run_id}, job_id={legacy_job_id}, chunks={len(chunks)}")
 
-        # Copy user code to local storage
-        stored_code_path = f"uploads/job_{job_id}/project.py"
-        shutil.copyfile(code_path, stored_code_path)
-
-        # Copy dataset
-        stored_dataset_path = f"uploads/job_{job_id}/dataset.{file_type}"
-        shutil.copyfile(dataset_path, stored_dataset_path)
-
-        # ---------------------------------------------------------
-        # 7. Save job metadata to DB
-        # ---------------------------------------------------------
-        save_job(job_id=job_id, data=payloads, status="submitted")
-
-        logging.info(f"[INFO] Submitted uploaded project as job {job_id} "
-                     f"with {len(chunks)} chunks")
-
-        return job_id
+        return legacy_job_id  # Return legacy job_id for frontend compatibility
 
     def submit_project(self, data):
         """
@@ -294,45 +350,84 @@ class ConstellationAPI:
     # ---------------------------------------------------------
     def check_status(self, job_id):
         """
-        Returns the current status of the job.
+        Returns the current status of the job/run.
         Status could be: submitted, running, complete, failed, etc.
+        
+        Args:
+            job_id: Legacy integer job_id (will map to run_id internally)
         """
+        from datetime import datetime
+        
         logging.info(f"[ConstellationAPI] Status check for job_id={job_id}")
 
-        job = get_job(job_id)
-        if not job:
+        # Map legacy job_id to run_id
+        run_id = self.job_id_to_run_id.get(job_id)
+        
+        # Fallback to legacy Job table for backward compatibility
+        if not run_id:
+            legacy_job = get_job(job_id)
+            if legacy_job and legacy_job.data and isinstance(legacy_job.data, dict):
+                run_id = legacy_job.data.get("run_id")
+        
+        # Use new Run table if we have run_id
+        if run_id:
+            run = get_run(run_id)
+            if not run:
+                logging.error(f"[ConstellationAPI] Run {run_id} not found in DB")
+                raise Exception("Run not found")
+            
+            current_status = run.status
+            logging.info(f"[ConstellationAPI] Current stored status for run {run_id}: {current_status}")
+
+            # If already complete, no need to re-check
+            if current_status in ["completed", "failed", "cancelled"]:
+                return "complete" if current_status == "completed" else current_status
+
+            # Check Ray futures to update status
+            futures = self.futures.get(run_id, [])
+            if not futures:
+                logging.warning(f"[ConstellationAPI] No futures found for run {run_id}; returning stored status")
+                return current_status
+
+            logging.info(f"[ConstellationAPI] Checking {len(futures)} Ray futures for run {run_id}")
+            done, not_done = ray.wait(futures, num_returns=len(futures), timeout=0)
+
+            logging.info(
+                f"[ConstellationAPI] Run {run_id} -> "
+                f"{len(done)} done, {len(not_done)} not done"
+            )
+
+            if len(done) == len(futures):
+                logging.info(f"[ConstellationAPI] All futures completed for run {run_id}")
+                update_run(run_id, status="completed", completed_at=datetime.utcnow())
+                # Update legacy job too
+                update_job(job_id, status="complete")
+                return "complete"
+            else:
+                if current_status == "pending":
+                    update_run(run_id, status="running", started_at=datetime.utcnow())
+                update_job(job_id, status="running")
+                return "running"
+        
+        # Fallback to legacy Job table
+        legacy_job = get_job(job_id)
+        if not legacy_job:
             logging.error(f"[ConstellationAPI] Job {job_id} not found in DB")
             raise Exception("Job not found")
 
-        current_status = job.status
-        logging.info(f"[ConstellationAPI] Current stored status for job {job_id}: {current_status}")
-
-        # If already complete, no need to re-check
+        current_status = legacy_job.status
         if current_status == "complete":
-            logging.info(f"[ConstellationAPI] Job {job_id} already marked complete")
             return "complete"
 
-        # retrieve futures, may be empty
         futures = self.futures.get(job_id, [])
         if not futures:
-            logging.warning(f"[ConstellationAPI] No futures found for job {job_id}; marking as submitted")
-            return "submitted"
-
-        logging.info(f"[ConstellationAPI] Checking {len(futures)} Ray futures for job {job_id}")
+            return current_status or "submitted"
 
         done, not_done = ray.wait(futures, num_returns=len(futures), timeout=0)
-
-        logging.info(
-            f"[ConstellationAPI] Job {job_id} -> "
-            f"{len(done)} done, {len(not_done)} not done"
-        )
-
         if len(done) == len(futures):
-            logging.info(f"[ConstellationAPI] All futures completed for job {job_id}")
             update_job(job_id, status="complete")
             return "complete"
         else:
-            logging.info(f"[ConstellationAPI] Job {job_id} still running")
             update_job(job_id, status="running")
             return "running"
 
@@ -341,40 +436,141 @@ class ConstellationAPI:
     # ---------------------------------------------------------
     def get_results(self, job_id):
         """
-        Retrieve results for a completed job.
+        Retrieve results for a completed job/run.
         Blocks until results are ready.
+        
+        Args:
+            job_id: Legacy integer job_id (will map to run_id internally)
         """
+        from datetime import datetime
+        
         logging.info(f"[ConstellationAPI] Fetching results for job_id={job_id}")
 
-        # job must exist
-        job = get_job(job_id)
-        if not job:
-            logging.error(f"[ConstellationAPI] Job {job_id} not found in self.jobs")
+        # Map legacy job_id to run_id
+        run_id = self.job_id_to_run_id.get(job_id)
+        
+        # Fallback to legacy Job table
+        if not run_id:
+            legacy_job = get_job(job_id)
+            if legacy_job and legacy_job.data and isinstance(legacy_job.data, dict):
+                run_id = legacy_job.data.get("run_id")
+        
+        # Use new Run table if we have run_id
+        if run_id:
+            run = get_run(run_id)
+            if not run:
+                logging.error(f"[ConstellationAPI] Run {run_id} not found")
+                raise Exception("Run not found")
+            
+            # Check if results already in TaskResult table
+            with get_session() as session:
+                from backend.core.database import TaskResult
+                task_results = session.query(TaskResult).filter_by(run_id=run_id).all()
+                if task_results and len(task_results) == run.total_tasks:
+                    # All results already stored
+                    results = []
+                    # Sort by task_index to maintain order
+                    for tr in sorted(task_results, key=lambda x: x.task.task_index if x.task else 0):
+                        results.append({
+                            "task_id": tr.task_id,
+                            "result": tr.result_data,
+                            "runtime_seconds": tr.runtime_seconds
+                        })
+                    logging.info(f"[ConstellationAPI] Returning cached results for run {run_id}")
+                    return results
+
+            # Fetch from Ray futures
+            futures = self.futures.get(run_id, [])
+            if not futures:
+                logging.error(f"[ConstellationAPI] No futures for run {run_id}; cannot fetch results")
+                raise Exception("No futures available to fetch results for this run")
+
+            logging.info(f"[ConstellationAPI] Blocking until Ray returns results for {len(futures)} tasks")
+            ray_results = self.server.get_results(futures)
+
+            # Store results in TaskResult table
+            project = get_project(run.project_id)
+            results = []
+            completed_count = 0
+            failed_count = 0
+            
+            with get_session() as session:
+                for ray_result in ray_results:
+                    task_id = ray_result.get("task_id")
+                    task = session.query(Task).filter_by(task_id=task_id).first()
+                    if not task:
+                        # Fallback: try to find by index if task_id is integer
+                        task = session.query(Task).filter_by(run_id=run_id, task_index=task_id).first()
+                    
+                    if task:
+                        result_data = ray_result.get("results", ray_result)
+                        runtime = ray_result.get("runtime_seconds")
+                        
+                        # Check if task failed
+                        if ray_result.get("error"):
+                            # Task failed
+                            task.status = "failed"
+                            task.error_message = ray_result.get("error")
+                            task.completed_at = datetime.utcnow()
+                            failed_count += 1
+                        else:
+                            # Task completed successfully
+                            task.status = "completed"
+                            task.completed_at = datetime.utcnow()
+                            completed_count += 1
+                        
+                        task.updated_at = datetime.utcnow()
+                        
+                        # Create or update TaskResult (within current session)
+                        tr = session.query(TaskResult).filter_by(task_id=task.task_id).first()
+                        if not tr:
+                            tr = TaskResult(
+                                task_id=task.task_id,
+                                run_id=run_id,
+                                project_id=project.project_id,
+                                worker_id="worker-unknown",  # TODO: Get actual worker_id
+                                result_data=result_data,
+                                runtime_seconds=runtime,
+                                completed_at=datetime.utcnow()
+                            )
+                            session.add(tr)
+                        
+                        results.append({
+                            "task_id": task.task_id,
+                            "result": result_data,
+                            "runtime_seconds": runtime
+                        })
+                
+                # Update run with completed/failed task counts
+                run = session.query(Run).filter_by(run_id=run_id).first()
+                if run:
+                    run.completed_tasks = completed_count
+                    run.failed_tasks = failed_count
+                    run.updated_at = datetime.utcnow()
+                    session.commit()
+
+            logging.info(f"[ConstellationAPI] Results retrieved for run {run_id}: {len(results)} results ({completed_count} completed, {failed_count} failed)")
+            update_run(run_id, status="completed", completed_at=datetime.utcnow())
+            update_job(job_id, results=results, status="complete")
+            return results
+        
+        # Fallback to legacy Job table
+        legacy_job = get_job(job_id)
+        if not legacy_job:
+            logging.error(f"[ConstellationAPI] Job {job_id} not found")
             raise Exception("Job not found")
 
-        # If already cached in DB, return
-        if job.results is not None:
+        if legacy_job.results is not None:
             logging.info(f"[ConstellationAPI] Returning cached results for job {job_id}")
-            return job.results
+            return legacy_job.results
 
         futures = self.futures.get(job_id, [])
-
         if not futures:
             logging.error(f"[ConstellationAPI] No futures for job {job_id}; cannot fetch results")
             raise Exception("No futures available to fetch results for this job")
 
-        logging.info(f"[ConstellationAPI] Blocking until Ray returns results for {len(futures)} tasks")
-
         results = self.server.get_results(futures)
-
-        logging.info(f"[ConstellationAPI] Results retrieved for job {job_id}: {results}")
-        print(f"[ConstellationAPI] Job {job_id} results:", results)  # Keep this - useful!
-
-        # Cache results + update status
         update_job(job_id, results=results, status="complete")
-
-        logging.info(f"[ConstellationAPI] Job {job_id} marked complete")
-        
         return results
     # ---------------------------------------------------------
     # (Optional) Verification Stub
