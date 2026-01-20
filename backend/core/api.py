@@ -17,6 +17,7 @@ from typing import List, Any
 import os
 import csv
 import json
+import uuid
 
 import csv, json, os, importlib.util
 import dill
@@ -52,6 +53,50 @@ class ConstellationAPI:
         self.job_id_to_run_id: dict[int, str] = {}
         self.counter = 0  # for legacy job_id compatibility
         print("[ConstellationAPI] Initialized API layer.")
+
+    # ---------------------------------------------------------
+    # Worker Management
+    # ---------------------------------------------------------
+    def sync_ray_workers_to_db(self):
+        """Sync connected Ray nodes to Worker table in database."""
+        try:
+            nodes = ray.nodes()
+            for node in nodes:
+                node_id = node.get("NodeID")
+                ip = node.get("NodeManagerAddress")
+                alive = node.get("Alive", False)
+                resources = node.get("Resources", {})
+                
+                if not alive:
+                    continue
+                
+                # Check if worker exists in database
+                with get_session() as session:
+                    worker = session.query(Worker).filter_by(ray_node_id=node_id).first()
+                    
+                    if not worker:
+                        # New Ray node - register with generic name
+                        # Note: user_id should be set when worker connects via API
+                        worker_id = f"worker-{uuid.uuid4()}"
+                        worker = register_worker(
+                            worker_id=worker_id,
+                            worker_name=f"Ray-Node-{node_id[:8]}",
+                            ip_address=ip,
+                            cpu_cores=int(resources.get("CPU", 0)),
+                            memory_gb=resources.get("memory", 0) / (1024**3),
+                            ray_node_id=node_id
+                        )
+                        logging.info(f"[INFO] Registered new Ray worker: {worker.worker_id}")
+                    else:
+                        # Update existing worker
+                        worker.ip_address = ip
+                        worker.cpu_cores = int(resources.get("CPU", 0))
+                        worker.memory_gb = resources.get("memory", 0) / (1024**3)
+                        worker.last_heartbeat = datetime.utcnow()
+                        worker.status = "online"
+                        session.commit()
+        except Exception as e:
+            logging.error(f"[ERROR] Failed to sync Ray workers: {e}")
 
     # ---------------------------------------------------------
     # Job Submission
@@ -290,7 +335,12 @@ class ConstellationAPI:
             })
 
         # ---------------------------------------------------------
-        # 7. Submit tasks to Ray
+        # 7. Sync Ray workers to database before task submission
+        # ---------------------------------------------------------
+        self.sync_ray_workers_to_db()
+
+        # ---------------------------------------------------------
+        # 8. Submit tasks to Ray
         # ---------------------------------------------------------
         print(f"[DEBUG] About to submit: {len(payloads)} payloads")
         futures = self.server.submit_uploaded_tasks(payloads, fn_bytes)
@@ -521,6 +571,15 @@ class ConstellationAPI:
                         
                         task.updated_at = datetime.utcnow()
                         
+                        # Map Ray node_id to Worker.worker_id
+                        node_id = ray_result.get("node_id")
+                        if node_id:
+                            # Find worker by ray_node_id
+                            worker = session.query(Worker).filter_by(ray_node_id=node_id).first()
+                            worker_id = worker.worker_id if worker else "worker-unknown"
+                        else:
+                            worker_id = "worker-unknown"
+                        
                         # Create or update TaskResult (within current session)
                         tr = session.query(TaskResult).filter_by(task_id=task.task_id).first()
                         if not tr:
@@ -528,7 +587,7 @@ class ConstellationAPI:
                                 task_id=task.task_id,
                                 run_id=run_id,
                                 project_id=project.project_id,
-                                worker_id="worker-unknown",  # TODO: Get actual worker_id
+                                worker_id=worker_id,  # Now correctly mapped from Ray node_id
                                 result_data=result_data,
                                 runtime_seconds=runtime,
                                 completed_at=datetime.utcnow()
