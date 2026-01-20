@@ -34,20 +34,12 @@ python3 backend/test/test_text_distributed.py
 
 ---
 
-## For Presentations
+## For Presentation
 
-**Perfect for live demos:**
 - Both tests run for **~1 minute**, making side-by-side comparison easy
 - Sequential: Shows the problem (only ~150-200 docs processed)
 - Distributed: Shows the solution (ALL 2,231 docs processed in same time)
 - Both show live progress bars for real-time monitoring
-
-See `PRESENTATION_GUIDE.md` for:
-- Detailed talking points
-- What to highlight in each step
-- Output explanation
-- Ray overhead explanation
-- Comparison between sequential and distributed
 
 ---
 
