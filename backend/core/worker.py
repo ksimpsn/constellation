@@ -39,6 +39,9 @@ def compute_uploaded_task(payload, func_bytes):
         }
     """
 
+    # Measure execution time
+    start_time = time.time()
+    
     task_id = payload.get("task_id")
 
     # 1. Try to load the uploaded function
@@ -46,9 +49,11 @@ def compute_uploaded_task(payload, func_bytes):
         fn = dill.loads(func_bytes)
     except Exception as e:
         print("[WORKER ERROR] Failed to load function bytes:", e)
+        runtime_seconds = time.time() - start_time
         return {
             "task_id": task_id,
-            "error": f"Function load failed: {type(e).__name__}: {e}"
+            "error": f"Function load failed: {type(e).__name__}: {e}",
+            "runtime_seconds": runtime_seconds
         }
 
     # 2. Retrieve rows from payload
@@ -71,7 +76,11 @@ def compute_uploaded_task(payload, func_bytes):
             "output": out
         })
 
+    # Calculate total execution time
+    runtime_seconds = time.time() - start_time
+
     return {
         "task_id": task_id,
-        "results": results
+        "results": results,
+        "runtime_seconds": runtime_seconds
     }
