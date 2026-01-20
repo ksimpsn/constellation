@@ -354,6 +354,15 @@ def get_user_by_id(user_id: str) -> User:
         return session.query(User).filter_by(user_id=user_id).first()
 
 
+def user_has_role(user_id: str, role: str) -> bool:
+    """Check if user has a specific role."""
+    user = get_user_by_id(user_id)
+    if not user:
+        return False
+    # Role can be 'researcher', 'volunteer', or 'researcher,volunteer'
+    return role in user.role.split(',')
+
+
 def create_project(researcher_id: str, title: str, description: str, 
                    code_path: str, dataset_path: str, dataset_type: str,
                    func_name: str = "main", chunk_size: int = 1000) -> Project:
@@ -479,7 +488,7 @@ def create_task_result(task_id: str, run_id: str, project_id: str, worker_id: st
 
 def register_worker(worker_id: str, worker_name: str, user_id: str = None,
                     ip_address: str = None, cpu_cores: int = None,
-                    memory_gb: float = None) -> Worker:
+                    memory_gb: float = None, ray_node_id: str = None) -> Worker:
     """Register or update a worker."""
     with SessionLocal() as session:
         worker = session.query(Worker).filter_by(worker_id=worker_id).first()
@@ -490,6 +499,8 @@ def register_worker(worker_id: str, worker_name: str, user_id: str = None,
             worker.ip_address = ip_address
             worker.cpu_cores = cpu_cores
             worker.memory_gb = memory_gb
+            if ray_node_id:
+                worker.ray_node_id = ray_node_id
             worker.updated_at = datetime.utcnow()
         else:
             # Create new worker
@@ -499,7 +510,8 @@ def register_worker(worker_id: str, worker_name: str, user_id: str = None,
                 user_id=user_id,
                 ip_address=ip_address,
                 cpu_cores=cpu_cores,
-                memory_gb=memory_gb
+                memory_gb=memory_gb,
+                ray_node_id=ray_node_id
             )
             session.add(worker)
         session.commit()

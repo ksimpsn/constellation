@@ -39,6 +39,11 @@ def compute_uploaded_task(payload, func_bytes):
         }
     """
 
+    # Get Ray runtime context for worker tracking
+    runtime_context = ray.get_runtime_context()
+    node_id = runtime_context.get_node_id()
+    ray_worker_id = runtime_context.get_worker_id()
+    
     # Measure execution time
     start_time = time.time()
     
@@ -53,7 +58,9 @@ def compute_uploaded_task(payload, func_bytes):
         return {
             "task_id": task_id,
             "error": f"Function load failed: {type(e).__name__}: {e}",
-            "runtime_seconds": runtime_seconds
+            "runtime_seconds": runtime_seconds,
+            "node_id": node_id,  # For mapping to Worker.ray_node_id
+            "ray_worker_id": ray_worker_id
         }
 
     # 2. Retrieve rows from payload
@@ -82,5 +89,7 @@ def compute_uploaded_task(payload, func_bytes):
     return {
         "task_id": task_id,
         "results": results,
-        "runtime_seconds": runtime_seconds
+        "runtime_seconds": runtime_seconds,
+        "node_id": node_id,  # For mapping to Worker.ray_node_id
+        "ray_worker_id": ray_worker_id
     }
