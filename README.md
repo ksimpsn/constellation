@@ -9,18 +9,44 @@ The system is built on **Ray**, enabling scalable task distribution, progress tr
 ### Backend Setup
 
 1. **Navigate to the project directory:**
+   ```bash
    cd constellation
-2. **Create and activate a virtual environment:**
-    python3 -m venv env
-    source env/bin/activate  # On Windows: env\Scripts\activate
-3. **Install Python dependencies:**
-    pip install flask flask-cors ray sqlalchemy dill
-4. **Initialize the database:**
-    python3 -c "from backend.core.database import init_db; init_db()"
-5. **Run the Flask backend server:**
-    python3 -m flask --app backend.app run --reload --host 0.0.0.0 --port 5001
+   ```
 
-    The backend API will be available at `http://localhost:5001`
+2. **Create and activate a virtual environment (recommended):**
+   ```bash
+   python3 -m venv env
+   source env/bin/activate  # On Windows: env\Scripts\activate
+   ```
+
+3. **Install Python dependencies:**
+   ```bash
+   # Option 1: Install from requirements.txt (recommended)
+   pip install -r requirements.txt
+
+   # Option 2: Install individually
+   pip install flask flask-cors ray sqlalchemy dill
+   ```
+
+4. **Initialize the database:**
+   ```bash
+   python3 -c "from backend.core.database import init_db; init_db()"
+   ```
+
+5. **Create debug users and test data (optional, for testing):**
+   ```bash
+   python3 backend/create_debug_user.py
+   python3 backend/test/add_sample_project.py
+   ```
+
+6. **Run the Flask backend server:**
+   ```bash
+   python3 -m flask --app backend.app run --host 0.0.0.0 --port 5000
+   ```
+
+   The backend API will be available at `http://localhost:5000`
+
+   **Note:** Keep this terminal running! The server must stay running for the frontend to work.
 
 ### Frontend Setup
 
@@ -28,7 +54,7 @@ The system is built on **Ray**, enabling scalable task distribution, progress tr
    cd frontend
 2. **Install Node.js dependencies:**
    npm install
-3. **Run the development server:**   
+3. **Run the development server:**
    npm run dev:web
       The frontend will be available at `http://localhost:5173`
 
@@ -60,7 +86,7 @@ Constellation supports distributed computing across multiple machines on the sam
    ```bash
    # Start Flask server
    python3 -m flask --app backend.app run --host 0.0.0.0 --port 5000
-   
+
    # Start Ray head node
    curl -X POST http://localhost:5000/api/cluster/start-head \
      -H "Content-Type: application/json" \
