@@ -12,7 +12,7 @@ Later, it will connect to:
 
 from flask import Flask, request, jsonify
 from backend.core.api import ConstellationAPI
-from backend.core.database import get_user_by_id, user_has_role, register_worker, get_session
+from backend.core.database import get_user_by_id, user_has_role, register_worker, get_session, get_researcher_projects_with_stats
 from backend.core.server import Cluster
 import os
 import uuid
@@ -22,13 +22,13 @@ import socket
 from flask_cors import CORS
 
 app = Flask(__name__)
-# More explicit CORS configuration for file uploads
-CORS(app)
-# CORS(app, 
-#      origins="http://localhost:5173",
-#      methods=["GET", "POST", "OPTIONS"],
-#      allow_headers=["Content-Type"],
-#      supports_credentials=False)
+# CORS configuration - allow all origins for development
+# This fixes "failed to fetch" errors by allowing cross-origin requests
+CORS(app,
+     origins="*",  # Allow all origins in development
+     methods=["GET", "POST", "OPTIONS", "PUT", "DELETE"],
+     allow_headers=["Content-Type", "Authorization"],
+     supports_credentials=False)
 
 # Module-level variable that persists across Flask reloads
 _api_instance = None
@@ -53,7 +53,12 @@ def home():
     """
     return jsonify({
         "message": "Welcome to the Constellation API!",
-        "status": "running"
+        "status": "running",
+        "endpoints": {
+            "debug_researcher": "/api/researcher/debug-id",
+            "researcher_projects": "/api/researcher/<researcher_id>/projects",
+            "debug_users": "/api/debug-users"
+        }
     }), 200
 
 @app.route("/submit", methods=["OPTIONS"])
@@ -88,7 +93,7 @@ def submit_job():
     #     "job_id": job_id
     # }), 200
 
-    
+
     title = request.form.get("title")
     description = request.form.get("description")
     py_file = request.files.get("py_file")
@@ -154,19 +159,225 @@ def get_results(job_id):
     }), 200
 
 
+@app.route("/api/researcher/debug-id", methods=["GET", "OPTIONS"])
+def get_debug_researcher_id():
+    """
+    Endpoint: GET /api/researcher/debug-id
+    Purpose: Get the debug researcher user ID for testing.
+    Uses the same debug user system as DEBUG_USERS.md.
+    Returns the debug researcher user, or creates one if it doesn't exist.
+
+    This matches the debug users created by: python3 backend/create_debug_user.py
+
+    Response:
+    {
+        "researcher_id": "user-xxx",
+        "email": "debug-researcher@constellation.test",
+        "name": "Debug Researcher",
+        "role": "researcher"
+    }
+    """
+    try:
+        from backend.core.database import get_user_by_email, create_user, init_db
+
+        # Initialize DB if needed
+        init_db()
+
+        # Get debug researcher (same email as in DEBUG_USERS.md and create_debug_user.py)
+        researcher_email = "debug-researcher@constellation.test"
+        researcher = get_user_by_email(researcher_email)
+
+        if not researcher:
+            # Create debug researcher if it doesn't exist (same as create_debug_user.py)
+            researcher = create_user(
+                email=researcher_email,
+                name="Debug Researcher",
+                role="researcher",
+                metadata={"debug": True}
+            )
+            logging.info(f"[INFO] Created debug researcher: {researcher.user_id}")
+
+        return jsonify({
+            "researcher_id": researcher.user_id,
+            "email": researcher.email,
+            "name": researcher.name,
+            "role": researcher.role
+        }), 200
+
+    except Exception as e:
+        logging.error(f"[ERROR] Error in get_debug_researcher_id endpoint: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/debug-users", methods=["GET"])
+def get_debug_users():
+    """
+    Endpoint: GET /api/debug-users
+    Purpose: Get all debug users (matching DEBUG_USERS.md).
+    Returns all three debug users: volunteer, researcher, and both.
+
+    Response:
+    {
+        "volunteer": {
+            "user_id": "user-xxx",
+            "email": "debug-volunteer@constellation.test",
+            "name": "Debug Volunteer",
+            "role": "volunteer"
+        },
+        "researcher": {
+            "user_id": "user-xxx",
+            "email": "debug-researcher@constellation.test",
+            "name": "Debug Researcher",
+            "role": "researcher"
+        },
+        "both": {
+            "user_id": "user-xxx",
+            "email": "debug-both@constellation.test",
+            "name": "Debug Both",
+            "role": "researcher,volunteer"
+        }
+    }
+    """
+    try:
+        from backend.core.database import get_user_by_email, create_user, init_db
+
+        # Initialize DB if needed
+        init_db()
+
+        # Get or create all debug users (same as create_debug_user.py)
+        debug_users = {}
+
+        # Volunteer
+        volunteer_email = "debug-volunteer@constellation.test"
+        volunteer = get_user_by_email(volunteer_email)
+        if not volunteer:
+            volunteer = create_user(
+                email=volunteer_email,
+                name="Debug Volunteer",
+                role="volunteer",
+                metadata={"debug": True}
+            )
+        debug_users["volunteer"] = {
+            "user_id": volunteer.user_id,
+            "email": volunteer.email,
+            "name": volunteer.name,
+            "role": volunteer.role
+        }
+
+        # Researcher
+        researcher_email = "debug-researcher@constellation.test"
+        researcher = get_user_by_email(researcher_email)
+        if not researcher:
+            researcher = create_user(
+                email=researcher_email,
+                name="Debug Researcher",
+                role="researcher",
+                metadata={"debug": True}
+            )
+        debug_users["researcher"] = {
+            "user_id": researcher.user_id,
+            "email": researcher.email,
+            "name": researcher.name,
+            "role": researcher.role
+        }
+
+        # Both
+        both_email = "debug-both@constellation.test"
+        both_user = get_user_by_email(both_email)
+        if not both_user:
+            both_user = create_user(
+                email=both_email,
+                name="Debug Both",
+                role="researcher,volunteer",
+                metadata={"debug": True}
+            )
+        debug_users["both"] = {
+            "user_id": both_user.user_id,
+            "email": both_user.email,
+            "name": both_user.name,
+            "role": both_user.role
+        }
+
+        return jsonify(debug_users), 200
+
+    except Exception as e:
+        logging.error(f"[ERROR] Error in get_debug_users endpoint: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/researcher/<researcher_id>/projects", methods=["GET", "OPTIONS"])
+def get_researcher_projects(researcher_id):
+    """
+    Endpoint: GET /api/researcher/<researcher_id>/projects
+    Purpose: Get all projects for a researcher with aggregated statistics.
+
+    Response:
+    {
+        "projects": [
+            {
+                "id": "project-123",
+                "title": "Project Title",
+                "description": "Description",
+                "progress": 75,
+                "resultUrl": "/results/project-123.json",
+                "totalContributors": 50,
+                "activeContributors": 10,
+                "completedContributors": null,
+                "totalTasks": 1000,
+                "completedTasks": 750,
+                "failedTasks": 5,
+                "createdAt": "2024-01-15T10:00:00",
+                "updatedAt": "2024-03-20T14:30:00",
+                "totalRuns": 2,
+                "averageTaskTime": 45.2
+            },
+            ...
+        ]
+    }
+    """
+    try:
+        # Validate user exists
+        user = get_user_by_id(researcher_id)
+        if not user:
+            return jsonify({"error": f"User {researcher_id} not found"}), 404
+
+        # Validate user has researcher role
+        if not user_has_role(researcher_id, "researcher"):
+            return jsonify({
+                "error": f"User {researcher_id} does not have 'researcher' role"
+            }), 403
+
+        # Get projects with statistics
+        projects = get_researcher_projects_with_stats(researcher_id)
+
+        return jsonify({
+            "projects": projects
+        }), 200
+
+    except Exception as e:
+        logging.error(f"[ERROR] Error in get_researcher_projects endpoint: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/workers/connect", methods=["POST"])
 def connect_worker():
     """
     Endpoint: POST /api/workers/connect
     Purpose: Allow volunteers to connect their machines as workers to the Ray cluster.
-    
+
     Request body:
     {
         "user_id": "user-123",
         "worker_name": "MyLaptop",
         "head_node_ip": "192.168.1.100"
     }
-    
+
     Response:
     {
         "worker_id": "worker-abc123",
@@ -179,27 +390,27 @@ def connect_worker():
         data = request.get_json()
         if not data:
             return jsonify({"error": "Missing request body"}), 400
-        
+
         user_id = data.get("user_id")
         worker_name = data.get("worker_name")
         head_node_ip = data.get("head_node_ip")
-        
+
         # Validate required fields
         if not user_id or not worker_name or not head_node_ip:
             return jsonify({
                 "error": "Missing required fields: user_id, worker_name, and head_node_ip are required"
             }), 400
-        
+
         # Validate user exists and has 'volunteer' role
         user = get_user_by_id(user_id)
         if not user:
             return jsonify({"error": f"User {user_id} not found"}), 404
-        
+
         if not user_has_role(user_id, "volunteer"):
             return jsonify({
                 "error": f"User {user_id} does not have 'volunteer' role. Current role: {user.role}"
             }), 403
-        
+
         # Connect to Ray head node
         # Note: This connection happens on the head node's machine when the endpoint is called
         # For true distributed setup, the volunteer would need to run Ray locally and connect
@@ -211,7 +422,7 @@ def connect_worker():
             else:
                 # If port is provided, use it
                 head_address = f"ray://{head_node_ip}"
-            
+
             # Check if Ray is already initialized (might be on head node)
             if not ray.is_initialized():
                 # Initialize Ray connection to head node
@@ -220,12 +431,12 @@ def connect_worker():
                 logging.info(f"[INFO] Connected to Ray head node at {head_address}")
             else:
                 logging.info("[INFO] Ray already initialized")
-            
+
             # Get Ray runtime context to identify this node
             runtime_context = ray.get_runtime_context()
             ray_node_id = runtime_context.get_node_id()
             ray_worker_id = runtime_context.get_worker_id()
-            
+
             # Get node information
             nodes = ray.nodes()
             current_node = None
@@ -233,16 +444,16 @@ def connect_worker():
                 if node.get("NodeID") == ray_node_id:
                     current_node = node
                     break
-            
+
             # Extract node information
             ip_address = current_node.get("NodeManagerAddress") if current_node else head_node_ip
             resources = current_node.get("Resources", {}) if current_node else {}
             cpu_cores = int(resources.get("CPU", 0)) if resources else None
             memory_gb = resources.get("memory", 0) / (1024**3) if resources.get("memory") else None
-            
+
             # Generate worker_id
             worker_id = f"worker-{uuid.uuid4()}"
-            
+
             # Register worker in database
             worker = register_worker(
                 worker_id=worker_id,
@@ -253,9 +464,9 @@ def connect_worker():
                 memory_gb=memory_gb,
                 ray_node_id=ray_node_id
             )
-            
+
             logging.info(f"[INFO] Registered worker {worker_id} for user {user_id}")
-            
+
             return jsonify({
                 "worker_id": worker_id,
                 "status": "connected",
@@ -264,7 +475,7 @@ def connect_worker():
                 "ip_address": ip_address,
                 "message": "Worker connected successfully"
             }), 200
-            
+
         except Exception as e:
             logging.error(f"[ERROR] Failed to connect to Ray head node: {e}")
             import traceback
@@ -272,7 +483,7 @@ def connect_worker():
             return jsonify({
                 "error": f"Failed to connect to Ray head node at {head_node_ip}: {str(e)}"
             }), 500
-            
+
     except Exception as e:
         logging.error(f"[ERROR] Error in connect_worker endpoint: {e}")
         import traceback
@@ -285,12 +496,12 @@ def start_head():
     """
     Endpoint: POST /api/cluster/start-head
     Purpose: Allow researcher to start the Ray head node with remote connections enabled.
-    
+
     Request body (optional):
     {
         "researcher_id": "user-456"  // Optional: validate researcher role
     }
-    
+
     Response:
     {
         "status": "started",
@@ -302,7 +513,7 @@ def start_head():
     try:
         data = request.get_json() or {}
         researcher_id = data.get("researcher_id")
-        
+
         # Validate researcher role if researcher_id is provided
         # Note: researcher_id is optional - if not provided, head node will start without validation
         if researcher_id:
@@ -315,7 +526,7 @@ def start_head():
                 return jsonify({
                     "error": f"User {researcher_id} does not have 'researcher' role. Current role: {user.role}"
                 }), 403
-        
+
         # Get local IP address
         def get_local_ip():
             """Get local IP address."""
@@ -328,9 +539,9 @@ def start_head():
             finally:
                 s.close()
             return ip
-        
+
         local_ip = get_local_ip()
-        
+
         # Check if Ray is already initialized
         if ray.is_initialized():
             # If already initialized, check if it's in head mode
@@ -344,14 +555,14 @@ def start_head():
                 "connected_nodes": len(nodes),
                 "message": "Head node is already running. Workers can connect to this IP."
             }), 200
-        
+
         # Start Ray head node
         try:
             # Initialize Ray head node with remote connections enabled
             # Note: The server.py start_cluster() method needs to support mode="head"
             # For now, we'll initialize directly here
             cluster = Cluster()
-            
+
             # Try to start cluster in head mode
             # If start_cluster doesn't support mode parameter yet, we'll initialize directly
             try:
@@ -362,11 +573,11 @@ def start_head():
                 logging.info("[INFO] Starting Ray head node directly (start_cluster doesn't support mode yet)")
                 cluster.context = ray.init(address="auto", _node_ip_address="0.0.0.0", port=6379)
                 logging.info("[INFO] Ray head node started on port 6379 (allowing remote connections)")
-            
+
             # Get cluster information
             resources = ray.cluster_resources()
             nodes = ray.nodes()
-            
+
             # Check if head node accepts remote connections
             remote_ready = False
             head_node_address = None
@@ -377,14 +588,14 @@ def start_head():
                     if head_node_address == "0.0.0.0" or (head_node_address != "127.0.0.1" and head_node_address != local_ip):
                         remote_ready = True
                     break
-            
+
             logging.info(f"[INFO] Head node started successfully at {local_ip}:6379")
             logging.info(f"[INFO] {len(nodes)} Ray node(s) connected")
             if remote_ready:
                 logging.info("[INFO] Head node is ready for remote worker connections")
             else:
                 logging.warning("[WARNING] Head node may not accept remote connections. Consider starting Ray manually: ray start --head --port=6379 --node-ip-address=0.0.0.0")
-            
+
             return jsonify({
                 "status": "started",
                 "head_node_ip": local_ip,
@@ -398,7 +609,7 @@ def start_head():
                 },
                 "message": f"Head node started. Workers can connect to {local_ip}:6379" if remote_ready else f"Head node started at {local_ip}:6379, but may not accept remote connections. Start Ray manually for full remote support."
             }), 200
-            
+
         except Exception as e:
             logging.error(f"[ERROR] Failed to start Ray head node: {e}")
             import traceback
@@ -406,7 +617,7 @@ def start_head():
             return jsonify({
                 "error": f"Failed to start Ray head node: {str(e)}"
             }), 500
-            
+
     except Exception as e:
         logging.error(f"[ERROR] Error in start_head endpoint: {e}")
         import traceback
