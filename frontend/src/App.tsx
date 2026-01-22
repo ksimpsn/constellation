@@ -14,6 +14,7 @@ import Profile from "./pages/Profile.tsx";
 import ResearcherProfile from "./pages/ResearcherProfile.tsx";
 import Settings from "./pages/Settings.tsx";
 import Leaderboard from "./pages/Leaderboard.tsx";
+import BigDipperDemo from "./components/BigDipperDemo.tsx";
 
 function App() {
   return (
@@ -32,6 +33,7 @@ function App() {
         <Route path="/researcher-profile" element={<ResearcherProfile />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/leaderboard" element={<Leaderboard />} />
+        <Route path="/big-dipper" element={<BigDipperDemo />} />
         <Route path="/project/:projectName" element={<ProjectDetails />} />
       </Routes>
     </BrowserRouter>
