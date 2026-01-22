@@ -674,6 +674,49 @@ def get_researcher_projects_with_stats(researcher_id: str) -> list:
         return result
 
 
+def get_top_contributors(limit: int = 10) -> list:
+    """
+    Get top contributors ranked by number of projects they've contributed to.
+    Only includes workers that have completed at least one task and have associated users.
+
+    Returns a list of dictionaries with contributor data:
+    [
+        {
+            "name": "John Doe",
+            "projects_contributed": 5
+        },
+        ...
+    ]
+    """
+    with SessionLocal() as session:
+        from sqlalchemy import func, distinct
+
+        # Get workers with their associated users, ranked by number of distinct projects contributed to
+        # Only count completed tasks (from TaskResult table)
+        contributors = session.query(
+            User.name,
+            func.count(distinct(TaskResult.project_id)).label('projects_contributed')
+        ).join(
+            Worker, User.user_id == Worker.user_id
+        ).join(
+            TaskResult, Worker.worker_id == TaskResult.worker_id
+        ).group_by(
+            User.user_id, User.name
+        ).order_by(
+            func.count(distinct(TaskResult.project_id)).desc()
+        ).limit(limit).all()
+
+        # Format the results
+        result = []
+        for contributor in contributors:
+            result.append({
+                "name": contributor.name,
+                "projects_contributed": contributor.projects_contributed
+            })
+
+        return result
+
+
 # Simple test connection function
 if __name__ == "__main__":
     init_db()
