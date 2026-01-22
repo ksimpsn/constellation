@@ -1,12 +1,80 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import GradientBackground from '../components/GradientBackground';
 
-export default function Profile() {
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5001";
+
+interface ResearcherStats {
+  totalProjects: number;
+  completedProjects: number;
+  totalContributors: number;
+}
+
+export default function ResearcherProfile() {
   const navigate = useNavigate();
+  const [stats, setStats] = useState<ResearcherStats>({
+    totalProjects: 0,
+    completedProjects: 0,
+    totalContributors: 0,
+  });
+  const [loading, setLoading] = useState(true);
+  const [researcherId, setResearcherId] = useState<string | null>(null);
+
+  // Fetch researcher ID
+  useEffect(() => {
+    const fetchResearcherId = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/researcher/debug-id`);
+        if (response.ok) {
+          const data = await response.json();
+          setResearcherId(data.researcher_id);
+        }
+      } catch (err) {
+        console.error("Error fetching researcher ID:", err);
+      }
+    };
+    fetchResearcherId();
+  }, []);
+
+  // Fetch researcher stats
+  useEffect(() => {
+    if (!researcherId) return;
+
+    const fetchStats = async () => {
+      try {
+        setLoading(true);
+        const response = await fetch(`${API_BASE_URL}/api/researcher/${researcherId}/stats`);
+        if (response.ok) {
+          const data = await response.json();
+          setStats({
+            totalProjects: data.totalProjects || 0,
+            completedProjects: data.completedProjects || 0,
+            totalContributors: data.totalContributors || 0,
+          });
+        } else {
+          // Fallback: calculate from projects endpoint
+          const projectsResponse = await fetch(`${API_BASE_URL}/api/researcher/${researcherId}/projects`);
+          if (projectsResponse.ok) {
+            const projectsData = await projectsResponse.json();
+            const projects = projectsData.projects || [];
+            setStats({
+              totalProjects: projects.length,
+              completedProjects: projects.filter((p: any) => p.progress >= 100).length,
+              totalContributors: projects.reduce((sum: number, p: any) => sum + (p.totalContributors || 0), 0),
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching researcher stats:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchStats();
+  }, [researcherId]);
 
   const handleLogout = () => {
-    // For now, just navigate to home or login
     navigate('/');
   };
 
@@ -23,8 +91,8 @@ export default function Profile() {
                 <path d="M5 19c0-3.2 3-6 7-6s7 2.8 7 6" />
               </svg>
             </div>
-            <h2 style={name}>John Doe</h2>
-            <p style={username}>@johndoe</p>
+            <h2 style={name}>Dr. Jane Researcher</h2>
+            <p style={username}>@researcher</p>
           </div>
 
           <div style={detailsSection}>
@@ -32,15 +100,15 @@ export default function Profile() {
               <h3 style={detailTitle}>Account Information</h3>
               <div style={detailItem}>
                 <span style={detailLabel}>Name:</span>
-                <span style={detailValue}>John Doe</span>
+                <span style={detailValue}>Dr. Jane Researcher</span>
               </div>
               <div style={detailItem}>
                 <span style={detailLabel}>Username:</span>
-                <span style={detailValue}>@johndoe</span>
+                <span style={detailValue}>@researcher</span>
               </div>
               <div style={detailItem}>
                 <span style={detailLabel}>Account Type:</span>
-                <span style={detailValue}>Volunteer</span>
+                <span style={detailValue}>Researcher</span>
               </div>
               <div style={detailItem}>
                 <span style={detailLabel}>Member Since:</span>
@@ -50,16 +118,22 @@ export default function Profile() {
 
             <div style={statsSection}>
               <div style={statCard}>
-                <div style={statNumber}>12</div>
-                <div style={statLabel}>Projects Contributed</div>
+                <div style={statNumber}>
+                  {loading ? '...' : stats.totalProjects}
+                </div>
+                <div style={statLabel}>Projects Submitted</div>
               </div>
               <div style={statCard}>
-                <div style={statNumber}>47</div>
-                <div style={statLabel}>Sessions Logged</div>
+                <div style={statNumber}>
+                  {loading ? '...' : stats.completedProjects}
+                </div>
+                <div style={statLabel}>Completed Projects</div>
               </div>
               <div style={statCard}>
-                <div style={statNumber}>3</div>
-                <div style={statLabel}>Publications</div>
+                <div style={statNumber}>
+                  {loading ? '...' : stats.totalContributors}
+                </div>
+                <div style={statLabel}>Total Contributors</div>
               </div>
             </div>
           </div>
@@ -86,8 +160,6 @@ const pageTitle: React.CSSProperties = {
   margin: '0 0 20px 0',
   textAlign: 'center',
 };
-
-
 
 const content: React.CSSProperties = {
   flex: 1,

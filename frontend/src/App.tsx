@@ -8,8 +8,10 @@ import BrowseProjects from "./pages/BrowseProjects.tsx";
 import SubmitProject from "./pages/SubmitProject.tsx";
 import ResearcherDashboard from "./pages/ResearcherDashboard.tsx";
 import Signup from "./pages/Signup.tsx";
+import Login from "./pages/Login.tsx";
 import ProjectDetails from "./pages/ProjectDetails.tsx";
 import Profile from "./pages/Profile.tsx";
+import ResearcherProfile from "./pages/ResearcherProfile.tsx";
 import Settings from "./pages/Settings.tsx";
 import Leaderboard from "./pages/Leaderboard.tsx";
 
@@ -25,7 +27,9 @@ function App() {
         <Route path="/submit" element={<SubmitProject />} />
         <Route path="/researcher" element={<ResearcherDashboard />} />
         <Route path="/signup" element={<Signup />} />
+        <Route path="/login" element={<Login />} />
         <Route path="/profile" element={<Profile />} />
+        <Route path="/researcher-profile" element={<ResearcherProfile />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/leaderboard" element={<Leaderboard />} />
         <Route path="/project/:projectName" element={<ProjectDetails />} />

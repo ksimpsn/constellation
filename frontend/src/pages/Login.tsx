@@ -4,30 +4,11 @@ import GradientBackground from '../components/GradientBackground';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5001";
 
-const Signup: React.FC = () => {
-  const [name, setName] = useState('');
+const Login: React.FC = () => {
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState('');
-  const [reasons, setReasons] = useState<string[]>([]);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
-
-  const reasonOptions = [
-    'Collaborate on research projects',
-    'Share knowledge and insights',
-    'Find contributors for my work',
-    'Discover new research opportunities',
-    'Network with other researchers'
-  ];
-
-  const handleReasonChange = (reason: string) => {
-    setReasons(prev =>
-      prev.includes(reason)
-        ? prev.filter(r => r !== reason)
-        : [...prev, reason]
-    );
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,17 +16,17 @@ const Signup: React.FC = () => {
     setMessage('');
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/signup`, {
+      const response = await fetch(`${API_BASE_URL}/api/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ name, email, role, reasons }),
+        body: JSON.stringify({ email }),
       });
 
       if (!response.ok) {
         // Try to parse error message
-        let errorMsg = 'Signup failed';
+        let errorMsg = 'Login failed';
         try {
           const errorData = await response.json();
           errorMsg = errorData.error || errorMsg;
@@ -57,7 +38,7 @@ const Signup: React.FC = () => {
       }
 
       const data = await response.json();
-      setMessage('Signup successful! Redirecting...');
+      setMessage('Login successful! Redirecting...');
       // Redirect based on role
       setTimeout(() => {
         if (data.role === 'researcher') {
@@ -67,12 +48,12 @@ const Signup: React.FC = () => {
         }
       }, 1500);
     } catch (error: any) {
-      console.error('Signup error:', error);
+      console.error('Login error:', error);
       // Check if it's a network error (backend not running)
       if (error.message?.includes('Failed to fetch') || error.name === 'TypeError') {
         setMessage('Cannot connect to server. Please make sure the backend is running on http://localhost:5001');
       } else {
-        setMessage(`Signup failed: ${error.message || 'Please try again'}`);
+        setMessage(`Login failed: ${error.message || 'Please try again'}`);
       }
     } finally {
       setLoading(false);
@@ -81,19 +62,8 @@ const Signup: React.FC = () => {
 
   return (
     <GradientBackground>
-      <h1 style={{ fontSize: '48px', marginTop: '40px' }}>Sign Up for Constellation</h1>
+      <h1 style={{ fontSize: '48px', marginTop: '40px' }}>Log In to Constellation</h1>
       <form onSubmit={handleSubmit} style={{ maxWidth: '600px', width: '100%', marginTop: '20px' }}>
-        <div style={{ marginBottom: '15px' }}>
-          <label htmlFor="name" style={{ fontSize: '18px' }}>Name:</label>
-          <input
-            type="text"
-            id="name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-            style={{ width: '100%', padding: '10px', marginTop: '5px', fontSize: '16px', border: '1px solid #ccc', borderRadius: '4px', background: 'rgba(255, 255, 255, 0.8)', color: '#555' }}
-          />
-        </div>
         <div style={{ marginBottom: '15px' }}>
           <label htmlFor="email" style={{ fontSize: '18px' }}>Email:</label>
           <input
@@ -103,39 +73,10 @@ const Signup: React.FC = () => {
             onChange={(e) => setEmail(e.target.value)}
             required
             style={{ width: '100%', padding: '10px', marginTop: '5px', fontSize: '16px', border: '1px solid #ccc', borderRadius: '4px', background: 'rgba(255, 255, 255, 0.8)', color: '#555' }}
+            placeholder="Enter your email address"
           />
         </div>
-        <div style={{ marginBottom: '15px' }}>
-          <label htmlFor="role" style={{ fontSize: '18px' }}>Role:</label>
-          <select
-            id="role"
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
-            required
-            style={{ width: '100%', padding: '10px', marginTop: '5px', fontSize: '16px', border: '1px solid #ccc', borderRadius: '4px', background: 'rgba(255, 255, 255, 0.8)', color: role === '' ? '#555' : 'black' }}
-          >
-            <option value="">Select your role</option>
-            <option value="researcher">Researcher</option>
-            <option value="contributor">Contributor</option>
-          </select>
-        </div>
-        <div style={{ marginBottom: '15px' }}>
-          <label style={{ fontSize: '18px' }}>Why are you using Constellation? (Select all that apply)</label>
-          <div style={{ marginTop: '10px' }}>
-            {reasonOptions.map((reason) => (
-              <div key={reason} style={{ marginBottom: '5px' }}>
-                <input
-                  type="checkbox"
-                  id={reason}
-                  checked={reasons.includes(reason)}
-                  onChange={() => handleReasonChange(reason)}
-                  style={{ marginRight: '10px', background: 'rgba(255, 255, 255, 0.8)', accentColor: '#5a1d91' }}
-                />
-                <label htmlFor={reason} style={{ fontSize: '16px' }}>{reason}</label>
-              </div>
-            ))}
-          </div>
-        </div>
+
         <button
           type="submit"
           disabled={loading}
@@ -151,7 +92,7 @@ const Signup: React.FC = () => {
             width: '100%'
           }}
         >
-          {loading ? 'Signing Up...' : 'Sign Up'}
+          {loading ? 'Logging In...' : 'Log In'}
         </button>
 
         {message && (
@@ -171,9 +112,9 @@ const Signup: React.FC = () => {
 
       <div style={{ marginTop: '30px', textAlign: 'center' }}>
         <p style={{ fontSize: '16px', color: '#666' }}>
-          Already have an account?{' '}
-          <Link to="/login" style={{ color: '#667eea', fontWeight: 'bold', textDecoration: 'none' }}>
-            Log In
+          Don't have an account?{' '}
+          <Link to="/signup" style={{ color: '#667eea', fontWeight: 'bold', textDecoration: 'none' }}>
+            Sign Up
           </Link>
         </p>
       </div>
@@ -181,4 +122,4 @@ const Signup: React.FC = () => {
   );
 };
 
-export default Signup;
+export default Login;
