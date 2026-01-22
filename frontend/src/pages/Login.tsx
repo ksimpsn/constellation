@@ -5,7 +5,8 @@ import GradientBackground from '../components/GradientBackground';
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5001";
 
 const Login: React.FC = () => {
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -21,7 +22,7 @@ const Login: React.FC = () => {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ username, password }),
       });
 
       if (!response.ok) {
@@ -65,15 +66,27 @@ const Login: React.FC = () => {
       <h1 style={{ fontSize: '48px', marginTop: '40px' }}>Log In to Constellation</h1>
       <form onSubmit={handleSubmit} style={{ maxWidth: '600px', width: '100%', marginTop: '20px' }}>
         <div style={{ marginBottom: '15px' }}>
-          <label htmlFor="email" style={{ fontSize: '18px' }}>Email:</label>
+          <label htmlFor="username" style={{ fontSize: '18px' }}>Username:</label>
           <input
-            type="email"
-            id="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            type="text"
+            id="username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
             required
             style={{ width: '100%', padding: '10px', marginTop: '5px', fontSize: '16px', border: '1px solid #ccc', borderRadius: '4px', background: 'rgba(255, 255, 255, 0.8)', color: '#555' }}
-            placeholder="Enter your email address"
+            placeholder="Enter your username"
+          />
+        </div>
+        <div style={{ marginBottom: '15px' }}>
+          <label htmlFor="password" style={{ fontSize: '18px' }}>Password:</label>
+          <input
+            type="password"
+            id="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            style={{ width: '100%', padding: '10px', marginTop: '5px', fontSize: '16px', border: '1px solid #ccc', borderRadius: '4px', background: 'rgba(255, 255, 255, 0.8)', color: '#555' }}
+            placeholder="Enter your password"
           />
         </div>
 
