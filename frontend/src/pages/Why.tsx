@@ -1,154 +1,304 @@
-import GradientBackground from "../components/GradientBackground";
+import React, { useMemo } from 'react';
 
 export default function Why() {
+  // Generate star positions and connections
+  const { stars, connections } = useMemo(() => {
+    const starCount = 100;
+    const largeStarCount = 20;
+    const connectionDistance = 150; // Maximum distance for connections
+
+    const allStars: Array<{x: number, y: number, size: number, isLarge: boolean}> = [];
+
+    // Generate small stars
+    for (let i = 0; i < starCount; i++) {
+      allStars.push({
+        x: Math.random() * window.innerWidth,
+        y: Math.random() * window.innerHeight,
+        size: 1,
+        isLarge: false
+      });
+    }
+
+    // Generate large stars
+    for (let i = 0; i < largeStarCount; i++) {
+      allStars.push({
+        x: Math.random() * window.innerWidth,
+        y: Math.random() * window.innerHeight,
+        size: 2,
+        isLarge: true
+      });
+    }
+
+    // Generate connections between nearby stars
+    const connectionsList: Array<{x1: number, y1: number, x2: number, y2: number}> = [];
+
+    for (let i = 0; i < allStars.length; i++) {
+      for (let j = i + 1; j < allStars.length; j++) {
+        const dx = allStars[i].x - allStars[j].x;
+        const dy = allStars[i].y - allStars[j].y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance < connectionDistance) {
+          connectionsList.push({
+            x1: allStars[i].x,
+            y1: allStars[i].y,
+            x2: allStars[j].x,
+            y2: allStars[j].y
+          });
+        }
+      }
+    }
+
+    return {
+      stars: allStars,
+      connections: connectionsList
+    };
+  }, []);
+
   return (
-    <GradientBackground>
-      <div style={{ marginTop: "auto", textAlign: "center", alignSelf: "center" }}>
-        <a href="/" style={{ fontSize: "18px", color: "black" }}>
+    <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+      {/* Constellation Lines */}
+      <svg className="absolute inset-0 w-full h-full pointer-events-none">
+        <defs>
+          <linearGradient id="lineGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="rgba(59, 130, 246, 0.1)" />
+            <stop offset="50%" stopColor="rgba(147, 51, 234, 0.3)" />
+            <stop offset="100%" stopColor="rgba(59, 130, 246, 0.1)" />
+          </linearGradient>
+        </defs>
+        {connections.map((connection, index) => (
+          <line
+            key={index}
+            x1={connection.x1}
+            y1={connection.y1}
+            x2={connection.x2}
+            y2={connection.y2}
+            stroke="url(#lineGradient)"
+            strokeWidth="2"
+            opacity="0.6"
+            className="animate-pulse"
+            style={{
+              animationDelay: `${Math.random() * 3}s`,
+              animationDuration: `${4 + Math.random() * 2}s`
+            }}
+          />
+        ))}
+      </svg>
+
+      {/* Animated Starfield Background */}
+      <div className="absolute inset-0">
+        {stars.filter(star => !star.isLarge).map((star, i) => (
+          <div
+            key={`small-${i}`}
+            className="absolute w-1 h-1 bg-white rounded-full animate-pulse"
+            style={{
+              left: `${star.x}px`,
+              top: `${star.y}px`,
+              animationDelay: `${Math.random() * 3}s`,
+              animationDuration: `${2 + Math.random() * 2}s`,
+              opacity: Math.random() * 0.8 + 0.2,
+            }}
+          />
+        ))}
+      </div>
+
+      {/* Additional larger stars */}
+      <div className="absolute inset-0">
+        {stars.filter(star => star.isLarge).map((star, i) => (
+          <div
+            key={`large-${i}`}
+            className="absolute w-2 h-2 bg-blue-200 rounded-full animate-pulse"
+            style={{
+              left: `${star.x}px`,
+              top: `${star.y}px`,
+              animationDelay: `${Math.random() * 4}s`,
+              animationDuration: `${3 + Math.random() * 2}s`,
+              opacity: Math.random() * 0.6 + 0.2,
+            }}
+          />
+        ))}
+      </div>
+
+      {/* Primary Logo Navigation */}
+      <div className="absolute top-8 left-8 z-20">
+        <a href="/" style={{
+          display: 'block',
+          width: '60px',
+          height: '60px',
+          cursor: 'pointer',
+          opacity: 0.9,
+          transition: 'opacity 0.2s ease'
+        }}
+        onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
+        onMouseLeave={(e) => e.currentTarget.style.opacity = '0.9'}
+        >
+          <img
+            src="/src/assets/logo.png"
+            alt="Constellation Home"
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'contain'
+            }}
+          />
+        </a>
+      </div>
+
+      {/* Logo and Home Up Arrow */}
+      <div className="absolute top-8 right-8 z-20 flex items-center gap-4">
+        <a
+          href="/"
+          className="text-white/60 hover:text-white/90 transition-colors duration-300 text-lg hover:scale-110 transition-transform duration-200"
+          title="Back to Home"
+        >
           Home ↑
         </a>
-      </div>
-      <h1>Why Constellation?</h1>
-
-      <div style={section}>Distributed computing is a model where many individual devices—laptops, desktops, and even phones—work together to solve large computational problems. Platforms like BOINC and Folding@home have shown how powerful this approach can be, enabling major breakthroughs in areas like protein folding and disease research. But these systems rely almost entirely on volunteer altruism, which limits participation and makes it difficult to maintain long-term, large-scale engagement outside of moments of global crisis.
-
-Constellation builds on the strengths of these volunteer-driven platforms while addressing their core limitation: sustainability. By introducing a meaningful incentive structure, Constellation motivates broader and more consistent participation, transforming distributed computing from a niche volunteer effort into a scalable, dependable computing network.
-      </div>
-
-      <div style={{ marginTop: "auto", textAlign: "center", alignSelf: "center" }}>
-        <a href="/security" style={{ fontSize: "18px", color: "black" }}>
-          Privacy and Security Concerns ↓
+        <a href="/" className="hover:opacity-80 transition-opacity duration-200">
+          <img
+            src="/src/assets/logo.png"
+            alt="Constellation Logo"
+            className="h-10 w-auto"
+          />
         </a>
       </div>
-    </GradientBackground>
+
+      {/* Main Content */}
+      <div className="relative z-10 flex items-center justify-center min-h-screen px-6 py-20">
+        <div className="max-w-4xl mx-auto text-center space-y-12">
+          {/* Title */}
+          <div className="space-y-4">
+            <h1 className="text-5xl md:text-7xl font-bold text-white/90 leading-tight">
+              Why Constellation?
+            </h1>
+            <div className="w-24 h-1 bg-gradient-to-r from-blue-400 to-purple-500 mx-auto rounded-full"></div>
+          </div>
+
+          {/* Content Sections */}
+          <div className="space-y-16">
+            {/* What is Distributed Computing */}
+            <div className="group p-8 bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl hover:bg-white/10 hover:border-white/20 transition-all duration-500 hover:shadow-2xl hover:shadow-blue-500/20">
+              <h2 className="text-3xl md:text-4xl font-semibold text-white/90 mb-6 group-hover:text-white transition-colors duration-300">
+                What is Distributed Computing?
+              </h2>
+              <p className="text-xl text-white/70 leading-relaxed group-hover:text-white/90 transition-colors duration-300">
+                Distributed computing allows thousands of individual devices—laptops, desktops, and phones—to work together on large computational problems.
+              </p>
+            </div>
+
+            {/* What Works Today */}
+            <div className="group p-8 bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl hover:bg-white/10 hover:border-white/20 transition-all duration-500 hover:shadow-2xl hover:shadow-purple-500/20">
+              <h2 className="text-3xl md:text-4xl font-semibold text-white/90 mb-6 group-hover:text-white transition-colors duration-300">
+                What Works Today
+              </h2>
+              <p className="text-xl text-white/70 leading-relaxed group-hover:text-white/90 transition-colors duration-300">
+                Platforms like BOINC and Folding@home have proven the power of this model, enabling major breakthroughs in areas such as protein folding and disease research.
+              </p>
+            </div>
+
+            {/* The Limitation */}
+            <div className="group p-8 bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl hover:bg-white/10 hover:border-white/20 transition-all duration-500 hover:shadow-2xl hover:shadow-red-500/20">
+              <h2 className="text-3xl md:text-4xl font-semibold text-white/90 mb-6 group-hover:text-white transition-colors duration-300">
+                The Limitation
+              </h2>
+              <p className="text-xl text-white/70 leading-relaxed group-hover:text-white/90 transition-colors duration-300">
+                These systems depend almost entirely on volunteer altruism, making participation difficult to sustain at scale over long periods of time.
+              </p>
+            </div>
+
+            {/* The Constellation Approach */}
+            <div className="group p-8 bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl hover:bg-white/10 hover:border-white/20 transition-all duration-500 hover:shadow-2xl hover:shadow-green-500/20">
+              <h2 className="text-3xl md:text-4xl font-semibold text-white/90 mb-6 group-hover:text-white transition-colors duration-300">
+                The Constellation Approach
+              </h2>
+              <p className="text-xl text-white/70 leading-relaxed group-hover:text-white/90 transition-colors duration-300">
+                Constellation builds on the success of volunteer computing by introducing a meaningful incentive structure—unlocking consistent participation and transforming distributed computing into a scalable, dependable network.
+              </p>
+            </div>
+          </div>
+
+          {/* Navigation to next page */}
+          <div className="pt-8">
+            <a
+              href="/security"
+              className="inline-flex items-center gap-3 px-6 py-3 bg-white/10 backdrop-blur-md border border-white/20 rounded-xl text-white/80 hover:text-white hover:bg-white/20 transition-all duration-300 hover:scale-105 group"
+            >
+              <span>Privacy and Security Concerns</span>
+              <span className="group-hover:translate-x-1 transition-transform duration-300">↓</span>
+            </a>
+          </div>
+
+
+        </div>
+      </div>
+
+      {/* Decorative elements with swirling motion */}
+      <div className="absolute top-1/4 left-1/4 w-2 h-2 bg-blue-400 rounded-full opacity-60 animate-swirl"></div>
+      <div className="absolute top-1/3 right-1/3 w-1 h-1 bg-purple-400 rounded-full opacity-40 animate-swirl-delayed"></div>
+      <div className="absolute bottom-1/4 left-1/3 w-1.5 h-1.5 bg-indigo-400 rounded-full opacity-50 animate-swirl-reverse"></div>
+
+      {/* Custom CSS for swirling animations */}
+      <style dangerouslySetInnerHTML={{
+        __html: `
+          @keyframes swirl {
+            0%, 100% {
+              transform: rotate(0deg) translateX(0px) translateY(0px);
+            }
+            25% {
+              transform: rotate(90deg) translateX(20px) translateY(-10px);
+            }
+            50% {
+              transform: rotate(180deg) translateX(0px) translateY(-20px);
+            }
+            75% {
+              transform: rotate(270deg) translateX(-20px) translateY(-10px);
+            }
+          }
+
+          @keyframes swirl-delayed {
+            0%, 100% {
+              transform: rotate(0deg) translateX(0px) translateY(0px);
+            }
+            25% {
+              transform: rotate(90deg) translateX(-15px) translateY(20px);
+            }
+            50% {
+              transform: rotate(180deg) translateX(0px) translateY(15px);
+            }
+            75% {
+              transform: rotate(270deg) translateX(15px) translateY(20px);
+            }
+          }
+
+          @keyframes swirl-reverse {
+            0%, 100% {
+              transform: rotate(0deg) translateX(0px) translateY(0px);
+            }
+            25% {
+              transform: rotate(-90deg) translateX(25px) translateY(15px);
+            }
+            50% {
+              transform: rotate(-180deg) translateX(0px) translateY(30px);
+            }
+            75% {
+              transform: rotate(-270deg) translateX(-25px) translateY(15px);
+            }
+          }
+
+          .animate-swirl {
+            animation: swirl 8s ease-in-out infinite;
+          }
+
+          .animate-swirl-delayed {
+            animation: swirl-delayed 10s ease-in-out infinite;
+            animation-delay: 2s;
+          }
+
+          .animate-swirl-reverse {
+            animation: swirl-reverse 12s ease-in-out infinite;
+            animation-delay: 1s;
+          }
+        `
+      }} />
+    </div>
   );
-}
-
-const section: React.CSSProperties= {
-  height: "350px",
-  background: "transparent",
-  borderRadius: "8px",
-  marginTop: "20px",
-  display: "flex",
-  justifyContent: "center",
-  alignItems: "center",
-  color: "black",
-  fontSize: "20px",
-  overflowY: "auto",
-  overflowX: "hidden",
-};
-
-
-
-// CSS Animations (we'll add these to a style tag or CSS file)
-const styles = `
-@keyframes twinkle {
-  0%, 100% { opacity: 0.3; transform: scale(0.8); }
-  50% { opacity: 1; transform: scale(1.2); }
-}
-
-@keyframes float {
-  0%, 100% { transform: translateY(0px) rotate(0deg); }
-  25% { transform: translateY(-10px) rotate(90deg); }
-  50% { transform: translateY(-5px) rotate(180deg); }
-  75% { transform: translateY(-15px) rotate(270deg); }
-}
-
-@keyframes fadeInScale {
-  0% { opacity: 0; transform: scale(0.5); }
-  100% { opacity: 1; transform: scale(1); }
-}
-
-@keyframes aiGlow {
-  0%, 100% { transform: translate(-50%, -50%) scale(0.8); opacity: 0.6; }
-  50% { transform: translate(-50%, -50%) scale(1.2); opacity: 1; }
-}
-
-@keyframes aiPulse {
-  0%, 100% { transform: translate(-50%, -50%) scale(0.9); box-shadow: 0 0 15px #FFD700, 0 0 30px #FFD700; }
-  50% { transform: translate(-50%, -50%) scale(1.1); box-shadow: 0 0 35px #FFD700, 0 0 70px #FFD700; }
-}
-
-@keyframes titleFloat {
-  0%, 100% { transform: translateY(0px); }
-  50% { transform: translateY(-10px); }
-}
-
-@keyframes constellationGlow {
-  0%, 100% { filter: drop-shadow(0 0 10px rgba(255, 215, 0, 0.3)); }
-  50% { filter: drop-shadow(0 0 30px rgba(255, 215, 0, 0.8)); }
-}
-
-@keyframes floatOrb1 {
-  0%, 100% { transform: translateY(0px) translateX(0px); }
-  25% { transform: translateY(-20px) translateX(15px); }
-  50% { transform: translateY(-10px) translateX(30px); }
-  75% { transform: translateY(-30px) translateX(15px); }
-}
-
-@keyframes floatOrb2 {
-  0%, 100% { transform: translateY(0px) translateX(0px); }
-  33% { transform: translateY(-25px) translateX(-20px); }
-  66% { transform: translateY(-15px) translateX(-40px); }
-}
-
-@keyframes floatOrb3 {
-  0%, 100% { transform: translateY(0px) translateX(0px); }
-  20% { transform: translateY(-15px) translateX(25px); }
-  40% { transform: translateY(-30px) translateX(10px); }
-  60% { transform: translateY(-20px) translateX(35px); }
-  80% { transform: translateY(-35px) translateX(20px); }
-}
-
-@keyframes cardFadeIn {
-  0% { opacity: 0; transform: translateY(50px) scale(0.9); }
-  100% { opacity: 1; transform: translateY(0px) scale(1); }
-}
-
-@keyframes iconBounce {
-  0%, 100% { transform: translateY(0px); }
-  50% { transform: translateY(-5px); }
-}
-
-@keyframes fadeInOut {
-  0%, 100% { opacity: 0.2; }
-  50% { opacity: 0.6; }
-}
-
-.text-card:hover {
-  background: rgba(255, 255, 255, 0.25) !important;
-  backdrop-filter: blur(15px) !important;
-  border: 1px solid rgba(255, 255, 255, 0.4) !important;
-  transform: translateY(-5px);
-  box-shadow: 0 10px 30px rgba(255, 255, 255, 0.1);
-}
-
-.nav-link:hover {
-  transform: scale(1.1);
-  transition: transform 0.2s ease;
-}
-
-.feature-card:hover {
-  transform: translateY(-10px) scale(1.02);
-  box-shadow: 0 20px 40px rgba(255, 255, 255, 0.15);
-}
-
-.primary-button:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 25px rgba(255, 215, 0, 0.4);
-}
-
-.secondary-button:hover {
-  transform: translateY(-2px);
-  background: rgba(255, 255, 255, 0.3);
-  border-color: rgba(255, 255, 255, 0.5);
-}
-`;
-
-// Inject styles
-if (typeof document !== 'undefined') {
-  const styleSheet = document.createElement("style");
-  styleSheet.type = "text/css";
-  styleSheet.innerText = styles;
-  document.head.appendChild(styleSheet);
 }
