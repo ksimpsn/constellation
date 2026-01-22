@@ -74,10 +74,10 @@ def create_test_projects():
     projects_created = []
 
     # ============================================================
-    # Project 1: Completed Project (100%)
+    # Project 1: Not Completed Project (0%)
     # ============================================================
     print("\n" + "=" * 70)
-    print("Creating COMPLETED Project (100% done)")
+    print("Creating COMPLETED Project (0% done)")
     print("=" * 70)
 
     with get_session() as session:
@@ -95,7 +95,7 @@ def create_test_projects():
             project = create_project(
                 researcher_id=researcher.user_id,
                 title="Completed Test Project",
-                description="This project has finished computing. All tasks are complete and results are available.",
+                description="This project has finished computing. All tasks are finished and results are available.",
                 code_path="uploads/test/completed_project.py",
                 dataset_path="uploads/test/completed_data.csv",
                 dataset_type="csv",

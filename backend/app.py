@@ -12,7 +12,7 @@ Later, it will connect to:
 
 from flask import Flask, request, jsonify
 from backend.core.api import ConstellationAPI
-from backend.core.database import get_user_by_id, user_has_role, register_worker, get_session, get_researcher_projects_with_stats
+from backend.core.database import get_user_by_id, user_has_role, register_worker, get_session, get_researcher_projects_with_stats, create_user, get_user_by_email, init_db
 from backend.core.server import Cluster
 import os
 import uuid
@@ -157,6 +157,153 @@ def get_results(job_id):
         "job_id": job_id,
         "results": results
     }), 200
+
+
+@app.route("/api/signup", methods=["POST", "OPTIONS"])
+def signup():
+    """
+    Endpoint: POST /api/signup
+    Purpose: Create a new user account (volunteer or researcher).
+
+    Request body:
+    {
+        "name": "John Doe",
+        "email": "john@example.com",
+        "role": "volunteer" or "researcher",
+        "reasons": ["reason1", "reason2"]  # optional
+    }
+
+    Response:
+    {
+        "success": true,
+        "user_id": "user-xxx",
+        "message": "User created successfully"
+    }
+    """
+    if request.method == "OPTIONS":
+        return "", 200
+
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Missing request body"}), 400
+
+        name = data.get("name")
+        email = data.get("email")
+        role = data.get("role")
+        reasons = data.get("reasons", [])
+
+        # Validate required fields
+        if not name or not email or not role:
+            return jsonify({
+                "error": "Missing required fields: name, email, and role are required"
+            }), 400
+
+        # Validate role
+        if role not in ["volunteer", "researcher", "contributor"]:
+            return jsonify({
+                "error": "Invalid role. Must be 'volunteer', 'researcher', or 'contributor'"
+            }), 400
+
+        # Map "contributor" to "volunteer" (same thing)
+        if role == "contributor":
+            role = "volunteer"
+
+        # Initialize database if needed
+        init_db()
+
+        # Check if user already exists
+        existing_user = get_user_by_email(email)
+        if existing_user:
+            return jsonify({
+                "error": f"User with email {email} already exists",
+                "user_id": existing_user.user_id,
+                "role": existing_user.role
+            }), 409
+
+        # Create user
+        user = create_user(
+            email=email,
+            name=name,
+            role=role,
+            metadata={"signup_reasons": reasons} if reasons else None
+        )
+
+        logging.info(f"[INFO] Created new user: {user.user_id} ({role})")
+
+        return jsonify({
+            "success": True,
+            "user_id": user.user_id,
+            "email": user.email,
+            "role": user.role,
+            "message": "User created successfully"
+        }), 201
+
+    except Exception as e:
+        logging.error(f"[ERROR] Error in signup endpoint: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/login", methods=["POST", "OPTIONS"])
+def login():
+    """
+    Endpoint: POST /api/login
+    Purpose: Authenticate a user by email and return user info.
+
+    Request body:
+    {
+        "email": "user@example.com"
+    }
+
+    Response:
+    {
+        "success": true,
+        "user_id": "user-xxx",
+        "email": "user@example.com",
+        "name": "User Name",
+        "role": "volunteer" or "researcher"
+    }
+    """
+    if request.method == "OPTIONS":
+        return "", 200
+
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Missing request body"}), 400
+
+        email = data.get("email")
+
+        if not email:
+            return jsonify({"error": "Email is required"}), 400
+
+        # Initialize database if needed
+        init_db()
+
+        # Find user by email
+        user = get_user_by_email(email)
+        if not user:
+            return jsonify({
+                "error": "User not found. Please sign up first."
+            }), 404
+
+        logging.info(f"[INFO] User logged in: {user.user_id} ({user.role})")
+
+        return jsonify({
+            "success": True,
+            "user_id": user.user_id,
+            "email": user.email,
+            "name": user.name,
+            "role": user.role
+        }), 200
+
+    except Exception as e:
+        logging.error(f"[ERROR] Error in login endpoint: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/researcher/debug-id", methods=["GET", "OPTIONS"])
@@ -304,6 +451,93 @@ def get_debug_users():
 
     except Exception as e:
         logging.error(f"[ERROR] Error in get_debug_users endpoint: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/researcher/<researcher_id>/stats", methods=["GET", "OPTIONS"])
+def get_researcher_stats(researcher_id):
+    """
+    Endpoint: GET /api/researcher/<researcher_id>/stats
+    Purpose: Get aggregated statistics for a researcher profile.
+
+    Response:
+    {
+        "totalProjects": 5,
+        "completedProjects": 2,
+        "totalContributors": 150
+    }
+    """
+    try:
+        from backend.core.database import get_user_by_id, user_has_role, get_session
+        from backend.core.database import Project, Run, TaskResult
+        from sqlalchemy import func, distinct
+
+        # Validate user exists
+        user = get_user_by_id(researcher_id)
+        if not user:
+            return jsonify({"error": f"User {researcher_id} not found"}), 404
+
+        # Validate user has researcher role
+        if not user_has_role(researcher_id, "researcher"):
+            return jsonify({
+                "error": f"User {researcher_id} does not have 'researcher' role"
+            }), 403
+
+        with get_session() as session:
+            from backend.core.database import Task
+
+            # Get all projects for this researcher
+            projects = session.query(Project).filter_by(
+                researcher_id=researcher_id,
+                status="active"
+            ).all()
+
+            total_projects = len(projects)
+            completed_projects = 0
+
+            # Get unique contributors across all projects
+            all_contributors = set()
+
+            for project in projects:
+                # Check if project is completed (all tasks done)
+                runs = session.query(Run).filter_by(project_id=project.project_id).all()
+                total_tasks = 0
+                completed_tasks = 0
+
+                tasks = session.query(Task).join(Run).filter(
+                    Run.project_id == project.project_id
+                ).all()
+
+                for task in tasks:
+                    total_tasks += 1
+                    if task.status == "completed":
+                        completed_tasks += 1
+
+                if total_tasks > 0 and completed_tasks >= total_tasks:
+                    completed_projects += 1
+
+                # Get contributors for this project
+                contributors = session.query(distinct(TaskResult.worker_id)).filter(
+                    TaskResult.project_id == project.project_id,
+                    TaskResult.worker_id.isnot(None)
+                ).all()
+
+                for contrib in contributors:
+                    if contrib[0]:
+                        all_contributors.add(contrib[0])
+
+            total_contributors = len(all_contributors)
+
+            return jsonify({
+                "totalProjects": total_projects,
+                "completedProjects": completed_projects,
+                "totalContributors": total_contributors
+            }), 200
+
+    except Exception as e:
+        logging.error(f"[ERROR] Error in get_researcher_stats endpoint: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500

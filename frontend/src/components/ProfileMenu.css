@@ -1,6 +1,7 @@
 .profile-container {
     position: relative;
     align-self: flex-end;   /* sits at top right inside GradientInner */
+    z-index: 10000; /* Very high z-index to ensure it's above all content */
   }
 
   /* Profile button */
@@ -47,15 +48,13 @@
 
   /* Dropdown card */
   .profile-dropdown {
-    position: absolute;
-    right: 0;
-    top: 40px;
-
+    /* Position is set inline via React (fixed positioning) */
     background: white;
     border-radius: 8px;
     box-shadow: 0px 8px 20px rgba(0,0,0,0.08);
     padding: 10px 0;
     width: 190px;
+    min-width: 190px;
 
     display: flex;
     flex-direction: column;
@@ -86,4 +85,14 @@
   .logout {
     color: #b00020;
     font-weight: 500;
+  }
+
+  /* Switch profile item */
+  .switch-profile {
+    color: #667eea;
+    font-weight: 500;
+  }
+
+  .switch-profile:hover {
+    background: #f0f0ff;
   }

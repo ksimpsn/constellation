@@ -1,25 +1,58 @@
 import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { createPortal } from "react-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import "./ProfileMenu.css";
 
 export default function ProfileMenu() {
   const [open, setOpen] = useState(false);
+  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, right: 0 });
   const ref = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Determine if we're on researcher profile or volunteer profile
+  // Check for researcher routes (profile, dashboard, or any researcher-specific page)
+  const isResearcherProfile = location.pathname === '/researcher-profile' ||
+                               location.pathname === '/researcher' ||
+                               location.pathname.startsWith('/researcher');
+
+  // Check if we're on home page (don't show switch buttons on home)
+  const isHomePage = location.pathname === '/';
+
+  // Calculate dropdown position when opening
+  useEffect(() => {
+    if (open && ref.current) {
+      const rect = ref.current.getBoundingClientRect();
+      setDropdownPosition({
+        top: rect.bottom + 4, // 4px gap below button
+        right: window.innerWidth - rect.right, // Distance from right edge
+      });
+    }
+  }, [open]);
 
   // Close when clicking outside
   useEffect(() => {
+    if (!open) return;
+
     function handleClickOutside(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
+      const target = e.target as HTMLElement;
+      // Check if click is on button or dropdown
+      if (ref.current?.contains(target)) {
+        return; // Click is on button, don't close
       }
+      // Check if click is on dropdown (which is in portal)
+      if (target.closest('.profile-dropdown')) {
+        return; // Click is on dropdown, don't close
+      }
+      // Click is outside both, close dropdown
+      setOpen(false);
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  }, [open]);
 
   return (
-    <div className="profile-container" ref={ref}>
+    <div className="profile-container" ref={ref} style={{ zIndex: 10000, position: 'relative' }}>
       {/* Profile button */}
       <button className="profile-btn" onClick={() => setOpen(!open)}>
       <div className="profile-avatar">
@@ -36,30 +69,44 @@ export default function ProfileMenu() {
         <span className="profile-arrow">{open ? "▲" : "▼"}</span>
       </button>
 
-      {/* Dropdown */}
-      {open && (
-        <div className="profile-dropdown">
+      {/* Dropdown - rendered in portal to escape z-index constraints */}
+      {open && createPortal(
+        <div
+          className="profile-dropdown"
+          style={{
+            position: 'fixed',
+            top: `${dropdownPosition.top}px`,
+            right: `${dropdownPosition.right}px`,
+            zIndex: 99999,
+          }}
+        >
           <div
             className="dropdown-item"
-            onClick={() => {
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
               setOpen(false);
-              navigate("/profile");
+              navigate(isResearcherProfile ? "/researcher-profile" : "/profile");
             }}
           >
             My Profile
           </div>
           <div
             className="dropdown-item"
-            onClick={() => {
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
               setOpen(false);
-              navigate("/dashboard");   // route that renders Dashboard.tsx
+              navigate(isResearcherProfile ? "/researcher" : "/dashboard");
             }}
           >
             My Dashboard
           </div>
           <div
             className="dropdown-item"
-            onClick={() => {
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
               setOpen(false);
               navigate("/leaderboard");
             }}
@@ -68,7 +115,9 @@ export default function ProfileMenu() {
           </div>
           <div
             className="dropdown-item"
-            onClick={() => {
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
               setOpen(false);
               navigate("/settings");
             }}
@@ -76,10 +125,43 @@ export default function ProfileMenu() {
             Settings
           </div>
 
+          {/* Switch buttons - only show if not on home page */}
+          {!isHomePage && (
+            <>
+              <div className="dropdown-divider"></div>
+              {isResearcherProfile ? (
+                <div
+                  className="dropdown-item switch-profile"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setOpen(false);
+                    navigate("/profile");
+                  }}
+                >
+                  Switch to Volunteer
+                </div>
+              ) : (
+                <div
+                  className="dropdown-item switch-profile"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setOpen(false);
+                    navigate("/researcher-profile");
+                  }}
+                >
+                  Switch to Researcher
+                </div>
+              )}
+            </>
+          )}
+
           <div className="dropdown-divider"></div>
 
           <div className="dropdown-item logout">Log Out</div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
