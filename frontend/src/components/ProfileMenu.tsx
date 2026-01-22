@@ -61,6 +61,15 @@ export default function ProfileMenu() {
             className="dropdown-item"
             onClick={() => {
               setOpen(false);
+              navigate("/leaderboard");
+            }}
+          >
+            Leaderboard
+          </div>
+          <div
+            className="dropdown-item"
+            onClick={() => {
+              setOpen(false);
               navigate("/settings");
             }}
           >
