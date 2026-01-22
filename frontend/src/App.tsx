@@ -11,6 +11,7 @@ import Signup from "./pages/Signup.tsx";
 import ProjectDetails from "./pages/ProjectDetails.tsx";
 import Profile from "./pages/Profile.tsx";
 import Settings from "./pages/Settings.tsx";
+import Leaderboard from "./pages/Leaderboard.tsx";
 
 function App() {
   return (
@@ -26,6 +27,7 @@ function App() {
         <Route path="/signup" element={<Signup />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/leaderboard" element={<Leaderboard />} />
         <Route path="/project/:projectName" element={<ProjectDetails />} />
       </Routes>
     </BrowserRouter>
