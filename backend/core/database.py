@@ -14,6 +14,8 @@ from sqlalchemy.dialects.sqlite import JSON
 from contextlib import contextmanager
 from datetime import datetime
 import uuid
+import hashlib
+import json
 
 # Create SQLite database (local file: constellation.db)
 DATABASE_URL = "sqlite:///constellation.db"
@@ -39,7 +41,7 @@ class User(Base):
     user_metadata = Column("metadata", JSON, nullable=True)  # Flexible storage (signup reasons, preferences)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-
+    
     # Relationships
     projects = relationship("Project", back_populates="researcher", cascade="all, delete-orphan")
     workers = relationship("Worker", back_populates="owner", cascade="all, delete-orphan")
@@ -94,6 +96,12 @@ class Run(Base):
     results_s3_path = Column(String(1000), nullable=True)  # Will be S3 path, currently local path
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    verification_status = Column(String(50), nullable=True, index=True)
+    verification_attempts = Column(Integer, nullable=False, default=0)
+    verification_hash_attempt1 = Column(String(128), nullable=True)
+    verification_hash_attempt2 = Column(String(128), nullable=True)
+    verification_completed_at = Column(DateTime, nullable=True)
 
     # Relationships
     project = relationship("Project", back_populates="runs")
@@ -194,6 +202,10 @@ class TaskResult(Base):
     memory_used_mb = Column(Float, nullable=True)
     completed_at = Column(DateTime, nullable=False, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    result_hash = Column(String(128), nullable=True, index=True)
+    verification_status = Column(String(50), nullable=True, index=True)
+    verification_attempt = Column(Integer, nullable=False, default=1)
 
     # Relationships
     task = relationship("Task", back_populates="result")
@@ -467,8 +479,12 @@ def update_task(task_id: str, **kwargs) -> bool:
 
 def create_task_result(task_id: str, run_id: str, project_id: str, worker_id: str,
                        result_data: dict, runtime_seconds: float = None,
-                       memory_used_mb: float = None) -> TaskResult:
+                       memory_used_mb: float = None,
+                       verification_attempt: int = 1,
+                       verification_status: str = None) -> TaskResult:
     """Create a task result."""
+    result_hash = _hash_result(result_data)
+
     with SessionLocal() as session:
         result = TaskResult(
             task_id=task_id,
@@ -478,8 +494,12 @@ def create_task_result(task_id: str, run_id: str, project_id: str, worker_id: st
             result_data=result_data,
             runtime_seconds=runtime_seconds,
             memory_used_mb=memory_used_mb,
+            result_hash=result_hash,
+            verification_attempt=verification_attempt,
+            verification_status=verification_status,
             completed_at=datetime.utcnow()
         )
+
         session.add(result)
         session.commit()
         session.refresh(result)
@@ -570,6 +590,37 @@ def get_available_workers(limit: int = None) -> list:
             query = query.limit(limit)
         return query.all()
 
+def create_task_result(task_id: str, run_id: str, project_id: str, worker_id: str,
+                       result_data: dict, runtime_seconds: float = None,
+                       memory_used_mb: float = None,
+                       verification_attempt: int = 1,
+                       verification_status: str = None) -> TaskResult:
+
+    result_hash = _hash_result(result_data)
+
+    with SessionLocal() as session:
+        result = TaskResult(
+            task_id=task_id,
+            run_id=run_id,
+            project_id=project_id,
+            worker_id=worker_id,
+            result_data=result_data,
+            runtime_seconds=runtime_seconds,
+            memory_used_mb=memory_used_mb,
+            result_hash=result_hash,
+            verification_attempt=verification_attempt,
+            verification_status=verification_status,
+            completed_at=datetime.utcnow()
+        )
+
+        session.add(result)
+        session.commit()
+        session.refresh(result)
+        return result
+    
+def _hash_result(result_data):
+    serialized = json.dumps(result_data, sort_keys=True, default=str)
+    return hashlib.sha256(serialized.encode()).hexdigest()
 
 # Simple test connection function
 if __name__ == "__main__":

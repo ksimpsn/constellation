@@ -1,6 +1,8 @@
 import dill
 import ray
 import time
+import hashlib
+import json
 
 @ray.remote
 def compute_task(payload: dict):
@@ -21,11 +23,26 @@ def compute_task(payload: dict):
     chunk = payload["chunk"]
     params = payload["params"]
 
+    start_time = time.time()
+
     try:
         results = chunk * chunk
     except:
         results = chunk
-    return {"task_id": task_id, "results": results}
+
+    runtime_seconds = time.time() - start_time
+    result_hash = _hash_result(results)
+
+    runtime_context = ray.get_runtime_context()
+
+    return {
+        "task_id": task_id,
+        "results": results,
+        "runtime_seconds": runtime_seconds,
+        "result_hash": result_hash,
+        "node_id": runtime_context.get_node_id(),
+        "ray_worker_id": runtime_context.get_worker_id()
+    }
 
 @ray.remote
 def compute_uploaded_task(payload, func_bytes):
@@ -59,6 +76,7 @@ def compute_uploaded_task(payload, func_bytes):
             "task_id": task_id,
             "error": f"Function load failed: {type(e).__name__}: {e}",
             "runtime_seconds": runtime_seconds,
+            "result_hash": None,
             "node_id": node_id,  # For mapping to Worker.ray_node_id
             "ray_worker_id": ray_worker_id
         }
@@ -86,10 +104,21 @@ def compute_uploaded_task(payload, func_bytes):
     # Calculate total execution time
     runtime_seconds = time.time() - start_time
 
+    result_hash = _hash_result(results)
+
     return {
         "task_id": task_id,
         "results": results,
         "runtime_seconds": runtime_seconds,
+        "result_hash": result_hash,
         "node_id": node_id,  # For mapping to Worker.ray_node_id
         "ray_worker_id": ray_worker_id
     }
+
+def _hash_result(result_obj):
+    try:
+        serialized = json.dumps(result_obj, sort_keys=True, default=str)
+        return hashlib.sha256(serialized.encode()).hexdigest()
+    except Exception:
+        return None
+    
