@@ -7,6 +7,8 @@ import os
 import subprocess
 import warnings
 from backend.core.worker import compute_task, compute_uploaded_task
+import hashlib
+import json
 
 logging.basicConfig(level=logging.INFO)
 
@@ -213,3 +215,67 @@ class Cluster:
             logging.exception("[ERROR] Ray backend not initialized. Call start_cluster first.")
             raise RuntimeError("[ERROR] Ray backend not initialized. Call start_cluster first.")
         return ray.get(futures)
+    
+    def _hash_results(self, results):
+        """
+        Deterministic hash of task results for verification.
+        """
+        serialized = json.dumps(results, sort_keys=True, default=str)
+        return hashlib.sha256(serialized.encode()).hexdigest()
+
+    def _verify_attempts(self, results_attempt1, results_attempt2):
+        """
+        Compare two result sets using hashes.
+        """
+        hash1 = self._hash_results(results_attempt1)
+        hash2 = self._hash_results(results_attempt2)
+
+        status = "verified" if hash1 == hash2 else "disputed"
+
+        return status, hash1, hash2
+
+    def submit_tasks_with_verification(self, data: list[dict]):
+        """
+        Submit tasks twice and verify results.
+        """
+
+        logging.info("[VERIFICATION] Running Attempt 1")
+        futures1 = self.submit_tasks(data)
+        results1 = ray.get(futures1)
+
+        logging.info("[VERIFICATION] Running Attempt 2")
+        futures2 = self.submit_tasks(data)
+        results2 = ray.get(futures2)
+
+        status, hash1, hash2 = self._verify_attempts(results1, results2)
+
+        logging.info(f"[VERIFICATION] Status = {status}")
+
+        return {
+            "attempts": [results1, results2],
+            "verification_status": status,
+            "hashes": [hash1, hash2]
+        }
+
+    def submit_uploaded_tasks_with_verification(self, data: list[dict], func_bytes):
+        """
+        Submit uploaded tasks twice and verify results.
+        """
+
+        logging.info("[VERIFICATION] Running Uploaded Attempt 1")
+        futures1 = self.submit_uploaded_tasks(data, func_bytes)
+        results1 = ray.get(futures1)
+
+        logging.info("[VERIFICATION] Running Uploaded Attempt 2")
+        futures2 = self.submit_uploaded_tasks(data, func_bytes)
+        results2 = ray.get(futures2)
+
+        status, hash1, hash2 = self._verify_attempts(results1, results2)
+
+        logging.info(f"[VERIFICATION] Uploaded Status = {status}")
+
+        return {
+            "attempts": [results1, results2],
+            "verification_status": status,
+            "hashes": [hash1, hash2]
+        }

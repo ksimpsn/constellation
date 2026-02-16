@@ -343,8 +343,14 @@ class ConstellationAPI:
         # 8. Submit tasks to Ray
         # ---------------------------------------------------------
         print(f"[DEBUG] About to submit: {len(payloads)} payloads")
-        futures = self.server.submit_uploaded_tasks(payloads, fn_bytes)
+        # futures = self.server.submit_uploaded_tasks(payloads, fn_bytes)
+        execution = self.server.submit_uploaded_tasks_with_verification(payloads, fn_bytes)
+        futures = execution.get("futures", [])
         print(f"[DEBUG] Received {len(futures)} futures from submit_uploaded_tasks")
+        
+        verification_status = self._persist_verification_results(run.run_id, project.project_id, execution)
+        
+        update_run(run.run_id, status=verification_status, completed_at=datetime.utcnow())
         
         # Store futures mapped to run_id
         self.futures[run.run_id] = futures
@@ -383,11 +389,14 @@ class ConstellationAPI:
         ]
 
         # submit tasks to Ray
-        futures = self.server.submit_tasks(payloads)
+        execution = self.server.submit_tasks_with_verification(payloads)
+        verification_status = execution["verification_status"]
+
         # store futures in memory
-        self.futures[job_id] = futures
+        self.futures[job_id] = execution.get("futures", [])
 
         # store metadata in DB
+        save_job(job_id=job_id, data={"num_chunks": len(payloads)}, status=verification_status)
         # save_job(job_id=job_id, data=payloads, status="submitted")
         # FIXME: payloads contains a bunch of binary so may want to rethink
         # save_job(job_id=job_id, data={"num_chunks": len(payloads)}, status="submitted")
@@ -641,3 +650,38 @@ class ConstellationAPI:
         print(f"[ConstellationAPI] Verifying results for job: {job_id}")
         # TODO: Add redundancy check
         return True
+    
+    def _persist_verification_results(self, run_id, project_id, execution):
+        """
+        Store both verification attempts into TaskResult table.
+        """
+
+        verification_status = execution["verification_status"]
+        attempts = execution["attempts"]
+
+        with get_session() as session:
+            for attempt_id, attempt_results in enumerate(attempts, start=1):
+                for ray_result in attempt_results:
+                    task_id = ray_result.get("task_id")
+
+                    node_id = ray_result.get("node_id")
+                    worker = session.query(Worker).filter_by(ray_node_id=node_id).first()
+                    worker_id = worker.worker_id if worker else "worker-unknown"
+
+                    tr = TaskResult(
+                        task_id=task_id,
+                        run_id=run_id,
+                        project_id=project_id,
+                        worker_id=worker_id,
+                        attempt_id=attempt_id,
+                        verification_status=verification_status,
+                        result_data=ray_result.get("results"),
+                        result_hash=ray_result.get("result_hash"),
+                        runtime_seconds=ray_result.get("runtime_seconds"),
+                        completed_at=datetime.utcnow()
+                    )
+                    session.add(tr)
+
+            session.commit()
+
+        return verification_status
