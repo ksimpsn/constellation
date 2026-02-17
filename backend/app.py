@@ -111,12 +111,25 @@ def submit_job():
         return jsonify({"error": "Dataset must be CSV or JSON"}), 400
 
     # ✨ CALL THE CORRECT API FUNCTION
-    job_id = api.submit_uploaded_project(
-        code_path=py_path,
-        dataset_path=data_path,
-        file_type=ext,
-        func_name="main"  # optional
-    )
+    try:
+        job_id = api.submit_uploaded_project(
+            code_path=py_path,
+            dataset_path=data_path,
+            file_type=ext,
+            func_name="main"
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "error": str(e)
+        }), 500
+    # job_id = api.submit_uploaded_project(
+    #     code_path=py_path,
+    #     dataset_path=data_path,
+    #     file_type=ext,
+    #     func_name="main"  # optional
+    # )
 
     return jsonify({
         "message": "Job submitted successfully",
