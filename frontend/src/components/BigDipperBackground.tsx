@@ -1,10 +1,239 @@
-import React from 'react';
-
 interface BigDipperBackgroundProps {
   className?: string;
 }
 
-export function BigDipperBackground({ className = '' }: BigDipperBackgroundProps) {
+// Constellations with non-overlapping regions (no line crossings between constellations)
+// Each constellation occupies a distinct zone in the viewBox 0 0 1000 600
+
+const constellations = {
+  orion: {
+    stars: [
+      { x: 60, y: 75, r: 3.5 },
+      { x: 140, y: 65, r: 4 },
+      { x: 200, y: 78, r: 3.5 },
+    ],
+    lines: [
+      [0, 1],
+      [1, 2],
+    ],
+    region: "top-left",
+  },
+  bigDipper: {
+    stars: [
+      { x: 130, y: 210, r: 3 },
+      { x: 200, y: 190, r: 4 },
+      { x: 260, y: 230, r: 3 },
+      { x: 180, y: 270, r: 3.5 },
+      { x: 340, y: 170, r: 3 },
+      { x: 440, y: 150, r: 4 },
+      { x: 520, y: 130, r: 3.5 },
+    ],
+    lines: [
+      [0, 1],
+      [1, 2],
+      [2, 3],
+      [3, 0],
+      [1, 4],
+      [4, 5],
+      [5, 6],
+    ],
+    region: "left-center",
+  },
+  ursaMinor: {
+    stars: [
+      { x: 50, y: 400, r: 2.5 },
+      { x: 90, y: 370, r: 3 },
+      { x: 70, y: 340, r: 2.5 },
+      { x: 40, y: 360, r: 3 },
+      { x: 130, y: 350, r: 3 },
+      { x: 170, y: 330, r: 2.5 },
+      { x: 210, y: 315, r: 2.5 },
+    ],
+    lines: [
+      [0, 1],
+      [1, 2],
+      [2, 3],
+      [3, 0],
+      [1, 4],
+      [4, 5],
+      [5, 6],
+    ],
+    region: "bottom-left",
+  },
+  draco: {
+    stars: [
+      { x: 420, y: 110, r: 2.5 },
+      { x: 470, y: 130, r: 3 },
+      { x: 510, y: 100, r: 2.5 },
+      { x: 550, y: 125, r: 3 },
+      { x: 490, y: 155, r: 2.5 },
+      { x: 530, y: 175, r: 2.5 },
+    ],
+    lines: [
+      [0, 1],
+      [1, 2],
+      [2, 3],
+      [1, 4],
+      [4, 5],
+    ],
+    region: "center-top",
+  },
+  cassiopeia: {
+    stars: [
+      { x: 700, y: 55, r: 3 },
+      { x: 780, y: 35, r: 3.5 },
+      { x: 850, y: 50, r: 4 },
+      { x: 910, y: 70, r: 3.5 },
+      { x: 950, y: 60, r: 3 },
+    ],
+    lines: [
+      [0, 1],
+      [1, 2],
+      [2, 3],
+      [3, 4],
+    ],
+    region: "top-right",
+  },
+  hercules: {
+    stars: [
+      { x: 600, y: 255, r: 2.5 },
+      { x: 665, y: 235, r: 3 },
+      { x: 690, y: 285, r: 3.5 },
+      { x: 625, y: 305, r: 3 },
+    ],
+    lines: [
+      [0, 1],
+      [1, 2],
+      [2, 3],
+      [3, 0],
+    ],
+    region: "center-right",
+  },
+  coronaBorealis: {
+    stars: [
+      { x: 500, y: 330, r: 2.5 },
+      { x: 535, y: 310, r: 3 },
+      { x: 565, y: 315, r: 2.5 },
+      { x: 590, y: 340, r: 3 },
+      { x: 565, y: 365, r: 2.5 },
+      { x: 535, y: 370, r: 3 },
+    ],
+    lines: [
+      [0, 1],
+      [1, 2],
+      [2, 3],
+      [3, 4],
+      [4, 5],
+      [5, 0],
+    ],
+    region: "center",
+  },
+  cygnus: {
+    stars: [
+      { x: 300, y: 310, r: 2.5 },
+      { x: 310, y: 360, r: 3.5 },
+      { x: 320, y: 410, r: 2.5 },
+      { x: 280, y: 340, r: 2.5 },
+      { x: 340, y: 350, r: 2.5 },
+    ],
+    lines: [
+      [0, 1],
+      [1, 2],
+      [0, 3],
+      [0, 4],
+    ],
+    region: "center-left",
+  },
+  lyra: {
+    stars: [
+      { x: 670, y: 385, r: 2.5 },
+      { x: 735, y: 360, r: 3 },
+      { x: 810, y: 375, r: 3 },
+      { x: 770, y: 460, r: 6.5, isYou: true },
+      { x: 700, y: 435, r: 2.5 },
+      { x: 830, y: 440, r: 3 },
+      { x: 700, y: 535, r: 2.5 },
+      { x: 840, y: 535, r: 2.5 },
+      { x: 640, y: 425, r: 2 },
+      { x: 875, y: 410, r: 2.5 },
+      { x: 760, y: 350, r: 2.5 },
+      { x: 730, y: 445, r: 2 },
+    ],
+    lines: [
+      [0, 1],
+      [1, 2],
+      [2, 5],
+      [5, 3],
+      [3, 4],
+      [4, 0],
+      [3, 7],
+      [3, 6],
+      [4, 6],
+      [5, 7],
+      [0, 8],
+      [2, 9],
+      [1, 10],
+      [10, 3],
+      [4, 11],
+      [11, 3],
+    ],
+    region: "bottom-right",
+  },
+  pegasus: {
+    stars: [
+      { x: 820, y: 200, r: 2.5 },
+      { x: 900, y: 195, r: 3 },
+      { x: 910, y: 270, r: 3 },
+      { x: 830, y: 275, r: 2.5 },
+    ],
+    lines: [
+      [0, 1],
+      [1, 2],
+      [2, 3],
+      [3, 0],
+    ],
+    region: "right",
+  },
+  aquila: {
+    stars: [
+      { x: 480, y: 420, r: 2.5 },
+      { x: 540, y: 400, r: 3.5 },
+      { x: 520, y: 455, r: 2.5 },
+      { x: 500, y: 380, r: 2.5 },
+      { x: 560, y: 430, r: 2.5 },
+    ],
+    lines: [
+      [0, 1],
+      [1, 2],
+      [0, 3],
+      [1, 4],
+    ],
+    region: "bottom-center",
+  },
+};
+
+// Scattered background stars (no constellation lines)
+const scatteredStars = [
+  { x: 100, y: 140, r: 1 },
+  { x: 250, y: 100, r: 1.5 },
+  { x: 380, y: 200, r: 1 },
+  { x: 620, y: 170, r: 1.5 },
+  { x: 740, y: 150, r: 1 },
+  { x: 50, y: 280, r: 1 },
+  { x: 350, y: 260, r: 1.5 },
+  { x: 760, y: 320, r: 1 },
+  { x: 150, y: 480, r: 1.5 },
+  { x: 400, y: 500, r: 1 },
+  { x: 630, y: 450, r: 1.5 },
+  { x: 920, y: 400, r: 1 },
+  { x: 120, y: 50, r: 1 },
+  { x: 580, y: 90, r: 1.5 },
+  { x: 980, y: 180, r: 1 },
+  { x: 280, y: 450, r: 1 },
+  { x: 850, y: 555, r: 1.5 },
+];
+
+export function BigDipperBackground({ className = "" }: BigDipperBackgroundProps) {
   return (
     <div className={`absolute inset-0 pointer-events-none ${className}`}>
       <svg
@@ -12,210 +241,135 @@ export function BigDipperBackground({ className = '' }: BigDipperBackgroundProps
         viewBox="0 0 1000 600"
         preserveAspectRatio="xMidYMid meet"
       >
-        {/* Big Dipper Stars */}
         <defs>
           <radialGradient id="starGlow" cx="50%" cy="50%" r="50%">
             <stop offset="0%" stopColor="rgba(255, 255, 255, 0.8)" />
             <stop offset="70%" stopColor="rgba(255, 255, 255, 0.6)" />
             <stop offset="100%" stopColor="rgba(255, 255, 255, 0)" />
           </radialGradient>
+          {/* Yellow glow for "This is you" star */}
+          <radialGradient id="youStarGlow" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="rgba(255, 245, 200, 1)" />
+            <stop offset="50%" stopColor="rgba(255, 230, 150, 0.9)" />
+            <stop offset="100%" stopColor="rgba(255, 210, 100, 0.5)" />
+          </radialGradient>
+          <linearGradient id="shootingStarTrail" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="rgba(255, 255, 255, 0)" />
+            <stop offset="60%" stopColor="rgba(255, 255, 255, 0.5)" />
+            <stop offset="100%" stopColor="rgba(255, 255, 255, 1)" />
+          </linearGradient>
         </defs>
 
-        {/* Big Dipper - Bowl Stars */}
-        <circle cx="150" cy="200" r="3" fill="white" filter="drop-shadow(0 0 3px rgba(255, 255, 255, 0.8))" />
-        <circle cx="220" cy="180" r="4" fill="white" filter="drop-shadow(0 0 4px rgba(255, 255, 255, 0.8))" />
-        <circle cx="280" cy="220" r="3" fill="white" filter="drop-shadow(0 0 3px rgba(255, 255, 255, 0.8))" />
-        <circle cx="200" cy="280" r="3.5" fill="white" filter="drop-shadow(0 0 3.5px rgba(255, 255, 255, 0.8))" />
+        {/* Constellation stars and lines */}
+        {Object.entries(constellations).map(([key, { stars, lines }]) => (
+          <g key={key}>
+            {stars.map((s, i) => (
+              <g key={i}>
+                <circle
+                  cx={s.x}
+                  cy={s.y}
+                  r={s.r}
+                  fill={"isYou" in s && s.isYou ? "url(#youStarGlow)" : "white"}
+                  filter={"isYou" in s && s.isYou ? "drop-shadow(0 0 6px rgba(255, 230, 150, 0.9))" : "drop-shadow(0 0 3px rgba(255, 255, 255, 0.8))"}
+                  opacity={1}
+                />
+                {"isYou" in s && s.isYou && (
+                  <text
+                    x={s.x}
+                    y={s.y + 32}
+                    textAnchor="middle"
+                    fill="rgba(255, 250, 220, 0.95)"
+                    fontSize="14"
+                    fontFamily="'Space Grotesk', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+                  >
+                    This is you.
+                  </text>
+                )}
+              </g>
+            ))}
+            {lines.map(([a, b], i) => (
+              <line
+                key={i}
+                x1={stars[a].x}
+                y1={stars[a].y}
+                x2={stars[b].x}
+                y2={stars[b].y}
+                className={`animated-line line-delay-${(i % 7) + 1}`}
+              />
+            ))}
+          </g>
+        ))}
 
-        {/* Big Dipper - Handle Stars */}
-        <circle cx="380" cy="160" r="3" fill="white" filter="drop-shadow(0 0 3px rgba(255, 255, 255, 0.8))" />
-        <circle cx="480" cy="140" r="4" fill="white" filter="drop-shadow(0 0 4px rgba(255, 255, 255, 0.8))" />
-        <circle cx="580" cy="120" r="3.5" fill="white" filter="drop-shadow(0 0 3.5px rgba(255, 255, 255, 0.8))" />
+        {/* Scattered stars */}
+        {scatteredStars.map((s, i) => (
+          <circle
+            key={`scatter-${i}`}
+            cx={s.x}
+            cy={s.y}
+            r={s.r}
+            fill="white"
+            filter="drop-shadow(0 0 1.5px rgba(255, 255, 255, 0.6))"
+          />
+        ))}
 
-        {/* Ursa Minor (Little Dipper) - Bottom Left Stars */}
-        <circle cx="80" cy="380" r="2.5" fill="white" filter="drop-shadow(0 0 2.5px rgba(255, 255, 255, 0.8))" />
-        <circle cx="120" cy="350" r="3" fill="white" filter="drop-shadow(0 0 3px rgba(255, 255, 255, 0.8))" />
-        <circle cx="100" cy="320" r="2.5" fill="white" filter="drop-shadow(0 0 2.5px rgba(255, 255, 255, 0.8))" />
-        <circle cx="60" cy="340" r="3" fill="white" filter="drop-shadow(0 0 3px rgba(255, 255, 255, 0.8))" />
-        <circle cx="20" cy="360" r="2.5" fill="white" filter="drop-shadow(0 0 2.5px rgba(255, 255, 255, 0.8))" />
-        <circle cx="160" cy="330" r="3" fill="white" filter="drop-shadow(0 0 3px rgba(255, 255, 255, 0.8))" />
-        <circle cx="200" cy="310" r="2.5" fill="white" filter="drop-shadow(0 0 2.5px rgba(255, 255, 255, 0.8))" />
-        <circle cx="240" cy="290" r="2.5" fill="white" filter="drop-shadow(0 0 2.5px rgba(255, 255, 255, 0.8))" />
-
-        {/* Orion's Belt - Top Left Stars */}
-        <circle cx="50" cy="80" r="3.5" fill="white" filter="drop-shadow(0 0 3.5px rgba(255, 255, 255, 0.8))" />
-        <circle cx="120" cy="70" r="4" fill="white" filter="drop-shadow(0 0 4px rgba(255, 255, 255, 0.8))" />
-        <circle cx="190" cy="60" r="3.5" fill="white" filter="drop-shadow(0 0 3.5px rgba(255, 255, 255, 0.8))" />
-
-        {/* Cassiopeia - Top Right Stars */}
-        <circle cx="750" cy="60" r="3" fill="white" filter="drop-shadow(0 0 3px rgba(255, 255, 255, 0.8))" />
-        <circle cx="820" cy="40" r="3.5" fill="white" filter="drop-shadow(0 0 3.5px rgba(255, 255, 255, 0.8))" />
-        <circle cx="880" cy="50" r="4" fill="white" filter="drop-shadow(0 0 4px rgba(255, 255, 255, 0.8))" />
-        <circle cx="940" cy="70" r="3.5" fill="white" filter="drop-shadow(0 0 3.5px rgba(255, 255, 255, 0.8))" />
-        <circle cx="990" cy="80" r="3" fill="white" filter="drop-shadow(0 0 3px rgba(255, 255, 255, 0.8))" />
-
-        {/* Lyra - Bottom Right Stars */}
-        <circle cx="700" cy="400" r="3" fill="white" filter="drop-shadow(0 0 3px rgba(255, 255, 255, 0.8))" />
-        <circle cx="750" cy="380" r="3.5" fill="white" filter="drop-shadow(0 0 3.5px rgba(255, 255, 255, 0.8))" />
-        <circle cx="780" cy="420" r="4" fill="white" filter="drop-shadow(0 0 4px rgba(255, 255, 255, 0.8))" />
-        <circle cx="730" cy="440" r="3" fill="white" filter="drop-shadow(0 0 3px rgba(255, 255, 255, 0.8))" />
-
-        {/* Hercules (Keystone) - Center Right Stars */}
-        <circle cx="650" cy="250" r="2.5" fill="white" filter="drop-shadow(0 0 2.5px rgba(255, 255, 255, 0.8))" />
-        <circle cx="720" cy="230" r="3" fill="white" filter="drop-shadow(0 0 3px rgba(255, 255, 255, 0.8))" />
-        <circle cx="740" cy="280" r="3.5" fill="white" filter="drop-shadow(0 0 3.5px rgba(255, 255, 255, 0.8))" />
-        <circle cx="670" cy="300" r="3" fill="white" filter="drop-shadow(0 0 3px rgba(255, 255, 255, 0.8))" />
-
-        {/* Draco (Dragon) - Center Stars */}
-        <circle cx="400" cy="100" r="2" fill="white" filter="drop-shadow(0 0 2px rgba(255, 255, 255, 0.8))" />
-        <circle cx="450" cy="120" r="2.5" fill="white" filter="drop-shadow(0 0 2.5px rgba(255, 255, 255, 0.8))" />
-        <circle cx="500" cy="100" r="2" fill="white" filter="drop-shadow(0 0 2px rgba(255, 255, 255, 0.8))" />
-        <circle cx="550" cy="130" r="2.5" fill="white" filter="drop-shadow(0 0 2.5px rgba(255, 255, 255, 0.8))" />
-        <circle cx="600" cy="110" r="2" fill="white" filter="drop-shadow(0 0 2px rgba(255, 255, 255, 0.8))" />
-        <circle cx="470" cy="160" r="2.5" fill="white" filter="drop-shadow(0 0 2.5px rgba(255, 255, 255, 0.8))" />
-        <circle cx="510" cy="180" r="2" fill="white" filter="drop-shadow(0 0 2px rgba(255, 255, 255, 0.8))" />
-
-        {/* Extensive scattered starfield */}
-        <circle cx="100" cy="150" r="1" fill="white" filter="drop-shadow(0 0 1px rgba(255, 255, 255, 0.5))" />
-        <circle cx="200" cy="120" r="1.5" fill="white" filter="drop-shadow(0 0 1.5px rgba(255, 255, 255, 0.6))" />
-        <circle cx="300" cy="150" r="1" fill="white" filter="drop-shadow(0 0 1px rgba(255, 255, 255, 0.5))" />
-        <circle cx="350" cy="200" r="1.5" fill="white" filter="drop-shadow(0 0 1.5px rgba(255, 255, 255, 0.6))" />
-        <circle cx="450" cy="180" r="1" fill="white" filter="drop-shadow(0 0 1px rgba(255, 255, 255, 0.5))" />
-        <circle cx="550" cy="220" r="1.5" fill="white" filter="drop-shadow(0 0 1.5px rgba(255, 255, 255, 0.6))" />
-        <circle cx="650" cy="190" r="1" fill="white" filter="drop-shadow(0 0 1px rgba(255, 255, 255, 0.5))" />
-        <circle cx="750" cy="240" r="1.5" fill="white" filter="drop-shadow(0 0 1.5px rgba(255, 255, 255, 0.6))" />
-        <circle cx="850" cy="210" r="1" fill="white" filter="drop-shadow(0 0 1px rgba(255, 255, 255, 0.5))" />
-        <circle cx="950" cy="260" r="1.5" fill="white" filter="drop-shadow(0 0 1.5px rgba(255, 255, 255, 0.6))" />
-
-        <circle cx="50" cy="300" r="1" fill="white" filter="drop-shadow(0 0 1px rgba(255, 255, 255, 0.5))" />
-        <circle cx="150" cy="320" r="1.5" fill="white" filter="drop-shadow(0 0 1.5px rgba(255, 255, 255, 0.6))" />
-        <circle cx="250" cy="350" r="1" fill="white" filter="drop-shadow(0 0 1px rgba(255, 255, 255, 0.5))" />
-        <circle cx="350" cy="380" r="1.5" fill="white" filter="drop-shadow(0 0 1.5px rgba(255, 255, 255, 0.6))" />
-        <circle cx="450" cy="360" r="1" fill="white" filter="drop-shadow(0 0 1px rgba(255, 255, 255, 0.5))" />
-        <circle cx="550" cy="390" r="1.5" fill="white" filter="drop-shadow(0 0 1.5px rgba(255, 255, 255, 0.6))" />
-        <circle cx="650" cy="370" r="1" fill="white" filter="drop-shadow(0 0 1px rgba(255, 255, 255, 0.5))" />
-        <circle cx="750" cy="400" r="1.5" fill="white" filter="drop-shadow(0 0 1.5px rgba(255, 255, 255, 0.6))" />
-        <circle cx="850" cy="380" r="1" fill="white" filter="drop-shadow(0 0 1px rgba(255, 255, 255, 0.5))" />
-        <circle cx="950" cy="410" r="1.5" fill="white" filter="drop-shadow(0 0 1.5px rgba(255, 255, 255, 0.6))" />
-
-        <circle cx="75" cy="450" r="1" fill="white" filter="drop-shadow(0 0 1px rgba(255, 255, 255, 0.5))" />
-        <circle cx="175" cy="480" r="1.5" fill="white" filter="drop-shadow(0 0 1.5px rgba(255, 255, 255, 0.6))" />
-        <circle cx="275" cy="460" r="1" fill="white" filter="drop-shadow(0 0 1px rgba(255, 255, 255, 0.5))" />
-        <circle cx="375" cy="490" r="1.5" fill="white" filter="drop-shadow(0 0 1.5px rgba(255, 255, 255, 0.6))" />
-        <circle cx="475" cy="470" r="1" fill="white" filter="drop-shadow(0 0 1px rgba(255, 255, 255, 0.5))" />
-        <circle cx="575" cy="500" r="1.5" fill="white" filter="drop-shadow(0 0 1.5px rgba(255, 255, 255, 0.6))" />
-        <circle cx="675" cy="480" r="1" fill="white" filter="drop-shadow(0 0 1px rgba(255, 255, 255, 0.5))" />
-        <circle cx="775" cy="510" r="1.5" fill="white" filter="drop-shadow(0 0 1.5px rgba(255, 255, 255, 0.6))" />
-        <circle cx="875" cy="490" r="1" fill="white" filter="drop-shadow(0 0 1px rgba(255, 255, 255, 0.5))" />
-        <circle cx="975" cy="520" r="1.5" fill="white" filter="drop-shadow(0 0 1.5px rgba(255, 255, 255, 0.6))" />
-
-        <circle cx="125" cy="50" r="1" fill="white" filter="drop-shadow(0 0 1px rgba(255, 255, 255, 0.5))" />
-        <circle cx="225" cy="80" r="1.5" fill="white" filter="drop-shadow(0 0 1.5px rgba(255, 255, 255, 0.6))" />
-        <circle cx="325" cy="60" r="1" fill="white" filter="drop-shadow(0 0 1px rgba(255, 255, 255, 0.5))" />
-        <circle cx="425" cy="90" r="1.5" fill="white" filter="drop-shadow(0 0 1.5px rgba(255, 255, 255, 0.6))" />
-        <circle cx="525" cy="70" r="1" fill="white" filter="drop-shadow(0 0 1px rgba(255, 255, 255, 0.5))" />
-        <circle cx="625" cy="100" r="1.5" fill="white" filter="drop-shadow(0 0 1.5px rgba(255, 255, 255, 0.6))" />
-        <circle cx="725" cy="80" r="1" fill="white" filter="drop-shadow(0 0 1px rgba(255, 255, 255, 0.5))" />
-        <circle cx="825" cy="110" r="1.5" fill="white" filter="drop-shadow(0 0 1.5px rgba(255, 255, 255, 0.6))" />
-        <circle cx="925" cy="90" r="1" fill="white" filter="drop-shadow(0 0 1px rgba(255, 255, 255, 0.5))" />
+        {/* Shooting star - bottom left to top right every 5s */}
+        <g className="shooting-star">
+          {/* Trail - tail points toward bottom-left as star moves top-right */}
+          <line
+            x1="-60"
+            y1="60"
+            x2="0"
+            y2="0"
+            stroke="url(#shootingStarTrail)"
+            strokeWidth="2"
+            strokeLinecap="round"
+          />
+          {/* Head */}
+          <circle r="4" fill="white" filter="drop-shadow(0 0 6px rgba(255, 255, 255, 0.9))" />
+        </g>
 
         {/* Animated Connecting Lines */}
-        <style dangerouslySetInnerHTML={{
-          __html: `
-            @keyframes drawLine {
-              to {
-                stroke-dashoffset: 0;
+        <style
+          dangerouslySetInnerHTML={{
+            __html: `
+              @keyframes drawLine {
+                to { stroke-dashoffset: 0; }
               }
-            }
-
-            @keyframes disappearAndRestart {
-              0% {
-                opacity: 0.4;
-                stroke-dashoffset: 0;
+              @keyframes disappearAndRestart {
+                0% { opacity: 0.4; stroke-dashoffset: 0; }
+                15% { opacity: 0.4; }
+                30% { opacity: 0; stroke-dashoffset: 0; }
+                100% { opacity: 0; stroke-dashoffset: 1000; }
               }
-              10% {
-                opacity: 0.4;
-              }
-              20% {
-                opacity: 0;
-                stroke-dashoffset: 0;
-              }
-              100% {
-                opacity: 0;
+              .animated-line {
+                stroke: rgba(255, 255, 255, 0.4);
+                stroke-width: 1.5;
+                fill: none;
+                stroke-dasharray: 1000;
                 stroke-dashoffset: 1000;
+                animation: drawLine 0.4s ease-out forwards, disappearAndRestart 2.2s 0.5s infinite;
               }
-            }
+              .line-delay-1 { animation-delay: 0.05s; }
+              .line-delay-2 { animation-delay: 0.1s; }
+              .line-delay-3 { animation-delay: 0.15s; }
+              .line-delay-4 { animation-delay: 0.2s; }
+              .line-delay-5 { animation-delay: 0.25s; }
+              .line-delay-6 { animation-delay: 0.3s; }
+              .line-delay-7 { animation-delay: 0.35s; }
 
-            .animated-line {
-              stroke: rgba(255, 255, 255, 0.4);
-              stroke-width: 1.5;
-              fill: none;
-              stroke-dasharray: 1000;
-              stroke-dashoffset: 1000;
-              animation: drawLine 1s ease-out forwards, disappearAndRestart 6s 2s infinite;
-            }
-
-            .line-delay-1 { animation-delay: 0.1s; }
-            .line-delay-2 { animation-delay: 0.2s; }
-            .line-delay-3 { animation-delay: 0.3s; }
-            .line-delay-4 { animation-delay: 0.4s; }
-            .line-delay-5 { animation-delay: 0.5s; }
-            .line-delay-6 { animation-delay: 0.6s; }
-            .line-delay-7 { animation-delay: 0.7s; }
-          `
-        }} />
-
-        {/* Bowl connections */}
-        <line x1="150" y1="200" x2="220" y2="180" className="animated-line line-delay-1" />
-        <line x1="220" y1="180" x2="280" y2="220" className="animated-line line-delay-2" />
-        <line x1="280" y1="220" x2="200" y2="280" className="animated-line line-delay-3" />
-        <line x1="200" y1="280" x2="150" y2="200" className="animated-line line-delay-4" />
-
-        {/* Handle connections */}
-        <line x1="220" y1="180" x2="380" y2="160" className="animated-line line-delay-5" />
-        <line x1="380" y1="160" x2="480" y2="140" className="animated-line line-delay-6" />
-        <line x1="480" y1="140" x2="580" y2="120" className="animated-line line-delay-7" />
-
-        {/* Ursa Minor (Little Dipper) connections - Bowl */}
-        <line x1="80" y1="380" x2="120" y2="350" className="animated-line line-delay-1" />
-        <line x1="120" y1="350" x2="100" y2="320" className="animated-line line-delay-2" />
-        <line x1="100" y1="320" x2="60" y2="340" className="animated-line line-delay-3" />
-        <line x1="60" y1="340" x2="80" y2="380" className="animated-line line-delay-4" />
-
-        {/* Ursa Minor (Little Dipper) connections - Handle */}
-        <line x1="120" y1="350" x2="160" y2="330" className="animated-line line-delay-5" />
-        <line x1="160" y1="330" x2="200" y2="310" className="animated-line line-delay-6" />
-        <line x1="200" y1="310" x2="240" y2="290" className="animated-line line-delay-7" />
-
-        {/* Orion's Belt connections */}
-        <line x1="50" y1="80" x2="120" y2="70" className="animated-line line-delay-1" />
-        <line x1="120" y1="70" x2="190" y2="60" className="animated-line line-delay-2" />
-
-        {/* Cassiopeia (W shape) connections */}
-        <line x1="750" y1="60" x2="820" y2="40" className="animated-line line-delay-1" />
-        <line x1="820" y1="40" x2="880" y2="50" className="animated-line line-delay-2" />
-        <line x1="880" y1="50" x2="940" y2="70" className="animated-line line-delay-3" />
-        <line x1="940" y1="70" x2="990" y2="80" className="animated-line line-delay-4" />
-
-        {/* Lyra (diamond) connections */}
-        <line x1="700" y1="400" x2="750" y2="380" className="animated-line line-delay-1" />
-        <line x1="750" y1="380" x2="780" y2="420" className="animated-line line-delay-2" />
-        <line x1="780" y1="420" x2="730" y2="440" className="animated-line line-delay-3" />
-        <line x1="730" y1="440" x2="700" y2="400" className="animated-line line-delay-4" />
-
-        {/* Hercules (Keystone) connections */}
-        <line x1="650" y1="250" x2="720" y2="230" className="animated-line line-delay-1" />
-        <line x1="720" y1="230" x2="740" y2="280" className="animated-line line-delay-2" />
-        <line x1="740" y1="280" x2="670" y2="300" className="animated-line line-delay-3" />
-        <line x1="670" y1="300" x2="650" y2="250" className="animated-line line-delay-4" />
-
-        {/* Draco (Dragon) connections */}
-        <line x1="400" y1="100" x2="450" y2="120" className="animated-line line-delay-1" />
-        <line x1="450" y1="120" x2="500" y2="100" className="animated-line line-delay-2" />
-        <line x1="500" y1="100" x2="550" y2="130" className="animated-line line-delay-3" />
-        <line x1="550" y1="130" x2="600" y2="110" className="animated-line line-delay-4" />
-        <line x1="450" y1="120" x2="470" y2="160" className="animated-line line-delay-5" />
-        <line x1="470" y1="160" x2="510" y2="180" className="animated-line line-delay-6" />
+              @keyframes shootingStar {
+                0%, 79% { transform: translate(80, 560); opacity: 0; }
+                80% { transform: translate(80, 560); opacity: 1; }
+                96% { transform: translate(920, 40); opacity: 1; }
+                97%, 100% { transform: translate(80, 560); opacity: 0; }
+              }
+              .shooting-star {
+                transform-origin: 0 0;
+                animation: shootingStar 5s ease-in infinite;
+              }
+            `,
+          }}
+        />
       </svg>
     </div>
   );

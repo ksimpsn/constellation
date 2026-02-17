@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import GradientBackground from '../components/GradientBackground';
+import ConstellationStarfieldBackground from '../components/ConstellationStarfieldBackground';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5001";
 
@@ -61,77 +61,87 @@ const Login: React.FC = () => {
     }
   };
 
+  const inputStyle = {
+    width: '100%',
+    padding: '10px 12px',
+    marginTop: '6px',
+    fontSize: '16px',
+    border: '1px solid rgba(255, 255, 255, 0.3)',
+    borderRadius: '8px',
+    background: 'rgba(255, 255, 255, 0.1)',
+    color: 'white',
+  } as const;
+
   return (
-    <GradientBackground>
-      <h1 style={{ fontSize: '48px', marginTop: '40px' }}>Log In to Constellation</h1>
-      <form onSubmit={handleSubmit} style={{ maxWidth: '600px', width: '100%', marginTop: '20px' }}>
-        <div style={{ marginBottom: '15px' }}>
-          <label htmlFor="username" style={{ fontSize: '18px' }}>Username:</label>
-          <input
-            type="text"
-            id="username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            required
-            style={{ width: '100%', padding: '10px', marginTop: '5px', fontSize: '16px', border: '1px solid #ccc', borderRadius: '4px', background: 'rgba(255, 255, 255, 0.8)', color: '#555' }}
-            placeholder="Enter your username"
-          />
-        </div>
-        <div style={{ marginBottom: '15px' }}>
-          <label htmlFor="password" style={{ fontSize: '18px' }}>Password:</label>
-          <input
-            type="password"
-            id="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            style={{ width: '100%', padding: '10px', marginTop: '5px', fontSize: '16px', border: '1px solid #ccc', borderRadius: '4px', background: 'rgba(255, 255, 255, 0.8)', color: '#555' }}
-            placeholder="Enter your password"
-          />
-        </div>
+    <ConstellationStarfieldBackground>
+      <div className="absolute top-8 left-8 z-20">
+        <Link to="/" className="block w-[60px] h-[60px] opacity-90 hover:opacity-100 transition-opacity">
+          <img src="/src/assets/logo.png" alt="Constellation Home" className="w-full h-full object-contain" />
+        </Link>
+      </div>
+      <div className="absolute top-8 right-8 z-20 flex items-center gap-4">
+        <Link to="/signup" className="text-white/60 hover:text-white/90 transition-colors text-lg">
+          Sign Up
+        </Link>
+        <Link to="/" className="hover:opacity-80 transition-opacity">
+          <img src="/src/assets/logo.png" alt="Constellation Logo" className="h-10 w-auto" />
+        </Link>
+      </div>
 
-        <button
-          type="submit"
-          disabled={loading}
-          style={{
-            padding: '14px 28px',
-            background: loading ? '#999' : 'black',
-            color: 'white',
-            fontSize: '18px',
-            border: 'none',
-            borderRadius: '6px',
-            cursor: loading ? 'not-allowed' : 'pointer',
-            marginTop: '20px',
-            width: '100%'
-          }}
-        >
-          {loading ? 'Logging In...' : 'Log In'}
-        </button>
-
-        {message && (
-          <div style={{
-            marginTop: '15px',
-            padding: '12px',
-            borderRadius: '6px',
-            backgroundColor: message.includes('Error') ? '#fee' : '#efe',
-            color: message.includes('Error') ? '#c33' : '#3c3',
-            fontSize: '16px',
-            textAlign: 'center'
-          }}>
-            {message}
+      <div className="flex flex-col items-center justify-center min-h-screen px-6 py-24">
+        <h1 className="text-4xl md:text-5xl font-bold text-white/90 mb-8">Log In to Constellation</h1>
+        <form onSubmit={handleSubmit} className="w-full max-w-[600px] p-8 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
+          <div className="mb-5">
+            <label htmlFor="username" className="text-white/80 text-sm font-medium">Username</label>
+            <input
+              type="text"
+              id="username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              required
+              style={inputStyle}
+              placeholder="Enter your username"
+            />
           </div>
-        )}
-      </form>
-
-      <div style={{ marginTop: '30px', textAlign: 'center' }}>
-        <p style={{ fontSize: '16px', color: '#666' }}>
+          <div className="mb-5">
+            <label htmlFor="password" className="text-white/80 text-sm font-medium">Password</label>
+            <input
+              type="password"
+              id="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              style={inputStyle}
+              placeholder="Enter your password"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-3.5 px-6 rounded-xl font-medium text-white bg-white/20 hover:bg-white/30 border border-white/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loading ? 'Logging In...' : 'Log In'}
+          </button>
+          {message && (
+            <div
+              className="mt-4 p-3 rounded-lg text-center text-sm"
+              style={{
+                backgroundColor: message.includes('Error') ? 'rgba(254, 226, 226, 0.2)' : 'rgba(236, 253, 245, 0.2)',
+                color: message.includes('Error') ? '#fca5a5' : '#86efac',
+              }}
+            >
+              {message}
+            </div>
+          )}
+        </form>
+        <p className="mt-8 text-white/60 text-center">
           Don't have an account?{' '}
-          <Link to="/signup" style={{ color: '#667eea', fontWeight: 'bold', textDecoration: 'none' }}>
+          <Link to="/signup" className="text-white/90 hover:text-white font-medium underline">
             Sign Up
           </Link>
         </p>
       </div>
-    </GradientBackground>
+    </ConstellationStarfieldBackground>
   );
 };
 

@@ -1,5 +1,7 @@
-import GradientBackground from "../components/GradientBackground";
+import ConstellationStarfieldBackground from "../components/ConstellationStarfieldBackground";
+import AppNav from "../components/AppNav";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 
 interface Project {
   id: number;
@@ -20,49 +22,40 @@ export default function BrowseProjects() {
   const [expanded, setExpanded] = useState<number | null>(null);
 
   return (
-    <GradientBackground>
-      <h1 style={{ fontSize: "36px", marginBottom: "20px" }}>Browse Research Projects</h1>
+    <ConstellationStarfieldBackground>
+      <div className="absolute top-0 left-0 right-0 z-20 p-4">
+        <AppNav variant="dark" />
+      </div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-          gap: "20px",
-          width: "100%",
-        }}
-      >
-        {sampleProjects.map((proj) => (
-          <div
-            key={proj.id}
-            onClick={() => setExpanded(expanded === proj.id ? null : proj.id)}
-            style={{
-              background: "white",
-              borderRadius: "12px",
-              padding: "20px",
-              boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
-              cursor: "pointer",
-            }}
-          >
-            <h2 style={{ fontSize: "20px", margin: 0 }}>{proj.title}</h2>
+      <div className="px-6 py-24 pt-28 max-w-6xl mx-auto w-full">
+        <h1 className="text-4xl font-bold text-white/90 mb-8">Browse Research Projects</h1>
 
-            <p
-              style={{
-                marginTop: "10px",
-                color: "#444",
-                fontSize: "15px",
-              }}
+        <div
+          className="grid gap-5 w-full"
+          style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}
+        >
+          {sampleProjects.map((proj) => (
+            <div
+              key={proj.id}
+              onClick={() => setExpanded(expanded === proj.id ? null : proj.id)}
+              className="p-5 rounded-xl bg-white/5 backdrop-blur-sm border border-white/10 hover:bg-white/10 hover:border-white/20 cursor-pointer transition-all"
             >
-              {expanded === proj.id
-                ? proj.description
-                : proj.description.substring(0, 60) + "..."}
-            </p>
-          </div>
-        ))}
-      </div>
+              <h2 className="text-xl font-semibold text-white/90 m-0">{proj.title}</h2>
+              <p className="mt-2.5 text-white/70 text-[15px]">
+                {expanded === proj.id
+                  ? proj.description
+                  : proj.description.substring(0, 60) + "..."}
+              </p>
+            </div>
+          ))}
+        </div>
 
-      <div style={{ marginTop: "40px", textAlign: "center" }}>
-        <a href="/" style={{ fontSize: "18px", color: "black" }}>← Back to Home</a>
+        <div className="mt-10 text-center">
+          <Link to="/" className="text-lg text-white/70 hover:text-white transition-colors no-underline">
+            ← Back to Home
+          </Link>
+        </div>
       </div>
-    </GradientBackground>
+    </ConstellationStarfieldBackground>
   );
 }

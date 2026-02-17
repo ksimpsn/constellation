@@ -1,4 +1,6 @@
 import React, { useMemo } from 'react';
+import { Link } from 'react-router-dom';
+import AppNav from '../components/AppNav';
 
 export default function Security() {
   // Generate star positions and connections
@@ -119,47 +121,9 @@ export default function Security() {
         ))}
       </div>
 
-      {/* Primary Logo Navigation */}
-      <div className="absolute top-8 left-8 z-20">
-        <a href="/" style={{
-          display: 'block',
-          width: '60px',
-          height: '60px',
-          cursor: 'pointer',
-          opacity: 0.9,
-          transition: 'opacity 0.2s ease'
-        }}
-        onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
-        onMouseLeave={(e) => e.currentTarget.style.opacity = '0.9'}
-        >
-          <img
-            src="/src/assets/logo.png"
-            alt="Constellation Home"
-            style={{
-              width: '100%',
-              height: '100%',
-              objectFit: 'contain'
-            }}
-          />
-        </a>
-      </div>
-
-      {/* Navigation */}
-      <div className="absolute top-8 right-8 z-20 flex items-center gap-4">
-        <a
-          href="/why"
-          className="text-white/60 hover:text-white/90 transition-colors duration-300 text-lg hover:scale-110 transition-transform duration-200"
-          title="Back to Why Constellation?"
-        >
-          Why Constellation? ↑
-        </a>
-        <a href="/" className="hover:opacity-80 transition-opacity duration-200">
-          <img
-            src="/src/assets/logo.png"
-            alt="Constellation Logo"
-            className="h-10 w-auto"
-          />
-        </a>
+      {/* Top Navigation */}
+      <div className="absolute top-0 left-0 right-0 z-20 p-4">
+        <AppNav variant="dark" />
       </div>
 
       {/* Main Content */}
@@ -214,23 +178,23 @@ export default function Security() {
 
           {/* Navigation to Security Research */}
           <div className="pt-8">
-            <a
-              href="/security-research"
+            <Link
+              to="/security-research"
               className="inline-flex items-center gap-3 px-6 py-3 bg-white/10 backdrop-blur-md border border-white/20 rounded-xl text-white/80 hover:text-white hover:bg-white/20 transition-all duration-300 hover:scale-105 group"
             >
               <span>Security Research</span>
               <span className="group-hover:translate-x-1 transition-transform duration-300">→</span>
-            </a>
+            </Link>
           </div>
 
           {/* Bottom navigation */}
           <div className="pt-8 flex justify-center">
-            <a
-              href="/why"
+            <Link
+              to="/why"
               className="text-white/60 hover:text-white/90 transition-colors duration-300 text-lg hover:scale-110 transition-transform duration-200"
             >
               Why Constellation? ↑
-            </a>
+            </Link>
           </div>
         </div>
       </div>

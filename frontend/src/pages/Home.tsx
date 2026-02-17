@@ -1,5 +1,6 @@
+import { Link } from "react-router-dom";
 import { BigDipperBackground } from "../components/BigDipperBackground";
-import ProfileMenu from "../components/ProfileMenu";
+import AppNav from "../components/AppNav";
 
 const isElectron = typeof window !== "undefined" && Boolean(window.isElectron);
 
@@ -28,14 +29,9 @@ export default function Home() {
       {/* Big Dipper Background */}
       <BigDipperBackground />
 
-      {/* Sign Up Button */}
-      <div className="absolute top-8 right-8 z-20">
-        <a
-          href="/signup"
-          className="inline-flex items-center gap-2 px-4 py-2 bg-white/10 backdrop-blur-md border border-white/20 rounded-xl text-white/80 hover:text-white hover:bg-white/20 transition-all duration-300 hover:scale-105"
-        >
-          Sign Up
-        </a>
+      {/* Top Navigation */}
+      <div className="absolute top-0 left-0 right-0 z-20 p-4">
+        <AppNav variant="dark" />
       </div>
 
       {/* Content Overlay */}
@@ -76,13 +72,13 @@ export default function Home() {
             </button>
           )}
 
-          <a
-            href="/why"
+          <Link
+            to="/why"
             className="inline-flex items-center gap-2 px-6 py-3 bg-white/10 backdrop-blur-md border border-white/20 rounded-xl text-white/80 hover:text-white hover:bg-white/20 transition-all duration-300 hover:scale-105 group"
           >
             <span>Why Constellation?</span>
             <span className="group-hover:translate-y-1 transition-transform duration-300">↓</span>
-          </a>
+          </Link>
         </div>
       </div>
     </div>

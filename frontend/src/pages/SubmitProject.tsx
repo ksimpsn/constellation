@@ -1,5 +1,7 @@
-import GradientBackground from "../components/GradientBackground";
+import ConstellationStarfieldBackground from "../components/ConstellationStarfieldBackground";
+import AppNav from "../components/AppNav";
 import { useState, useEffect, useRef } from "react";
+import { Link } from "react-router-dom";
 
 export default function SubmitProject() {
   const [title, setTitle] = useState("");
@@ -115,211 +117,146 @@ export default function SubmitProject() {
     }
   }, [jobId, jobStatus]); // Re-run when jobId or jobStatus changes
 
+  const inputStyle = {
+    marginTop: "8px",
+    width: "100%",
+    padding: "12px",
+    fontSize: "16px",
+    borderRadius: "8px",
+    background: "rgba(255, 255, 255, 0.1)",
+    color: "white",
+    border: "1px solid rgba(255, 255, 255, 0.3)",
+  } as const;
+
   return (
-    <GradientBackground>
-      <h1 style={{ fontSize: "36px", marginBottom: "20px" }}>
-        Submit a Research Project
-      </h1>
+    <ConstellationStarfieldBackground>
+      <div className="absolute top-0 left-0 right-0 z-20 p-4">
+        <AppNav variant="dark" />
+      </div>
 
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: "25px",
-          width: "80%",
-          maxWidth: "700px",
-        }}
-      >
-        {/* Project Title */}
-        <div>
-          <label style={{ fontSize: "18px" }}>Project Title</label>
-          <input
-            type="text"
-            placeholder="e.g., Protein Folding Monte Carlo Simulation"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            style={{
-              marginTop: "10px",
-              width: "100%",
-              padding: "12px",
-              fontSize: "16px",
-              borderRadius: "6px",
-              background: "white",
-              color: "black",
-              border: "1px solid #ccc",
-              boxShadow: "0 2px 4px rgba(0,0,0,0.08)",
-            }}
-          />
-        </div>
+      <div className="px-6 py-24 pt-28 max-w-[700px] mx-auto w-full">
+        <h1 className="text-4xl font-bold text-white/90 mb-8">
+          Submit a Research Project
+        </h1>
 
-        {/* Description / Notes */}
-        <div>
-          <label style={{ fontSize: "18px" }}>Project Description / Notes</label>
-          <textarea
-            placeholder="Describe the purpose of the project, required resources, and what volunteers should know..."
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={6}
-            style={{
-              marginTop: "10px",
-              width: "100%",
-              padding: "12px",
-              fontSize: "16px",
-              borderRadius: "6px",
-              background: "white",
-              color: "black",
-              boxShadow: "0 2px 4px rgba(0,0,0,0.08)",
-              border: "1px solid #ccc",
-              resize: "vertical",
-            }}
-          />
-        </div>
+        <div className="flex flex-col gap-6 w-full p-8 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
+          <div>
+            <label className="text-white/80 text-sm font-medium">Project Title</label>
+            <input
+              type="text"
+              placeholder="e.g., Protein Folding Monte Carlo Simulation"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              style={inputStyle}
+            />
+          </div>
 
-        {/* Python File Upload */}
-        <div>
-          <label style={{ fontSize: "18px" }}>Upload Python Script (.py)</label>
-          <input
-            type="file"
-            accept=".py"
-            onChange={(e) => setPyFile(e.target.files?.[0] || null)}
-            style={{ marginTop: "10px" }}
-          />
+          <div>
+            <label className="text-white/80 text-sm font-medium">Project Description / Notes</label>
+            <textarea
+              placeholder="Describe the purpose of the project, required resources, and what volunteers should know..."
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={6}
+              style={{ ...inputStyle, resize: "vertical" }}
+            />
+          </div>
 
-          {pyFile && (
-            <p style={{ color: "#444", marginTop: "6px" }}>
-              Selected: <strong>{pyFile.name}</strong>
-            </p>
-          )}
-        </div>
-
-        {/* Dataset Upload */}
-        <div>
-          <label style={{ fontSize: "18px" }}>
-            Upload Dataset (.csv or .json)
-          </label>
-          <input
-            type="file"
-            accept=".csv,.json"
-            onChange={(e) => setDataFile(e.target.files?.[0] || null)}
-            style={{ marginTop: "10px" }}
-          />
-
-          {dataFile && (
-            <p style={{ color: "#444", marginTop: "6px" }}>
-              Selected: <strong>{dataFile.name}</strong>
-            </p>
-          )}
-        </div>
-
-        {/* Submit Button */}
-        <button
-          onClick={handleSubmit}
-          style={{
-            padding: "14px 28px",
-            background: "black",
-            color: "white",
-            fontSize: "18px",
-            border: "none",
-            borderRadius: "6px",
-            cursor: "pointer",
-            width: "fit-content",
-          }}
-        >
-          Submit Project
-        </button>
-
-        {/* Message */}
-        {message && (
-          <p style={{ color: "#333", marginTop: "10px", fontSize: "16px" }}>
-            {message}
-          </p>
-        )}
-
-        {/* Job status + results */}
-        {jobId !== null && (
-          <div
-            style={{
-              marginTop: "20px",
-              padding: "16px",
-              borderRadius: "8px",
-              background: "white",
-              boxShadow: "0 2px 4px rgba(0,0,0,0.08)",
-              color: "black",
-            }}
-          >
-            <p style={{ margin: 0, marginBottom: "8px" }}>
-              <strong>Job ID:</strong> {jobId}
-            </p>
-
-            <p style={{ margin: 0, marginBottom: "12px" }}>
-              <strong>Status:</strong>{" "}
-              <span
-                style={{
-                  color:
-                    jobStatus === "complete"
-                      ? "#2ecc71"
-                      : jobStatus === "running"
-                      ? "#3498db"
-                      : jobStatus === "error"
-                      ? "#e74c3c"
-                      : "#555",
-                  fontWeight: "600",
-                }}
-              >
-                {jobStatus ?? "submitted"}
-                {jobStatus === "running"}
-                {jobStatus === "complete"}
-              </span>
-            </p>
-
-            {/* Only show manual "Get Results" button if not auto-fetched yet */}
-            {jobStatus === "complete" && jobResults === null && (
-              <button
-                onClick={handleGetResults}
-                style={{
-                  padding: "10px 20px",
-                  background: "black",
-                  color: "white",
-                  fontSize: "16px",
-                  border: "none",
-                  borderRadius: "6px",
-                  cursor: "pointer",
-                  marginBottom: "12px",
-                }}
-              >
-                Get Results
-              </button>
-            )}
-
-            {jobResults !== null && (
-              <div
-                style={{
-                  marginTop: "8px",
-                  maxHeight: "200px",
-                  overflow: "auto",
-                  textAlign: "left",
-                  fontFamily: "monospace",
-                  fontSize: "13px",
-                  background: "#f5f5f5",
-                  padding: "10px",
-                  borderRadius: "6px",
-                }}
-              >
-                <strong>Results:</strong>
-                <pre style={{ marginTop: "6px", whiteSpace: "pre-wrap" }}>
-                  {JSON.stringify(jobResults, null, 2)}
-                </pre>
-              </div>
+          <div>
+            <label className="text-white/80 text-sm font-medium">Upload Python Script (.py)</label>
+            <input
+              type="file"
+              accept=".py"
+              onChange={(e) => setPyFile(e.target.files?.[0] || null)}
+              className="mt-2 block text-white/70 file:mr-3 file:py-2 file:px-4 file:rounded file:border-0 file:bg-white/20 file:text-white"
+            />
+            {pyFile && (
+              <p className="text-white/60 text-sm mt-1.5">
+                Selected: <strong className="text-white/80">{pyFile.name}</strong>
+              </p>
             )}
           </div>
-        )}
-      </div>
 
-      <div style={{ marginTop: "40px" }}>
-        <a href="/" style={{ fontSize: "18px", color: "black" }}>
-          ← Back to Home
-        </a>
+          <div>
+            <label className="text-white/80 text-sm font-medium">Upload Dataset (.csv or .json)</label>
+            <input
+              type="file"
+              accept=".csv,.json"
+              onChange={(e) => setDataFile(e.target.files?.[0] || null)}
+              className="mt-2 block text-white/70 file:mr-3 file:py-2 file:px-4 file:rounded file:border-0 file:bg-white/20 file:text-white"
+            />
+            {dataFile && (
+              <p className="text-white/60 text-sm mt-1.5">
+                Selected: <strong className="text-white/80">{dataFile.name}</strong>
+              </p>
+            )}
+          </div>
+
+          <button
+            onClick={handleSubmit}
+            className="w-fit py-3.5 px-6 rounded-xl font-medium text-white bg-white/20 hover:bg-white/30 border border-white/20 transition-colors cursor-pointer"
+          >
+            Submit Project
+          </button>
+
+          {message && (
+            <p className="text-white/80 text-base">{message}</p>
+          )}
+
+          {jobId !== null && (
+            <div className="mt-5 p-4 rounded-xl bg-white/5 border border-white/10 text-white/90">
+              <p className="m-0 mb-2">
+                <strong>Job ID:</strong> {jobId}
+              </p>
+              <p className="m-0 mb-3">
+                <strong>Status:</strong>{" "}
+                <span
+                  style={{
+                    color:
+                      jobStatus === "complete"
+                        ? "#86efac"
+                        : jobStatus === "running"
+                        ? "#93c5fd"
+                        : jobStatus === "error"
+                        ? "#fca5a5"
+                        : "rgba(255,255,255,0.8)",
+                    fontWeight: 600,
+                  }}
+                >
+                  {jobStatus ?? "submitted"}
+                </span>
+              </p>
+
+              {jobStatus === "complete" && jobResults === null && (
+                <button
+                  onClick={handleGetResults}
+                  className="py-2.5 px-5 bg-white/20 text-white text-base rounded-lg border border-white/20 cursor-pointer mb-3"
+                >
+                  Get Results
+                </button>
+              )}
+
+              {jobResults !== null && (
+                <div
+                  className="mt-2 max-h-[200px] overflow-auto text-left font-mono text-[13px] rounded-lg p-2.5"
+                  style={{ background: "rgba(0,0,0,0.2)" }}
+                >
+                  <strong>Results:</strong>
+                  <pre className="mt-1.5 whitespace-pre-wrap text-white/90">
+                    {JSON.stringify(jobResults, null, 2)}
+                  </pre>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="mt-10">
+          <Link to="/" className="text-lg text-white/70 hover:text-white transition-colors no-underline">
+            ← Back to Home
+          </Link>
+        </div>
       </div>
-    </GradientBackground>
+    </ConstellationStarfieldBackground>
   );
 }

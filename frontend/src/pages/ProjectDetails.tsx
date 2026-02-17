@@ -1,5 +1,6 @@
 import React from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import AppNav from '../components/AppNav';
 
 const projectData: Record<string, { name: string; progress: number }> = {
   'NeuroStream': { name: 'NeuroStream: Adaptive Modeling', progress: 60 },
@@ -117,6 +118,9 @@ export default function ProjectDetails() {
 
   return (
     <div style={nightSkyContainer}>
+      <div className="absolute top-0 left-0 right-0 z-20 p-4">
+        <AppNav variant="dark" />
+      </div>
       <div style={container}>
         <button style={backButton} onClick={() => navigate('/dashboard')}>
           ← Back to Dashboard
@@ -178,7 +182,7 @@ export default function ProjectDetails() {
 
 const backButton: React.CSSProperties = {
   position: 'absolute',
-  top: '20px',
+  top: '80px',
   left: '20px',
   backgroundColor: 'rgba(255, 255, 255, 0.2)',
   color: '#FFFFFF',

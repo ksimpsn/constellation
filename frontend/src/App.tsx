@@ -15,6 +15,7 @@ import ResearcherProfile from "./pages/ResearcherProfile.tsx";
 import Settings from "./pages/Settings.tsx";
 import Leaderboard from "./pages/Leaderboard.tsx";
 import BigDipperDemo from "./components/BigDipperDemo.tsx";
+import SecurityResearch from "./pages/SecurityResearch.tsx";
 
 function App() {
   return (
@@ -24,6 +25,7 @@ function App() {
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/why" element={<Why />} />
         <Route path="/security" element={<Security />} />
+        <Route path="/security-research" element={<SecurityResearch />} />
         <Route path="/browse" element={<BrowseProjects />} />
         <Route path="/submit" element={<SubmitProject />} />
         <Route path="/researcher" element={<ResearcherDashboard />} />
