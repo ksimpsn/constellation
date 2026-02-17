@@ -52,8 +52,10 @@ class Cluster:
                     logging.info("[INFO] Connected to Ray head node on port 6379 (allowing remote connections)")
                 except subprocess.CalledProcessError as e:
                     # Show actual error from Ray command
-                    error_output = e.stderr.decode() if e.stderr else str(e)
-                    stdout_output = e.stdout.decode() if e.stdout else ""
+                    error_output = e.stderr if e.stderr else str(e)
+                    stdout_output = e.stdout if e.stdout else ""
+                    # error_output = e.stderr.decode() if e.stderr else str(e)
+                    # stdout_output = e.stdout.decode() if e.stdout else ""
                     logging.error(f"[ERROR] Failed to start Ray head node via command line:")
                     logging.error(f"[ERROR] Return code: {e.returncode}")
                     if stdout_output:

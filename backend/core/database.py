@@ -192,8 +192,12 @@ class TaskResult(Base):
     """Historical task execution results - matches Redshift task_results"""
     __tablename__ = "task_results"
 
+    __table_args__ = (
+        UniqueConstraint("task_id", "attempt_id", name="uix_task_attempt"),
+    )
+
     task_result_id = Column(String, primary_key=True, default=lambda: f"result-{uuid.uuid4()}")
-    task_id = Column(String, ForeignKey("tasks.task_id"), unique=True, nullable=False, index=True)
+    task_id = Column(String, ForeignKey("tasks.task_id"), nullable=False, index=True)
     run_id = Column(String, nullable=False, index=True)  # Denormalized for analytics
     project_id = Column(String, nullable=False, index=True)  # Denormalized for analytics
     worker_id = Column(String, ForeignKey("workers.worker_id"), nullable=False, index=True)
@@ -202,6 +206,8 @@ class TaskResult(Base):
     memory_used_mb = Column(Float, nullable=True)
     completed_at = Column(DateTime, nullable=False, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    
+    attempt_id = Column(Integer, nullable=False, default=0)
 
     result_hash = Column(String(128), nullable=True, index=True)
     verification_status = Column(String(50), nullable=True, index=True)
