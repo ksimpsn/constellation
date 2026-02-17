@@ -1,129 +1,100 @@
-import GradientBackground from "../components/GradientBackground";
+import ConstellationStarfieldBackground from "../components/ConstellationStarfieldBackground";
+import AppNav from "../components/AppNav";
 import { Link } from "react-router-dom";
 
 export default function Dashboard() {
   return (
-    <GradientBackground>
+    <ConstellationStarfieldBackground>
+      <div className="absolute top-0 left-0 right-0 z-20 p-4">
+        <AppNav variant="dark" />
+      </div>
 
-      <h1>My Dashboard</h1>
+      <div className="px-6 py-24 pt-28 max-w-6xl mx-auto w-full">
+        <h1 className="text-4xl font-bold text-white/90 mb-10">My Dashboard</h1>
 
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          width: "100%",
-          marginTop: "40px",
-          gap: "20px",
-        }}
-      >
-        <div style={card}>
-          <h2 style={cardTitle}>In-Progress</h2>
-          <ul style={list}>
-            <li style={progressItem}>
-              <Link to="/project/NeuroStream" style={linkStyle}>NeuroStream: Adaptive Modeling (60%)</Link>
-              <div style={{...progressBar, width: '60%'}}></div>
-            </li>
-            <li style={progressItem}>
-              <Link to="/project/HelixCompute" style={linkStyle}>HelixCompute: Task-Sharding (40%)</Link>
-              <div style={{...progressBar, width: '40%'}}></div>
-            </li>
-            <li style={progressItem}>
-              <Link to="/project/AuroraML" style={linkStyle}>AuroraML: Diagnostic Prediction (80%)</Link>
-              <div style={{...progressBar, width: '80%'}}></div>
-            </li>
-          </ul>
-        </div>
+        <div className="flex flex-col lg:flex-row justify-between gap-6 w-full">
+          <div className="flex-1 min-w-0 p-5 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10 overflow-y-auto min-h-[300px]">
+            <h2 className="text-xl font-semibold text-white/90 mt-0 mb-3">In-Progress</h2>
+            <ul className="list-none p-0 m-0 leading-relaxed">
+              <li className="mb-3 p-3 rounded-lg bg-white/5 border border-white/10 transition-all duration-200 hover:shadow-[0_0_24px_rgba(255,255,255,0.15)] hover:border-white/20 cursor-pointer">
+                <Link to="/project/NeuroStream" className="text-white/90 no-underline hover:text-white block">NeuroStream: Adaptive Modeling (60%)</Link>
+                <div className="h-1.5 rounded bg-blue-400/80 mt-1" style={{ width: '60%' }} />
+              </li>
+              <li className="mb-3 p-3 rounded-lg bg-white/5 border border-white/10 transition-all duration-200 hover:shadow-[0_0_24px_rgba(255,255,255,0.15)] hover:border-white/20 cursor-pointer">
+                <Link to="/project/HelixCompute" className="text-white/90 no-underline hover:text-white block">HelixCompute: Task-Sharding (40%)</Link>
+                <div className="h-1.5 rounded bg-blue-400/80 mt-1" style={{ width: '40%' }} />
+              </li>
+              <li className="mb-3 p-3 rounded-lg bg-white/5 border border-white/10 transition-all duration-200 hover:shadow-[0_0_24px_rgba(255,255,255,0.15)] hover:border-white/20 cursor-pointer">
+                <Link to="/project/AuroraML" className="text-white/90 no-underline hover:text-white block">AuroraML: Diagnostic Prediction (80%)</Link>
+                <div className="h-1.5 rounded bg-blue-400/80 mt-1" style={{ width: '80%' }} />
+              </li>
+            </ul>
+          </div>
 
-        <div style={card}>
-          <h2 style={cardTitle}>Completed</h2>
-          <ul style={list}>
-            <li style={progressItem}>
-              <Link to="/project/Berlin Marathon Analytics" style={linkStyle}>Berlin Marathon Analytics (100%)</Link>
-              <div style={{...completedProgressBar, width: '100%'}}></div>
-            </li>
-            <li style={progressItem}>
-              <Link to="/project/Deep Learning Research" style={linkStyle}>Deep Learning Research (100%)</Link>
-              <div style={{...completedProgressBar, width: '100%'}}></div>
-            </li>
-            <li style={progressItem}>
-              <Link to="/project/PTSD Detection Model" style={linkStyle}>PTSD Detection Model (100%)</Link>
-              <div style={{...completedProgressBar, width: '100%'}}></div>
-            </li>
-          </ul>
-        </div>
+          <div className="flex-1 min-w-0 p-5 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10 overflow-y-auto min-h-[300px]">
+            <h2 className="text-xl font-semibold text-white/90 mt-0 mb-3">Completed</h2>
+            <ul className="list-none p-0 m-0 leading-relaxed">
+              <li className="mb-3 p-3 rounded-lg bg-white/5 border border-white/10 transition-all duration-200 hover:shadow-[0_0_24px_rgba(255,255,255,0.15)] hover:border-white/20 cursor-pointer">
+                <Link to="/project/Berlin Marathon Analytics" className="text-white/90 no-underline hover:text-white block">Berlin Marathon Analytics (100%)</Link>
+                <div className="h-1.5 rounded bg-emerald-400/80 mt-1 w-full" />
+              </li>
+              <li className="mb-3 p-3 rounded-lg bg-white/5 border border-white/10 transition-all duration-200 hover:shadow-[0_0_24px_rgba(255,255,255,0.15)] hover:border-white/20 cursor-pointer">
+                <Link to="/project/Deep Learning Research" className="text-white/90 no-underline hover:text-white block">Deep Learning Research (100%)</Link>
+                <div className="h-1.5 rounded bg-emerald-400/80 mt-1 w-full" />
+              </li>
+              <li className="mb-3 p-3 rounded-lg bg-white/5 border border-white/10 transition-all duration-200 hover:shadow-[0_0_24px_rgba(255,255,255,0.15)] hover:border-white/20 cursor-pointer">
+                <Link to="/project/PTSD Detection Model" className="text-white/90 no-underline hover:text-white block">PTSD Detection Model (100%)</Link>
+                <div className="h-1.5 rounded bg-emerald-400/80 mt-1 w-full" />
+              </li>
+            </ul>
+          </div>
 
-        <div style={card}>
-          <h2 style={cardTitle}>Rewards</h2>
-          <ul style={list}>
-            <li style={rewardItem}>🏆 First project! </li>
-            <li style={rewardItem}>🏆 Contributed to 1 major published paper</li>
-            <li style={rewardItem}>🏆 Logged 50 sessions</li>
-          </ul>
+          <div className="flex-1 min-w-0 p-5 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10 overflow-visible min-h-[300px]">
+            <h2 className="text-xl font-semibold text-white/90 mt-0 mb-4">Trophy Case</h2>
+            <div className="space-y-1 pt-10">
+              {/* Top shelf */}
+              <div className="relative">
+                <div className="flex justify-around items-end gap-4 pb-2 px-2">
+                  <div className="group relative flex flex-col items-center">
+                    <div className="w-12 h-12 flex items-center justify-center text-3xl rounded-lg bg-amber-500/20 border border-amber-400/40 transition-all duration-200 hover:shadow-[0_0_28px_rgba(251,191,36,0.4)] hover:scale-110 hover:-translate-y-1 cursor-default">
+                      🏆
+                    </div>
+                    <span className="text-xs text-white/60 mt-1.5">First Project</span>
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 rounded-lg bg-white/95 text-slate-800 text-sm font-medium max-w-[200px] text-center opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 pointer-events-none z-10 shadow-lg">
+                      You completed your very first research contribution!
+                    </div>
+                  </div>
+                  <div className="group relative flex flex-col items-center">
+                    <div className="w-12 h-12 flex items-center justify-center text-3xl rounded-lg bg-amber-500/20 border border-amber-400/40 transition-all duration-200 hover:shadow-[0_0_28px_rgba(251,191,36,0.4)] hover:scale-110 hover:-translate-y-1 cursor-default">
+                      🏆
+                    </div>
+                    <span className="text-xs text-white/60 mt-1.5">Published</span>
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 rounded-lg bg-white/95 text-slate-800 text-sm font-medium max-w-[200px] text-center opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 pointer-events-none z-10 shadow-lg">
+                      Your work was included in 1 major published paper
+                    </div>
+                  </div>
+                </div>
+                <div className="h-3 rounded-sm w-full" style={{ background: 'linear-gradient(180deg, rgba(139,90,43,0.6) 0%, rgba(92,64,51,0.8) 50%, rgba(60,40,20,0.9) 100%)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15), 0 2px 4px rgba(0,0,0,0.3)' }} />
+              </div>
+              {/* Bottom shelf */}
+              <div className="relative">
+                <div className="flex justify-around items-end gap-4 pb-2 px-2">
+                  <div className="group relative flex flex-col items-center">
+                    <div className="w-12 h-12 flex items-center justify-center text-3xl rounded-lg bg-amber-500/20 border border-amber-400/40 transition-all duration-200 hover:shadow-[0_0_28px_rgba(251,191,36,0.4)] hover:scale-110 hover:-translate-y-1 cursor-default">
+                      🏆
+                    </div>
+                    <span className="text-xs text-white/60 mt-1.5">Dedicated</span>
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 rounded-lg bg-white/95 text-slate-800 text-sm font-medium max-w-[200px] text-center opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 pointer-events-none z-10 shadow-lg">
+                      You logged 50 contribution sessions
+                    </div>
+                  </div>
+                </div>
+                <div className="h-3 rounded-sm w-full" style={{ background: 'linear-gradient(180deg, rgba(139,90,43,0.6) 0%, rgba(92,64,51,0.8) 50%, rgba(60,40,20,0.9) 100%)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15), 0 2px 4px rgba(0,0,0,0.3)' }} />
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-    </GradientBackground>
+    </ConstellationStarfieldBackground>
   );
 }
-
-const card: React.CSSProperties = {
-  width: "30%",
-  height: "300px",
-  background: "rgba(255,255,255,0.15)",
-  borderRadius: "12px",
-  backdropFilter: "blur(10px)",
-  padding: "20px",
-  color: "black",
-  overflowY: "auto", // ⭐ scroll if content grows
-};
-
-const cardTitle = {
-  marginTop: 0,
-  marginBottom: "12px",
-  fontSize: "20px",
-  fontWeight: "600",
-};
-
-const list = {
-  listStyle: "none",
-  padding: 0,
-  margin: 0,
-  lineHeight: "1.6",
-};
-
-const rewardItem = {
-  background: "rgba(255, 255, 255, 0.8)",
-  padding: "8px 12px",
-  marginBottom: "8px",
-  borderRadius: "6px",
-  border: "1px solid rgba(0, 0, 0, 0.1)",
-  fontSize: "16px",
-};
-
-const progressItem = {
-  background: "rgba(255, 255, 255, 0.8)",
-  padding: "8px 12px",
-  marginBottom: "12px",
-  borderRadius: "6px",
-  border: "1px solid rgba(0, 0, 0, 0.1)",
-  fontSize: "16px",
-};
-
-const progressBar = {
-  height: "6px",
-  background: "#2196F3",
-  borderRadius: "3px",
-  marginTop: "4px",
-};
-
-const completedProgressBar = {
-  height: "6px",
-  background: "#4CAF50",
-  borderRadius: "3px",
-  marginTop: "4px",
-};
-
-const linkStyle: React.CSSProperties = {
-  textDecoration: "none",
-  color: "inherit",
-  cursor: "pointer",
-};

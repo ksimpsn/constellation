@@ -1,5 +1,16 @@
-import React, { useState } from 'react';
-import GradientBackground from '../components/GradientBackground';
+import { useState } from 'react';
+import ConstellationStarfieldBackground from '../components/ConstellationStarfieldBackground';
+import AppNav from '../components/AppNav';
+
+const inputStyle = {
+  padding: '12px 16px',
+  borderRadius: '8px',
+  fontSize: '16px',
+  outline: 'none',
+  background: 'rgba(255, 255, 255, 0.1)',
+  color: 'white',
+  border: '1px solid rgba(255, 255, 255, 0.3)',
+} as const;
 
 export default function Settings() {
   const [currentPassword, setCurrentPassword] = useState('');
@@ -19,290 +30,108 @@ export default function Settings() {
       alert('New passwords do not match');
       return;
     }
-    // Handle password reset logic here
     alert('Password reset functionality would be implemented here');
   };
 
   const handleAccountTypeChange = (e: React.FormEvent) => {
     e.preventDefault();
-    // Handle account type change logic here
     alert(`Account type changed to ${accountType}`);
   };
 
-  const handlePrivacyChange = (setting: keyof typeof privacySettings, value: any) => {
-    setPrivacySettings(prev => ({
-      ...prev,
-      [setting]: value
-    }));
+  const handlePrivacyChange = (setting: keyof typeof privacySettings, value: string | boolean) => {
+    setPrivacySettings(prev => ({ ...prev, [setting]: value }));
   };
 
   return (
-    <GradientBackground>
-      <h1 style={pageTitle}>Account Settings</h1>
+    <ConstellationStarfieldBackground>
+      <div className="absolute top-0 left-0 right-0 z-20 p-4">
+        <AppNav variant="dark" />
+      </div>
 
-      <div style={settingsContainer}>
-        {/* Password Reset Section */}
-        <div style={sectionCard}>
-          <h2 style={sectionTitle}>Reset Password</h2>
-          <form onSubmit={handlePasswordReset} style={form}>
-            <div style={formGroup}>
-              <label style={label}>Current Password</label>
-              <input
-                type="password"
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                style={input}
-                required
-              />
+      <div className="px-6 py-24 pt-28 max-w-[800px] mx-auto w-full flex flex-col gap-8">
+        <h1 className="text-4xl font-bold text-white/90 mb-2 text-center">Account Settings</h1>
+
+        <div className="p-6 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
+          <h2 className="text-xl font-bold text-white/90 m-0 mb-5">Reset Password</h2>
+          <form onSubmit={handlePasswordReset} className="flex flex-col gap-5">
+            <div className="flex flex-col gap-2">
+              <label className="text-white/80 text-sm font-medium">Current Password</label>
+              <input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} style={inputStyle} required />
             </div>
-            <div style={formGroup}>
-              <label style={label}>New Password</label>
-              <input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                style={input}
-                required
-              />
+            <div className="flex flex-col gap-2">
+              <label className="text-white/80 text-sm font-medium">New Password</label>
+              <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} style={inputStyle} required />
             </div>
-            <div style={formGroup}>
-              <label style={label}>Confirm New Password</label>
-              <input
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                style={input}
-                required
-              />
+            <div className="flex flex-col gap-2">
+              <label className="text-white/80 text-sm font-medium">Confirm New Password</label>
+              <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} style={inputStyle} required />
             </div>
-            <button type="submit" style={primaryButton}>Reset Password</button>
+            <button type="submit" className="w-fit py-3.5 px-6 rounded-xl font-medium text-white bg-white/20 hover:bg-white/30 border border-white/20 transition-colors cursor-pointer">
+              Reset Password
+            </button>
           </form>
         </div>
 
-        {/* Account Type Section */}
-        <div style={sectionCard}>
-          <h2 style={sectionTitle}>Account Type</h2>
-          <form onSubmit={handleAccountTypeChange} style={form}>
-            <div style={formGroup}>
-              <label style={label}>Current Account Type: <strong>{accountType}</strong></label>
-              <select
-                value={accountType}
-                onChange={(e) => setAccountType(e.target.value)}
-                style={select}
-              >
+        <div className="p-6 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
+          <h2 className="text-xl font-bold text-white/90 m-0 mb-5">Account Type</h2>
+          <form onSubmit={handleAccountTypeChange} className="flex flex-col gap-5">
+            <div className="flex flex-col gap-2">
+              <label className="text-white/80 text-sm font-medium">Current Account Type: <strong className="text-white/90">{accountType}</strong></label>
+              <select value={accountType} onChange={(e) => setAccountType(e.target.value)} style={inputStyle} className="cursor-pointer">
                 <option value="Researcher">Researcher</option>
                 <option value="Contributor">Contributor</option>
                 <option value="Institution">Institution</option>
               </select>
             </div>
-            <button type="submit" style={primaryButton}>Change Account Type</button>
+            <button type="submit" className="w-fit py-3.5 px-6 rounded-xl font-medium text-white bg-white/20 hover:bg-white/30 border border-white/20 transition-colors cursor-pointer">
+              Change Account Type
+            </button>
           </form>
         </div>
 
-        {/* Privacy Settings Section */}
-        <div style={sectionCard}>
-          <h2 style={sectionTitle}>Privacy Settings</h2>
-          <div style={privacySection}>
-            <div style={privacyItem}>
-              <label style={label}>Profile Visibility</label>
+        <div className="p-6 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
+          <h2 className="text-xl font-bold text-white/90 m-0 mb-5">Privacy Settings</h2>
+          <div className="flex flex-col gap-5">
+            <div className="flex flex-col gap-2">
+              <label className="text-white/80 text-sm font-medium">Profile Visibility</label>
               <select
                 value={privacySettings.profileVisibility}
                 onChange={(e) => handlePrivacyChange('profileVisibility', e.target.value)}
-                style={select}
+                style={inputStyle}
+                className="cursor-pointer"
               >
                 <option value="public">Public</option>
                 <option value="researchers">Researchers Only</option>
                 <option value="private">Private</option>
               </select>
             </div>
-
-            <div style={privacyItem}>
-              <label style={checkboxLabel}>
-                <input
-                  type="checkbox"
-                  checked={privacySettings.dataSharing}
-                  onChange={(e) => handlePrivacyChange('dataSharing', e.target.checked)}
-                  style={checkbox}
-                />
-                Allow anonymous data sharing for research insights
-              </label>
-            </div>
-
-            <div style={privacyItem}>
-              <label style={checkboxLabel}>
-                <input
-                  type="checkbox"
-                  checked={privacySettings.emailNotifications}
-                  onChange={(e) => handlePrivacyChange('emailNotifications', e.target.checked)}
-                  style={checkbox}
-                />
-                Receive email notifications
-              </label>
-            </div>
-
-            <div style={privacyItem}>
-              <label style={checkboxLabel}>
-                <input
-                  type="checkbox"
-                  checked={privacySettings.projectUpdates}
-                  onChange={(e) => handlePrivacyChange('projectUpdates', e.target.checked)}
-                  style={checkbox}
-                />
-                Receive project update notifications
-              </label>
-            </div>
+            <label className="flex items-center gap-3 text-white/80 cursor-pointer">
+              <input type="checkbox" checked={privacySettings.dataSharing} onChange={(e) => handlePrivacyChange('dataSharing', e.target.checked)} className="accent-purple-400 w-[18px] h-[18px] cursor-pointer" />
+              Allow anonymous data sharing for research insights
+            </label>
+            <label className="flex items-center gap-3 text-white/80 cursor-pointer">
+              <input type="checkbox" checked={privacySettings.emailNotifications} onChange={(e) => handlePrivacyChange('emailNotifications', e.target.checked)} className="accent-purple-400 w-[18px] h-[18px] cursor-pointer" />
+              Receive email notifications
+            </label>
+            <label className="flex items-center gap-3 text-white/80 cursor-pointer">
+              <input type="checkbox" checked={privacySettings.projectUpdates} onChange={(e) => handlePrivacyChange('projectUpdates', e.target.checked)} className="accent-purple-400 w-[18px] h-[18px] cursor-pointer" />
+              Receive project update notifications
+            </label>
           </div>
         </div>
 
-        {/* Additional Settings Section */}
-        <div style={sectionCard}>
-          <h2 style={sectionTitle}>Additional Settings</h2>
-          <div style={additionalSection}>
-            <button style={secondaryButton}>Download Account Data</button>
-            <button style={dangerButton}>Delete Account</button>
+        <div className="p-6 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
+          <h2 className="text-xl font-bold text-white/90 m-0 mb-5">Additional Settings</h2>
+          <div className="flex gap-4 flex-wrap">
+            <button type="button" className="py-3 px-6 rounded-xl font-medium text-white bg-white/10 hover:bg-white/20 border border-white/20 transition-colors cursor-pointer">
+              Download Account Data
+            </button>
+            <button type="button" className="py-3 px-6 rounded-xl font-medium text-white bg-red-500/80 hover:bg-red-500 border border-red-400/50 transition-colors cursor-pointer">
+              Delete Account
+            </button>
           </div>
         </div>
       </div>
-    </GradientBackground>
+    </ConstellationStarfieldBackground>
   );
 }
-
-const pageTitle: React.CSSProperties = {
-  fontSize: '48px',
-  fontWeight: 'bold',
-  color: '#333',
-  margin: '0 0 20px 0',
-  textAlign: 'center',
-};
-
-const settingsContainer: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '30px',
-  maxWidth: '800px',
-  width: '100%',
-};
-
-const sectionCard: React.CSSProperties = {
-  background: 'rgba(255, 255, 255, 0.95)',
-  borderRadius: '15px',
-  padding: '30px',
-  boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
-};
-
-const sectionTitle: React.CSSProperties = {
-  fontSize: '28px',
-  fontWeight: 'bold',
-  color: '#333',
-  margin: '0 0 20px 0',
-};
-
-const form: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '20px',
-};
-
-const formGroup: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '8px',
-};
-
-const label: React.CSSProperties = {
-  fontSize: '16px',
-  fontWeight: '600',
-  color: '#333',
-};
-
-const input: React.CSSProperties = {
-  padding: '12px 16px',
-  border: '2px solid #e1e5e9',
-  borderRadius: '8px',
-  fontSize: '16px',
-  transition: 'border-color 0.3s ease',
-  outline: 'none',
-  backgroundColor: 'white',
-  color: 'black',
-};
-
-const select: React.CSSProperties = {
-  padding: '12px 16px',
-  border: '2px solid #e1e5e9',
-  borderRadius: '8px',
-  fontSize: '16px',
-  backgroundColor: 'white',
-  color: 'black',
-  cursor: 'pointer',
-};
-
-const primaryButton: React.CSSProperties = {
-  backgroundColor: '#667eea',
-  color: 'white',
-  border: 'none',
-  padding: '15px 30px',
-  borderRadius: '8px',
-  fontSize: '16px',
-  fontWeight: 'bold',
-  cursor: 'pointer',
-  transition: 'background-color 0.3s ease',
-  alignSelf: 'flex-start',
-};
-
-const secondaryButton: React.CSSProperties = {
-  backgroundColor: '#6c757d',
-  color: 'white',
-  border: 'none',
-  padding: '12px 24px',
-  borderRadius: '8px',
-  fontSize: '16px',
-  fontWeight: 'bold',
-  cursor: 'pointer',
-  transition: 'background-color 0.3s ease',
-  marginRight: '15px',
-};
-
-const dangerButton: React.CSSProperties = {
-  backgroundColor: '#dc3545',
-  color: 'white',
-  border: 'none',
-  padding: '12px 24px',
-  borderRadius: '8px',
-  fontSize: '16px',
-  fontWeight: 'bold',
-  cursor: 'pointer',
-  transition: 'background-color 0.3s ease',
-};
-
-const privacySection: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '20px',
-};
-
-const privacyItem: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: '15px',
-};
-
-const checkboxLabel: React.CSSProperties = {
-  fontSize: '16px',
-  color: '#333',
-  cursor: 'pointer',
-  display: 'flex',
-  alignItems: 'center',
-  gap: '10px',
-};
-
-const checkbox: React.CSSProperties = {
-  width: '18px',
-  height: '18px',
-  cursor: 'pointer',
-};
-
-const additionalSection: React.CSSProperties = {
-  display: 'flex',
-  gap: '15px',
-  flexWrap: 'wrap',
-};

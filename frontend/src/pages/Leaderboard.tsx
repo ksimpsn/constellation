@@ -1,5 +1,12 @@
-import GradientBackground from "../components/GradientBackground";
-import shootingstar from "../assets/falling-shooting-stars.png";
+import ConstellationStarfieldBackground from "../components/ConstellationStarfieldBackground";
+import AppNav from "../components/AppNav";
+
+const RANK_MEDALS = ["🥇", "🥈", "🥉"] as const;
+const RANK_GLOWS = [
+  "rgba(251,191,36,0.4)",
+  "rgba(148,163,184,0.35)",
+  "rgba(180,83,9,0.35)",
+] as const;
 
 export default function Leaderboard() {
   const mostProjects = [
@@ -12,7 +19,7 @@ export default function Leaderboard() {
     { username: "Priya Shah", value: 11 },
     { username: "Michael Thompson", value: 10 },
     { username: "Sophia Martinez", value: 9 },
-    { username: "Ethan Brooks", value: 8 }
+    { username: "Ethan Brooks", value: 8 },
   ];
 
   const mostCompute = [
@@ -25,7 +32,7 @@ export default function Leaderboard() {
     { username: "Emily Nguyen", value: 129_600 },
     { username: "Priya Shah", value: 118_450 },
     { username: "Ethan Brooks", value: 107_300 },
-    { username: "Sophia Martinez", value: 95_750 }
+    { username: "Sophia Martinez", value: 95_750 },
   ];
 
   const mostTime = [
@@ -38,134 +45,156 @@ export default function Leaderboard() {
     { username: "Priya Shah", value: 1_010 },
     { username: "Sophia Martinez", value: 945 },
     { username: "Michael Thompson", value: 880 },
-    { username: "Ethan Brooks", value: 820 }
+    { username: "Ethan Brooks", value: 820 },
   ];
 
   const formatValue = (value: number, type: string) => {
-    if (type === 'compute') {
-      return `${(value / 1000).toFixed(1)}K CPU hours`;
-    } else if (type === 'time') {
-      return `${value} minutes`;
-    }
+    if (type === "compute") return `${(value / 1000).toFixed(1)}K CPU hrs`;
+    if (type === "time") return `${value} min`;
     return `${value} projects`;
   };
 
-  const ContributorList = ({ contributors, title, valueType }: {
-    contributors: Array<{username: string, value: number}>,
-    title: string,
-    valueType: string
+  const ContributorList = ({
+    contributors,
+    title,
+    valueType,
+    icon,
+    accentColor,
+  }: {
+    contributors: Array<{ username: string; value: number }>;
+    title: string;
+    valueType: string;
+    icon: string;
+    accentColor: string;
   }) => (
-    <div style={{
-      flex: 1,
-      padding: "20px",
-      backgroundColor: "rgba(255,255,255,0.1)",
-      borderRadius: "10px",
-      border: "2px solid rgba(255,255,255,0.3)",
-      margin: "0 10px",
-      minWidth: "300px"
-    }}>
-      <h2 style={{
-        fontSize: "24px",
-        marginBottom: "10px",
-        color: "#000",
-        textAlign: "center",
-        whiteSpace: "nowrap",
-        lineHeight: "1.2"
-      }}>
-        {title}
-      </h2>
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-        {contributors.map((contributor, index) => (
-          <div key={index} style={{
-            fontSize: "16px",
-            marginBottom: "8px",
-            color: "#000",
-            backgroundColor: "#fff",
-            padding: "8px 16px",
-            borderRadius: "5px",
-            width: "100%",
-            maxWidth: "320px",
-            fontWeight: index < 3 ? "bold" : "normal",
-            boxShadow: index < 3 ? "0 0 20px rgba(255, 215, 0, 0.6), 0 0 40px rgba(255, 215, 0, 0.4)" : "none",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between"
-          }}>
-            <span style={{ minWidth: "30px", fontWeight: "bold" }}>{index + 1})</span>
-            <span style={{ flex: 1, textAlign: "center", whiteSpace: "nowrap" }}>{contributor.username}</span>
-            <span style={{ minWidth: "80px", textAlign: "right" }}>{formatValue(contributor.value, valueType)}</span>
-          </div>
-        ))}
+    <div className="flex-1 min-w-[320px] max-w-[380px] p-6 rounded-2xl bg-white/[0.06] backdrop-blur-sm border border-white/10 hover:border-white/20 hover:shadow-[0_0_40px_rgba(255,255,255,0.08)] transition-all duration-300">
+      <div className="flex items-center justify-center gap-2 mb-5">
+        <span className="text-2xl">{icon}</span>
+        <h2 className="text-lg font-semibold text-white/95 text-center">{title}</h2>
+      </div>
+      <div className="flex flex-col gap-2">
+        {contributors.map((contributor, index) => {
+          const isTopThree = index < 3;
+          const medal = RANK_MEDALS[index];
+          const glow = RANK_GLOWS[index];
+          return (
+            <div
+              key={index}
+              className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 hover:scale-[1.02] hover:shadow-lg ${
+                isTopThree
+                  ? "bg-white/10 border border-white/20"
+                  : "bg-white/5 border border-white/10 hover:border-white/15 hover:bg-white/8"
+              }`}
+              style={
+                isTopThree
+                  ? { boxShadow: `0 0 24px ${glow}` }
+                  : undefined
+              }
+            >
+              <span className="text-xl w-8 shrink-0 text-center tabular-nums">
+                {medal ?? index + 1}
+              </span>
+              <span
+                className={`flex-1 truncate font-medium ${
+                  isTopThree ? "text-white" : "text-white/90"
+                }`}
+              >
+                {contributor.username}
+              </span>
+              <span
+                className="text-sm font-semibold shrink-0 tabular-nums"
+                style={{ color: accentColor }}
+              >
+                {formatValue(contributor.value, valueType)}
+              </span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 
   return (
-    <GradientBackground>
-      <div style={{ width: "100%", textAlign: "center", marginTop: "10px", position: "relative" }}>
-        {/* Shooting Star Element */}
-        <div style={{
-          position: "absolute",
-          left: "10%",
-          top: "50%",
-          transform: "translateY(-50%)",
-          zIndex: 10
-        }}>
-          <img
-            src={shootingstar}
-            alt="Shooting Star"
+    <ConstellationStarfieldBackground>
+      <div className="absolute top-0 left-0 right-0 z-20 p-4">
+        <AppNav variant="dark" />
+      </div>
+
+      <div className="px-6 py-24 pt-36 max-w-7xl mx-auto w-full">
+        {/* Hero */}
+        <div className="text-center mb-14">
+          <div className="inline-flex items-center gap-2 text-amber-400/90 text-sm font-medium mb-3 tracking-wider uppercase">
+            <span className="opacity-80">✦</span> Top Contributors <span className="opacity-80">✦</span>
+          </div>
+          <h1
+            className="text-4xl md:text-6xl font-bold tracking-tight m-0"
             style={{
-              width: "80px",
-              height: "80px"
+              background: "linear-gradient(135deg, #fff 0%, #e2e8f0 40%, #cbd5e1 100%)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              backgroundClip: "text",
+              textShadow: "0 0 60px rgba(255,255,255,0.2)",
             }}
-            onError={(e) => {
-              console.log('Image failed to load:', shootingstar);
-              e.currentTarget.style.display = 'none';
-            }}
-          />
+          >
+            Leaderboard
+          </h1>
+          <p className="text-white/60 text-lg mt-3 max-w-xl mx-auto">
+            Celebrating the stars who power research forward
+          </p>
         </div>
 
-        <h1 style={{
-          fontSize: "48px",
-          color: "#000",
-          border: "3px solid #000",
-          borderRadius: "10px",
-          padding: "15px",
-          backgroundColor: "rgba(255,255,255,0.5)",
-          display: "inline-block",
-          margin: "0"
-        }}>
-          Top Contributors Leaderboard
-        </h1>
+        {/* Podium highlight - top 3 across all categories */}
+        <div className="mb-12 p-6 rounded-2xl bg-gradient-to-br from-amber-500/10 via-transparent to-amber-600/5 border border-amber-400/20">
+          <h3 className="text-center text-white/80 text-sm font-medium mb-4 uppercase tracking-wider">
+            Hall of Fame
+          </h3>
+          <div className="flex justify-center items-end gap-4 md:gap-8 max-w-2xl mx-auto">
+            <div className="flex flex-col items-center flex-1 max-w-[120px]">
+              <span className="text-3xl mb-1">🥈</span>
+              <span className="text-white font-semibold text-center text-sm truncate w-full">{mostProjects[1]?.username}</span>
+              <div className="w-full h-16 mt-2 rounded-t-lg bg-gradient-to-t from-slate-600/60 to-slate-400/30 border border-slate-400/30" />
+              <span className="text-xs text-white/60 mt-1">2nd</span>
+            </div>
+            <div className="flex flex-col items-center flex-1 max-w-[140px]">
+              <span className="text-4xl mb-1">🥇</span>
+              <span className="text-white font-bold text-center text-base truncate w-full">{mostProjects[0]?.username}</span>
+              <div className="w-full h-24 mt-2 rounded-t-lg bg-gradient-to-t from-amber-700/70 to-amber-400/40 border border-amber-400/40 shadow-[0_0_30px_rgba(251,191,36,0.3)]" />
+              <span className="text-xs text-amber-300/90 font-semibold mt-1">1st</span>
+            </div>
+            <div className="flex flex-col items-center flex-1 max-w-[120px]">
+              <span className="text-3xl mb-1">🥉</span>
+              <span className="text-white font-semibold text-center text-sm truncate w-full">{mostProjects[2]?.username}</span>
+              <div className="w-full h-12 mt-2 rounded-t-lg bg-gradient-to-t from-amber-800/60 to-amber-700/30 border border-amber-600/30" />
+              <span className="text-xs text-white/60 mt-1">3rd</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Category columns */}
+        <div className="flex flex-wrap justify-center gap-6">
+          <ContributorList
+            contributors={mostProjects}
+            title="Most Projects"
+            valueType="projects"
+            icon="📂"
+            accentColor="rgb(96, 165, 250)"
+          />
+          <ContributorList
+            contributors={mostCompute}
+            title="Most Compute"
+            valueType="compute"
+            icon="⚡"
+            accentColor="rgb(167, 139, 250)"
+          />
+          <ContributorList
+            contributors={mostTime}
+            title="Most Time"
+            valueType="time"
+            icon="⏱"
+            accentColor="rgb(74, 222, 128)"
+          />
+        </div>
       </div>
-
-      <div style={{
-        marginTop: "40px",
-        maxWidth: "1200px",
-        margin: "40px auto 0",
-        display: "flex",
-        justifyContent: "center",
-        gap: "20px",
-        flexWrap: "wrap"
-      }}>
-        <ContributorList
-          contributors={mostProjects}
-          title="Most Projects Contributed To"
-          valueType="projects"
-        />
-
-        <ContributorList
-          contributors={mostCompute}
-          title="Most Compute Contributed"
-          valueType="compute"
-        />
-
-        <ContributorList
-          contributors={mostTime}
-          title="Most Time Contributed"
-          valueType="time"
-        />
-      </div>
-    </GradientBackground>
+    </ConstellationStarfieldBackground>
   );
 }
