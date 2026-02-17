@@ -1,13 +1,14 @@
 import React from "react";
+import { Link } from "react-router-dom";
 import GradientBackground from "../components/GradientBackground";
 
 export default function SecurityResearch() {
   return (
     <GradientBackground>
       <div style={{ marginTop: "auto", textAlign: "center", alignSelf: "center" }}>
-        <a href="/security" style={{ fontSize: "18px", color: "black" }}>
+        <Link to="/security" style={{ fontSize: "18px", color: "black", textDecoration: "none" }}>
           ← Privacy & Security
-        </a>
+        </Link>
       </div>
       <h1>Security Research</h1>
 
@@ -88,7 +89,7 @@ export default function SecurityResearch() {
       </div>
 
       <div style={{ textAlign: "center", marginTop: "40px" }}>
-        <a href="/signup" style={{
+        <Link to="/signup" style={{
           background: "linear-gradient(45deg, #2196F3, #21CBF3)",
           color: "white",
           padding: "12px 28px",
@@ -97,7 +98,7 @@ export default function SecurityResearch() {
           display: "inline-block"
         }}>
           Join Secure Computing
-        </a>
+        </Link>
       </div>
     </GradientBackground>
   );

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import GradientBackground from '../components/GradientBackground';
+import ConstellationStarfieldBackground from '../components/ConstellationStarfieldBackground';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5001";
 
@@ -79,105 +79,124 @@ const Signup: React.FC = () => {
     }
   };
 
+  const inputStyle = {
+    width: '100%',
+    padding: '10px 12px',
+    marginTop: '6px',
+    fontSize: '16px',
+    border: '1px solid rgba(255, 255, 255, 0.3)',
+    borderRadius: '8px',
+    background: 'rgba(255, 255, 255, 0.1)',
+    color: 'white',
+  } as const;
+
   return (
-    <GradientBackground>
-      <h1 style={{ fontSize: '48px', marginTop: '40px' }}>Sign Up for Constellation</h1>
-      <form onSubmit={handleSubmit} style={{ maxWidth: '600px', width: '100%', marginTop: '20px' }}>
-        <div style={{ marginBottom: '15px' }}>
-          <label htmlFor="name" style={{ fontSize: '18px' }}>Name:</label>
-          <input
-            type="text"
-            id="name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-            style={{ width: '100%', padding: '10px', marginTop: '5px', fontSize: '16px', border: '1px solid #ccc', borderRadius: '4px', background: 'rgba(255, 255, 255, 0.8)', color: '#555' }}
-          />
-        </div>
-        <div style={{ marginBottom: '15px' }}>
-          <label htmlFor="email" style={{ fontSize: '18px' }}>Email:</label>
-          <input
-            type="email"
-            id="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            style={{ width: '100%', padding: '10px', marginTop: '5px', fontSize: '16px', border: '1px solid #ccc', borderRadius: '4px', background: 'rgba(255, 255, 255, 0.8)', color: '#555' }}
-          />
-        </div>
-        <div style={{ marginBottom: '15px' }}>
-          <label htmlFor="role" style={{ fontSize: '18px' }}>Role:</label>
-          <select
-            id="role"
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
-            required
-            style={{ width: '100%', padding: '10px', marginTop: '5px', fontSize: '16px', border: '1px solid #ccc', borderRadius: '4px', background: 'rgba(255, 255, 255, 0.8)', color: role === '' ? '#555' : 'black' }}
-          >
-            <option value="">Select your role</option>
-            <option value="researcher">Researcher</option>
-            <option value="contributor">Contributor</option>
-          </select>
-        </div>
-        <div style={{ marginBottom: '15px' }}>
-          <label style={{ fontSize: '18px' }}>Why are you using Constellation? (Select all that apply)</label>
-          <div style={{ marginTop: '10px' }}>
-            {reasonOptions.map((reason) => (
-              <div key={reason} style={{ marginBottom: '5px' }}>
-                <input
-                  type="checkbox"
-                  id={reason}
-                  checked={reasons.includes(reason)}
-                  onChange={() => handleReasonChange(reason)}
-                  style={{ marginRight: '10px', background: 'rgba(255, 255, 255, 0.8)', accentColor: '#5a1d91' }}
-                />
-                <label htmlFor={reason} style={{ fontSize: '16px' }}>{reason}</label>
-              </div>
-            ))}
-          </div>
-        </div>
-        <button
-          type="submit"
-          disabled={loading}
-          style={{
-            padding: '14px 28px',
-            background: loading ? '#999' : 'black',
-            color: 'white',
-            fontSize: '18px',
-            border: 'none',
-            borderRadius: '6px',
-            cursor: loading ? 'not-allowed' : 'pointer',
-            marginTop: '20px',
-            width: '100%'
-          }}
+    <ConstellationStarfieldBackground>
+      {/* Top bar - logo and Log In */}
+      <div className="absolute top-8 left-8 z-20">
+        <Link to="/" className="block w-[60px] h-[60px] opacity-90 hover:opacity-100 transition-opacity">
+          <img src="/src/assets/logo.png" alt="Constellation Home" className="w-full h-full object-contain" />
+        </Link>
+      </div>
+      <div className="absolute top-8 right-8 z-20 flex items-center gap-4">
+        <Link
+          to="/login"
+          className="text-white/60 hover:text-white/90 transition-colors text-lg"
+          title="Log in"
         >
-          {loading ? 'Signing Up...' : 'Sign Up'}
-        </button>
+          Log In
+        </Link>
+        <Link to="/" className="hover:opacity-80 transition-opacity">
+          <img src="/src/assets/logo.png" alt="Constellation Logo" className="h-10 w-auto" />
+        </Link>
+      </div>
 
-        {message && (
-          <div style={{
-            marginTop: '15px',
-            padding: '12px',
-            borderRadius: '6px',
-            backgroundColor: message.includes('Error') ? '#fee' : '#efe',
-            color: message.includes('Error') ? '#c33' : '#3c3',
-            fontSize: '16px',
-            textAlign: 'center'
-          }}>
-            {message}
+      <div className="flex flex-col items-center justify-center min-h-screen px-6 py-24">
+        <h1 className="text-4xl md:text-5xl font-bold text-white/90 mb-8">Sign Up for Constellation</h1>
+        <form onSubmit={handleSubmit} className="w-full max-w-[600px] p-8 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
+          <div className="mb-5">
+            <label htmlFor="name" className="text-white/80 text-sm font-medium">Name</label>
+            <input
+              type="text"
+              id="name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+              style={inputStyle}
+              placeholder="Your name"
+            />
           </div>
-        )}
-      </form>
+          <div className="mb-5">
+            <label htmlFor="email" className="text-white/80 text-sm font-medium">Email</label>
+            <input
+              type="email"
+              id="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              style={inputStyle}
+              placeholder="you@example.com"
+            />
+          </div>
+          <div className="mb-5">
+            <label htmlFor="role" className="text-white/80 text-sm font-medium">Role</label>
+            <select
+              id="role"
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              required
+              style={{ ...inputStyle, color: role ? 'white' : 'rgba(255,255,255,0.5)' }}
+            >
+              <option value="">Select your role</option>
+              <option value="researcher">Researcher</option>
+              <option value="contributor">Contributor</option>
+            </select>
+          </div>
+          <div className="mb-6">
+            <label className="text-white/80 text-sm font-medium block mb-2">Why are you using Constellation? (Select all that apply)</label>
+            <div className="space-y-2">
+              {reasonOptions.map((reason) => (
+                <label key={reason} className="flex items-center gap-2 text-white/80 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={reasons.includes(reason)}
+                    onChange={() => handleReasonChange(reason)}
+                    className="accent-purple-400"
+                  />
+                  <span>{reason}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-3.5 px-6 rounded-xl font-medium text-white bg-white/20 hover:bg-white/30 border border-white/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loading ? 'Signing Up...' : 'Sign Up'}
+          </button>
 
-      <div style={{ marginTop: '30px', textAlign: 'center' }}>
-        <p style={{ fontSize: '16px', color: '#666' }}>
+          {message && (
+            <div
+              className="mt-4 p-3 rounded-lg text-center text-sm"
+              style={{
+                backgroundColor: message.includes('Error') ? 'rgba(254, 226, 226, 0.2)' : 'rgba(236, 253, 245, 0.2)',
+                color: message.includes('Error') ? '#fca5a5' : '#86efac',
+              }}
+            >
+              {message}
+            </div>
+          )}
+        </form>
+
+        <p className="mt-8 text-white/60 text-center">
           Already have an account?{' '}
-          <Link to="/login" style={{ color: '#667eea', fontWeight: 'bold', textDecoration: 'none' }}>
+          <Link to="/login" className="text-white/90 hover:text-white font-medium underline">
             Log In
           </Link>
         </p>
       </div>
-    </GradientBackground>
+    </ConstellationStarfieldBackground>
   );
 };
 
