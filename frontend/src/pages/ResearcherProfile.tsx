@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import GradientBackground from '../components/GradientBackground';
+import ConstellationStarfieldBackground from '../components/ConstellationStarfieldBackground';
+import AppNav from '../components/AppNav';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5001";
 
@@ -20,7 +21,6 @@ export default function ResearcherProfile() {
   const [loading, setLoading] = useState(true);
   const [researcherId, setResearcherId] = useState<string | null>(null);
 
-  // Fetch researcher ID
   useEffect(() => {
     const fetchResearcherId = async () => {
       try {
@@ -36,7 +36,6 @@ export default function ResearcherProfile() {
     fetchResearcherId();
   }, []);
 
-  // Fetch researcher stats
   useEffect(() => {
     if (!researcherId) return;
 
@@ -52,7 +51,6 @@ export default function ResearcherProfile() {
             totalContributors: data.totalContributors || 0,
           });
         } else {
-          // Fallback: calculate from projects endpoint
           const projectsResponse = await fetch(`${API_BASE_URL}/api/researcher/${researcherId}/projects`);
           if (projectsResponse.ok) {
             const projectsData = await projectsResponse.json();
@@ -79,252 +77,91 @@ export default function ResearcherProfile() {
   };
 
   return (
-    <GradientBackground>
-      <h1 style={pageTitle}>My Profile</h1>
+    <ConstellationStarfieldBackground>
+      <div className="absolute top-0 left-0 right-0 z-20 p-4">
+        <AppNav variant="dark" />
+      </div>
 
-      <div style={content}>
-        <div style={profileSection}>
-          <div style={avatarContainer}>
-            <div style={avatar}>
-              <svg viewBox="0 0 24 24" style={userIcon}>
+      <div className="px-6 py-24 pt-28 max-w-5xl mx-auto w-full">
+        <h1 className="text-4xl font-bold text-white/90 mb-10 text-center">My Profile</h1>
+
+        <div className="flex flex-col lg:flex-row gap-10 items-start w-full">
+          <div className="flex flex-col items-center gap-4 shrink-0">
+            <div
+              className="w-[150px] h-[150px] rounded-full flex items-center justify-center bg-white/10 border border-white/20"
+              style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.2)' }}
+            >
+              <svg viewBox="0 0 24 24" className="w-[70px] h-[70px]" style={{ fill: 'rgba(255,255,255,0.9)' }}>
                 <circle cx="12" cy="9" r="4" />
                 <path d="M5 19c0-3.2 3-6 7-6s7 2.8 7 6" />
               </svg>
             </div>
-            <h2 style={name}>Dr. Jane Researcher</h2>
-            <p style={username}>@researcher</p>
+            <h2 className="text-2xl font-bold text-white/90 m-0">Dr. Jane Researcher</h2>
+            <p className="text-lg text-white/70 m-0">@researcher</p>
           </div>
 
-          <div style={detailsSection}>
-            <div style={detailCard}>
-              <h3 style={detailTitle}>Account Information</h3>
-              <div style={detailItem}>
-                <span style={detailLabel}>Name:</span>
-                <span style={detailValue}>Dr. Jane Researcher</span>
+          <div className="flex-1 flex flex-col gap-6 w-full">
+            <div className="p-6 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
+              <h3 className="text-xl font-bold text-white/90 m-0 mb-5">Account Information</h3>
+              <div className="flex justify-between items-center py-2.5 border-b border-white/10">
+                <span className="text-white/70 font-medium">Name</span>
+                <span className="text-white/90">Dr. Jane Researcher</span>
               </div>
-              <div style={detailItem}>
-                <span style={detailLabel}>Username:</span>
-                <span style={detailValue}>@researcher</span>
+              <div className="flex justify-between items-center py-2.5 border-b border-white/10">
+                <span className="text-white/70 font-medium">Username</span>
+                <span className="text-white/90">@researcher</span>
               </div>
-              <div style={detailItem}>
-                <span style={detailLabel}>Account Type:</span>
-                <span style={detailValue}>Researcher</span>
+              <div className="flex justify-between items-center py-2.5 border-b border-white/10">
+                <span className="text-white/70 font-medium">Account Type</span>
+                <span className="text-white/90">Researcher</span>
               </div>
-              <div style={detailItem}>
-                <span style={detailLabel}>Member Since:</span>
-                <span style={detailValue}>January 2024</span>
+              <div className="flex justify-between items-center py-2.5">
+                <span className="text-white/70 font-medium">Member Since</span>
+                <span className="text-white/90">January 2024</span>
               </div>
             </div>
 
-            <div style={statsSection}>
-              <div style={statCard}>
-                <div style={statNumber}>
-                  {loading ? '...' : stats.totalProjects}
-                </div>
-                <div style={statLabel}>Projects Submitted</div>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="p-5 rounded-xl bg-white/5 backdrop-blur-sm border border-white/10 text-center">
+                <div className="text-3xl font-bold text-white/90 mb-1">{loading ? '...' : stats.totalProjects}</div>
+                <div className="text-xs font-semibold text-white/60 uppercase tracking-wide">Projects Submitted</div>
               </div>
-              <div style={statCard}>
-                <div style={statNumber}>
-                  {loading ? '...' : stats.completedProjects}
-                </div>
-                <div style={statLabel}>Completed Projects</div>
+              <div className="p-5 rounded-xl bg-white/5 backdrop-blur-sm border border-white/10 text-center">
+                <div className="text-3xl font-bold text-white/90 mb-1">{loading ? '...' : stats.completedProjects}</div>
+                <div className="text-xs font-semibold text-white/60 uppercase tracking-wide">Completed Projects</div>
               </div>
-              <div style={statCard}>
-                <div style={statNumber}>
-                  {loading ? '...' : stats.totalContributors}
-                </div>
-                <div style={statLabel}>Total Contributors</div>
+              <div className="p-5 rounded-xl bg-white/5 backdrop-blur-sm border border-white/10 text-center">
+                <div className="text-3xl font-bold text-white/90 mb-1">{loading ? '...' : stats.totalContributors}</div>
+                <div className="text-xs font-semibold text-white/60 uppercase tracking-wide">Total Contributors</div>
               </div>
             </div>
           </div>
         </div>
 
-        <div style={actionsSection}>
-          <button style={editButton}>Edit Profile</button>
-          <Link to="/settings" style={{ textDecoration: 'none' }}>
-            <button style={settingsButton}>Account Settings</button>
+        <div className="flex flex-wrap gap-4 justify-center mt-10">
+          <button
+            type="button"
+            className="py-3.5 px-6 rounded-xl font-medium text-white bg-white/20 hover:bg-white/30 border border-white/20 transition-colors cursor-pointer"
+          >
+            Edit Profile
+          </button>
+          <Link to="/settings" className="no-underline">
+            <button
+              type="button"
+              className="py-3.5 px-6 rounded-xl font-medium text-white bg-white/10 hover:bg-white/20 border border-white/20 transition-colors cursor-pointer"
+            >
+              Account Settings
+            </button>
           </Link>
-          <button style={logoutButton} onClick={handleLogout}>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="py-3.5 px-6 rounded-xl font-medium text-white bg-red-500/80 hover:bg-red-500 border border-red-400/50 transition-colors cursor-pointer"
+          >
             Log Out
           </button>
         </div>
       </div>
-    </GradientBackground>
+    </ConstellationStarfieldBackground>
   );
 }
-
-const pageTitle: React.CSSProperties = {
-  fontSize: '48px',
-  fontWeight: 'bold',
-  color: '#333',
-  margin: '0 0 20px 0',
-  textAlign: 'center',
-};
-
-const content: React.CSSProperties = {
-  flex: 1,
-  padding: '40px',
-  display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'center',
-  gap: '40px',
-};
-
-const profileSection: React.CSSProperties = {
-  display: 'flex',
-  gap: '60px',
-  alignItems: 'flex-start',
-  width: '100%',
-  maxWidth: '1200px',
-};
-
-const avatarContainer: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'center',
-  gap: '15px',
-};
-
-const avatar: React.CSSProperties = {
-  width: '150px',
-  height: '150px',
-  borderRadius: '50%',
-  backgroundColor: 'rgba(255, 255, 255, 0.9)',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
-};
-
-const userIcon: React.CSSProperties = {
-  width: '70px',
-  height: '70px',
-  fill: '#666',
-};
-
-const name: React.CSSProperties = {
-  fontSize: '32px',
-  fontWeight: 'bold',
-  color: '#FFFFFF',
-  margin: 0,
-  textShadow: '2px 2px 4px rgba(0,0,0,0.5)',
-};
-
-const username: React.CSSProperties = {
-  fontSize: '18px',
-  color: 'rgba(255, 255, 255, 0.8)',
-  margin: 0,
-  textShadow: '1px 1px 2px rgba(0,0,0,0.5)',
-};
-
-const detailsSection: React.CSSProperties = {
-  flex: 1,
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '30px',
-};
-
-const detailCard: React.CSSProperties = {
-  background: 'rgba(255, 255, 255, 0.95)',
-  borderRadius: '15px',
-  padding: '30px',
-  boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
-};
-
-const detailTitle: React.CSSProperties = {
-  fontSize: '24px',
-  fontWeight: 'bold',
-  color: '#333',
-  margin: '0 0 20px 0',
-};
-
-const detailItem: React.CSSProperties = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  padding: '10px 0',
-  borderBottom: '1px solid #eee',
-};
-
-const detailLabel: React.CSSProperties = {
-  fontSize: '18px',
-  fontWeight: '600',
-  color: '#666',
-};
-
-const detailValue: React.CSSProperties = {
-  fontSize: '18px',
-  fontWeight: '500',
-  color: '#333',
-};
-
-const statsSection: React.CSSProperties = {
-  display: 'flex',
-  gap: '20px',
-};
-
-const statCard: React.CSSProperties = {
-  background: 'rgba(255, 255, 255, 0.95)',
-  borderRadius: '15px',
-  padding: '25px',
-  textAlign: 'center',
-  boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
-  flex: 1,
-};
-
-const statNumber: React.CSSProperties = {
-  fontSize: '36px',
-  fontWeight: 'bold',
-  color: '#667eea',
-  marginBottom: '5px',
-};
-
-const statLabel: React.CSSProperties = {
-  fontSize: '14px',
-  color: '#666',
-  fontWeight: '600',
-  textTransform: 'uppercase',
-  letterSpacing: '1px',
-};
-
-const actionsSection: React.CSSProperties = {
-  display: 'flex',
-  gap: '20px',
-  justifyContent: 'center',
-};
-
-const editButton: React.CSSProperties = {
-  backgroundColor: '#28a745',
-  color: 'white',
-  border: 'none',
-  padding: '15px 30px',
-  borderRadius: '8px',
-  fontSize: '16px',
-  fontWeight: 'bold',
-  cursor: 'pointer',
-  transition: 'background-color 0.3s ease',
-};
-
-const settingsButton: React.CSSProperties = {
-  backgroundColor: '#6c757d',
-  color: 'white',
-  border: 'none',
-  padding: '15px 30px',
-  borderRadius: '8px',
-  fontSize: '16px',
-  fontWeight: 'bold',
-  cursor: 'pointer',
-  transition: 'background-color 0.3s ease',
-};
-
-const logoutButton: React.CSSProperties = {
-  backgroundColor: '#dc3545',
-  color: 'white',
-  border: 'none',
-  padding: '15px 30px',
-  borderRadius: '8px',
-  fontSize: '16px',
-  fontWeight: 'bold',
-  cursor: 'pointer',
-  transition: 'background-color 0.3s ease',
-};
