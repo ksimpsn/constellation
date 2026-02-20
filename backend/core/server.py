@@ -29,13 +29,23 @@ class Cluster:
                 self.context = ray.init(address="auto", ignore_reinit_error=True)
                 logging.info("[INFO] Connected to existing Ray head node")
             except Exception as connect_error:
+                ray_address = os.environ.get("RAY_ADDRESS")
+                if ray_address:
+                    logging.error(
+                        f"[ERROR] No Ray cluster at {ray_address}. "
+                        "Start the head first in another terminal: ./scripts/start-ray-head.sh"
+                    )
+                    raise RuntimeError(
+                        f"No Ray cluster at {ray_address}. "
+                        "Start the head first: ./scripts/start-ray-head.sh"
+                    ) from connect_error
                 # Start new Ray head node via subprocess
                 # Note: This requires Ray to be installed and in PATH
                 logging.info("[INFO] No existing Ray cluster found, starting new head node...")
                 try:
                     # Try starting Ray head node with remote connections enabled
                     result = subprocess.run(
-                        ["ray", "start", "--head", "--port=6379", "--node-ip-address=0.0.0.0"],
+                        ["ray", "start", "--head", "--port=6379", "--node-ip-address=127.0.0.1"],
                         check=True,
                         capture_output=True,
                         text=True,
@@ -134,7 +144,7 @@ class Cluster:
                     logging.info(f"[INFO] Ray head node listening on {node_address} - ready for remote connections")
                 else:
                     logging.warning(f"[WARNING] Ray head node listening on {node_address} - may not accept remote connections")
-                    logging.info("[INFO] To enable remote connections, start Ray manually: ray start --head --port=6379 --node-ip-address=0.0.0.0")
+                    logging.info("[INFO] For same-machine workers use --node-ip-address=127.0.0.1; for remote workers use your LAN IP. See scripts/start-ray-head.sh.")
         
         for node in nodes:
             # type(nodes) - dict[str, Any]

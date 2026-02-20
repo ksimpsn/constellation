@@ -18,9 +18,29 @@ The system is built on **Ray**, enabling scalable task distribution, progress tr
 4. **Initialize the database:**
     python3 -c "from backend.core.database import init_db; init_db()"
 5. **Run the Flask backend server:**
-    python3 -m flask --app backend.app run --reload --host 0.0.0.0 --port 5001
 
-    The backend API will be available at `http://localhost:5001`
+   **Option B (recommended on macOS/Windows):** Start the Ray head first, then Flask. Use two terminals:
+
+   **Terminal 1 – start Ray head:**
+   ```bash
+   ./scripts/start-ray-head.sh
+   ```
+   (On macOS/Windows this sets `RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=1` so the cluster accepts workers.)
+
+   **Terminal 2 – start Flask (connects to existing Ray head):**
+   ```bash
+   ./scripts/start-flask-with-ray.sh
+   ```
+   Or manually: `export RAY_ADDRESS=127.0.0.1:6379 && python3 -m flask --app backend.app run --host 0.0.0.0 --port 5001`
+
+   **Single-command option:** If you prefer one terminal and no `RAY_ADDRESS` set, run:
+   ```bash
+   unset RAY_ADDRESS
+   python3 -m flask --app backend.app run --reload --host 0.0.0.0 --port 5001
+   ```
+   The backend will start a Ray head automatically when needed (may require Ray to be on PATH).
+
+   The backend API will be available at `http://localhost:5001`
 
 ### Frontend Setup
 
