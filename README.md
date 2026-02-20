@@ -14,7 +14,7 @@ The system is built on **Ray**, enabling scalable task distribution, progress tr
     python3 -m venv env
     source env/bin/activate  # On Windows: env\Scripts\activate
 3. **Install Python dependencies:**
-    pip install flask flask-cors ray sqlalchemy dill
+    python3 -m pip install -r requirements.txt
 4. **Initialize the database:**
     python3 -c "from backend.core.database import init_db; init_db()"
 5. **Run the Flask backend server:**
