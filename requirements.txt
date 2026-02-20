@@ -1,0 +1,8 @@
+# Constellation backend dependencies (exact versions from working setup)
+# Install with: python3 -m pip install -r requirements.txt  (or on Windows: python -m pip install -r requirements.txt)
+
+flask==3.1.2
+flask-cors==6.0.2
+ray==2.53.0
+sqlalchemy==2.0.44
+dill==0.4.0
