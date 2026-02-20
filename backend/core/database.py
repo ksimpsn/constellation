@@ -332,14 +332,21 @@ def delete_job(job_id):
 # Helper Functions for New Schema
 # ============================================================================
 
-def create_user(email: str, name: str, role: str = "volunteer", metadata: dict = None) -> User:
-    """Create a new user."""
+def create_user(user_id: str, email: str, name: str, role: str = "volunteer", metadata: dict = None):
+    """
+    Create a new user with the given user_id (must be unique).
+    Returns (user, None) on success, or (None, error_message) if user_id or email already exists.
+    """
+    if get_user_by_id(user_id):
+        return None, "user_id already exists"
+    if get_user_by_email(email):
+        return None, "email already exists"
     with SessionLocal() as session:
-        user = User(email=email, name=name, role=role, user_metadata=metadata or {})
+        user = User(user_id=user_id, email=email, name=name, role=role, user_metadata=metadata or {})
         session.add(user)
         session.commit()
         session.refresh(user)
-        return user
+        return user, None
 
 
 def get_user_by_email(email: str) -> User:
@@ -569,6 +576,72 @@ def get_available_workers(limit: int = None) -> list:
         if limit:
             query = query.limit(limit)
         return query.all()
+
+
+def get_all_projects(researcher_id: str = None, limit: int = None) -> list:
+    """List all projects, optionally filtered by researcher_id."""
+    with SessionLocal() as session:
+        query = session.query(Project).filter(Project.status == "active")
+        if researcher_id:
+            query = query.filter(Project.researcher_id == researcher_id)
+        query = query.order_by(Project.created_at.desc())
+        if limit:
+            query = query.limit(limit)
+        return query.all()
+
+
+def get_runs_for_project(project_id: str, limit: int = None) -> list:
+    """List runs for a project, newest first."""
+    with SessionLocal() as session:
+        query = session.query(Run).filter(Run.project_id == project_id).order_by(Run.created_at.desc())
+        if limit:
+            query = query.limit(limit)
+        return query.all()
+
+
+def get_tasks_for_run(run_id: str) -> list:
+    """List all tasks for a run (for dashboard)."""
+    with SessionLocal() as session:
+        return session.query(Task).filter(Task.run_id == run_id).order_by(Task.task_index).all()
+
+
+def get_run_worker_count(run_id: str) -> int:
+    """Count distinct workers that have been assigned tasks in this run."""
+    with SessionLocal() as session:
+        from sqlalchemy import func
+        count = session.query(func.count(func.distinct(Task.assigned_worker_id))).filter(
+            Task.run_id == run_id,
+            Task.assigned_worker_id.isnot(None)
+        ).scalar()
+        return count or 0
+
+
+def get_all_workers() -> list:
+    """List all workers (for dashboard)."""
+    with SessionLocal() as session:
+        return session.query(Worker).order_by(Worker.last_heartbeat.desc()).all()
+
+
+def get_task_results_for_run(run_id: str) -> list:
+    """Get all task results for a run, ordered by task_index (for download). Returns list of dicts."""
+    with SessionLocal() as session:
+        rows = (
+            session.query(TaskResult, Task.task_index)
+            .join(Task, TaskResult.task_id == Task.task_id)
+            .filter(TaskResult.run_id == run_id)
+            .order_by(Task.task_index)
+            .all()
+        )
+        return [
+            {
+                "task_id": tr.task_id,
+                "task_index": idx,
+                "result_data": tr.result_data,
+                "runtime_seconds": tr.runtime_seconds,
+                "completed_at": tr.completed_at.isoformat() if tr.completed_at else None,
+            }
+            for tr, idx in rows
+        ]
 
 
 # Simple test connection function

@@ -54,6 +54,24 @@ class ConstellationAPI:
         self.counter = 0  # for legacy job_id compatibility
         print("[ConstellationAPI] Initialized API layer.")
 
+    def get_run_progress(self, run_id):
+        """
+        Return (completed_count, total_count) for a run from Ray futures when available.
+        Used so the frontend can show live task progress while a run is in progress.
+        """
+        run = get_run(run_id)
+        if not run:
+            return None
+        total = run.total_tasks or 0
+        futures = self.futures.get(run_id, [])
+        if not futures:
+            return (run.completed_tasks, total)
+        try:
+            done, _ = ray.wait(futures, num_returns=len(futures), timeout=0)
+            return (len(done), total)
+        except Exception:
+            return (run.completed_tasks, total)
+
     # ---------------------------------------------------------
     # Worker Management
     # ---------------------------------------------------------
@@ -359,7 +377,12 @@ class ConstellationAPI:
 
         logging.info(f"[INFO] Submitted uploaded project: project_id={project.project_id}, run_id={run.run_id}, job_id={legacy_job_id}, chunks={len(chunks)}")
 
-        return legacy_job_id  # Return legacy job_id for frontend compatibility
+        return {
+            "run_id": run.run_id,
+            "project_id": project.project_id,
+            "job_id": legacy_job_id,
+            "total_tasks": len(chunks),
+        }
 
     def submit_project(self, data):
         """
