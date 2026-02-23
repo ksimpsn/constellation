@@ -1,14 +1,12 @@
 import React from "react";
 import "./GradientBackground.css";
-import AppNav from "./AppNav";
+import FlowNav from "./FlowNav";
 
 export default function GradientBackground({ children }: { children: React.ReactNode }) {
   return (
     <div className="gradient-wrapper">
       <div className="gradient-inner">
-        <div className="top-bar">
-          <AppNav variant="light" />
-        </div>
+        <FlowNav />
         {children}
       </div>
     </div>

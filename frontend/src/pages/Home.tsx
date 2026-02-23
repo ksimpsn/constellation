@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { BigDipperBackground } from "../components/BigDipperBackground";
-import AppNav from "../components/AppNav";
+import FlowNav from "../components/FlowNav";
 
 const isElectron = typeof window !== "undefined" && Boolean(window.isElectron);
 
@@ -27,24 +27,12 @@ export default function Home() {
   return (
     <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-indigo-950 via-slate-900 to-purple-950">
       {/* Big Dipper Background */}
-      <BigDipperBackground />
+      <BigDipperBackground scale={1.4} />
 
-      {/* Top Navigation */}
-      <div className="absolute top-0 left-0 right-0 z-20 p-4">
-        <AppNav variant="dark" />
-      </div>
+      <FlowNav />
 
       {/* Content Overlay */}
       <div className="relative z-10 flex flex-col items-center justify-center min-h-screen px-6 py-20">
-        {/* Logo */}
-        <div className="mb-8">
-          <img
-            src="/src/assets/logo.png"
-            alt="Constellation Logo"
-            className="h-16 w-auto"
-          />
-        </div>
-
         <h1 className="text-5xl md:text-7xl font-bold text-white/90 leading-tight text-center mb-6">
           Welcome to Constellation.
         </h1>

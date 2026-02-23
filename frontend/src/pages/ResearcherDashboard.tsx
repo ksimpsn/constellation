@@ -1,4 +1,5 @@
-import GradientBackground from "../components/GradientBackground";
+import ConstellationStarfieldBackground from "../components/ConstellationStarfieldBackground";
+import FlowNav from "../components/FlowNav";
 import { useState, useEffect } from "react";
 
 interface ResearchProject {
@@ -19,8 +20,14 @@ interface ResearchProject {
   averageTaskTime?: number; // Average task completion time in seconds
 }
 
-// Try port 5000 first, fallback to 5001 (common on macOS due to AirPlay)
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5001";
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+const BACKEND_PORT = (() => {
+  try {
+    return new URL(API_BASE_URL).port || "5000";
+  } catch {
+    return "5000";
+  }
+})();
 
 export default function ResearcherDashboard() {
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -59,7 +66,7 @@ export default function ResearcherDashboard() {
         // Provide more helpful error message
         let userMessage = errorMessage;
         if (errorMessage.includes('Failed to fetch') || errorMessage.includes('NetworkError')) {
-          userMessage = `Cannot connect to backend at ${API_BASE_URL}. Make sure the backend is running:\n\npython3 -m flask --app backend.app run --host 0.0.0.0 --port 5000`;
+          userMessage = `Cannot connect to backend at ${API_BASE_URL}. Make sure the backend is running:\n\npython3 -m flask --app backend.app run --host 0.0.0.0 --port ${BACKEND_PORT}`;
         }
 
         setError(userMessage);
@@ -102,69 +109,47 @@ export default function ResearcherDashboard() {
   };
 
   return (
-    <GradientBackground>
-      <style>
-        {`
-          @keyframes fadeIn {
-            from {
-              opacity: 0;
-              transform: translateY(-10px);
+    <ConstellationStarfieldBackground>
+      <FlowNav />
+      <div className="relative z-10 px-6 pt-24 pb-16 max-w-6xl mx-auto w-full min-h-screen">
+        <style>
+          {`
+            @keyframes fadeIn {
+              from { opacity: 0; transform: translateY(-10px); }
+              to { opacity: 1; transform: translateY(0); }
             }
-            to {
-              opacity: 1;
-              transform: translateY(0);
-            }
-          }
-        `}
-      </style>
-      <h1 style={{ fontSize: "36px", marginBottom: "20px" }}>
-        Your Research Projects
-      </h1>
+          `}
+        </style>
+        <h1 className="text-4xl font-bold text-white/90 mb-10">
+          Your Research Projects
+        </h1>
 
-      {loading && (
-        <div style={{ textAlign: "center", padding: "40px", fontSize: "18px", color: "#666" }}>
-          Loading projects...
-        </div>
-      )}
-
-      {error && (
-        <div style={{
-          textAlign: "left",
-          padding: "20px",
-          marginBottom: "20px",
-          background: "#fee",
-          borderRadius: "8px",
-          color: "#c33",
-          whiteSpace: "pre-line",
-          fontFamily: "monospace",
-          fontSize: "14px"
-        }}>
-          <strong>Error:</strong> {error}
-          <div style={{ marginTop: "15px", fontSize: "12px", color: "#a33" }}>
-            <strong>Troubleshooting:</strong>
-            <br />1. Check if backend is running: <code>python3 -m flask --app backend.app run --host 0.0.0.0 --port 5000</code>
-            <br />2. Test API: <code>curl {API_BASE_URL}/</code>
-            <br />3. Check browser console (F12) for more details
-            <br />4. Verify API URL: {API_BASE_URL}
+        {loading && (
+          <div className="text-center py-12 text-lg text-white/60">
+            Loading projects...
           </div>
-        </div>
-      )}
+        )}
 
-      {!loading && !error && projects.length === 0 && (
-        <div style={{ textAlign: "center", padding: "40px", fontSize: "18px", color: "#666" }}>
-          No projects found. Create your first project to get started!
-        </div>
-      )}
+        {error && (
+          <div className="text-left p-5 mb-6 rounded-2xl bg-red-500/10 border border-red-400/30 text-red-200 whitespace-pre-line font-mono text-sm">
+            <strong>Error:</strong> {error}
+            <div className="mt-4 text-xs text-red-300/90">
+              <strong>Troubleshooting:</strong>
+              <br />1. Check if backend is running: <code className="text-white/80">python3 -m flask --app backend.app run --host 0.0.0.0 --port {BACKEND_PORT}</code>
+              <br />2. Test API: <code className="text-white/80">curl {API_BASE_URL}/</code>
+              <br />3. Check browser console (F12) for more details
+              <br />4. Verify API URL: {API_BASE_URL}
+            </div>
+          </div>
+        )}
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
-          gap: "20px",
-          width: "100%",
-          alignItems: "start",
-        }}
-      >
+        {!loading && !error && projects.length === 0 && (
+          <div className="text-center py-12 text-lg text-white/60 rounded-2xl bg-white/5 border border-white/10">
+            No projects found. Create your first project to get started!
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 w-full items-start">
         {projects.map((proj) => {
           const isComplete = proj.progress >= 100;
 
@@ -172,102 +157,48 @@ export default function ResearcherDashboard() {
             <div
               key={proj.id}
               onClick={() => setExpanded(expanded === proj.id ? null : proj.id)}
-              style={{
-                background: "white",
-                borderRadius: "12px",
-                padding: "20px",
-                boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
-                cursor: "pointer",
-                height: "fit-content",
-                transition: "box-shadow 0.2s ease",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.2)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.boxShadow = "0 2px 6px rgba(0,0,0,0.15)";
-              }}
+              className="p-5 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10 cursor-pointer h-fit transition-all duration-200 hover:shadow-[0_0_24px_rgba(255,255,255,0.15)] hover:border-white/20"
             >
-              <h2 style={{ fontSize: "20px", margin: 0 }}>{proj.title}</h2>
+              <h2 className="text-xl font-semibold text-white/90 m-0">{proj.title}</h2>
 
-              <p
-                style={{
-                  color: "#555",
-                  marginTop: "8px",
-                  fontSize: "15px",
-                }}
-              >
+              <p className="text-white/70 mt-2 text-[15px]">
                 {proj.description}
               </p>
 
               {/* progress bar */}
-              <div
-                style={{
-                  marginTop: "15px",
-                  background: "#eee",
-                  borderRadius: "8px",
-                  height: "12px",
-                  width: "100%",
-                  overflow: "hidden",
-                }}
-              >
+              <div className="mt-4 rounded-lg h-3 w-full overflow-hidden bg-white/10">
                 <div
+                  className="h-full rounded-lg transition-[width] duration-400 ease-out"
                   style={{
                     width: `${proj.progress}%`,
-                    height: "100%",
-                    background: isComplete ? "#2ecc71" : "#3498db",
-                    transition: "width 0.4s ease",
+                    backgroundColor: isComplete ? "rgba(52, 211, 153, 0.8)" : "rgba(96, 165, 250, 0.8)",
                   }}
                 />
               </div>
 
-              <p style={{ marginTop: "6px", color: "#444", fontSize: "14px" }}>
+              <p className="mt-1.5 text-white/70 text-sm">
                 {proj.progress}% complete
               </p>
 
               {/* Contributor stats - always visible */}
-              <div
-                style={{
-                  marginTop: "15px",
-                  padding: "12px",
-                  background: "#f8f9fa",
-                  borderRadius: "8px",
-                  fontSize: "14px",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    marginBottom: "8px",
-                  }}
-                >
-                  <span style={{ color: "#666" }}>Total Contributors:</span>
-                  <span style={{ fontWeight: "600", color: "#333" }}>
+              <div className="mt-4 p-3 rounded-xl bg-white/5 border border-white/10 text-sm">
+                <div className="flex justify-between mb-2">
+                  <span className="text-white/60">Total Contributors:</span>
+                  <span className="font-semibold text-white/90">
                     {proj.totalContributors}
                   </span>
                 </div>
                 {isComplete ? (
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                    }}
-                  >
-                    <span style={{ color: "#666" }}>Completed:</span>
-                    <span style={{ fontWeight: "600", color: "#2ecc71" }}>
+                  <div className="flex justify-between">
+                    <span className="text-white/60">Completed:</span>
+                    <span className="font-semibold text-emerald-400/90">
                       {proj.completedContributors || proj.totalContributors}
                     </span>
                   </div>
                 ) : (
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                    }}
-                  >
-                    <span style={{ color: "#666" }}>Active Now:</span>
-                    <span style={{ fontWeight: "600", color: "#3498db" }}>
+                  <div className="flex justify-between">
+                    <span className="text-white/60">Active Now:</span>
+                    <span className="font-semibold text-blue-400/90">
                       {proj.activeContributors}
                     </span>
                   </div>
@@ -276,36 +207,16 @@ export default function ResearcherDashboard() {
 
               {/* Task stats for in-progress projects - always visible */}
               {!isComplete && (
-                <div
-                  style={{
-                    marginTop: "12px",
-                    padding: "12px",
-                    background: "#f0f4f8",
-                    borderRadius: "8px",
-                    fontSize: "14px",
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      marginBottom: "6px",
-                    }}
-                  >
-                    <span style={{ color: "#666" }}>Tasks Completed:</span>
-                    <span style={{ fontWeight: "600", color: "#2ecc71" }}>
+                <div className="mt-3 p-3 rounded-xl bg-white/5 border border-white/10 text-sm">
+                  <div className="flex justify-between mb-1.5">
+                    <span className="text-white/60">Tasks Completed:</span>
+                    <span className="font-semibold text-emerald-400/90">
                       {proj.completedTasks.toLocaleString()}
                     </span>
                   </div>
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      marginBottom: "6px",
-                    }}
-                  >
-                    <span style={{ color: "#666" }}>Tasks Remaining:</span>
-                    <span style={{ fontWeight: "600", color: "#e67e22" }}>
+                  <div className="flex justify-between mb-1.5">
+                    <span className="text-white/60">Tasks Remaining:</span>
+                    <span className="font-semibold text-amber-400/90">
                       {(
                         proj.totalTasks -
                         proj.completedTasks -
@@ -314,14 +225,9 @@ export default function ResearcherDashboard() {
                     </span>
                   </div>
                   {proj.failedTasks > 0 && (
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                      }}
-                    >
-                      <span style={{ color: "#666" }}>Tasks Failed:</span>
-                      <span style={{ fontWeight: "600", color: "#e74c3c" }}>
+                    <div className="flex justify-between">
+                      <span className="text-white/60">Tasks Failed:</span>
+                      <span className="font-semibold text-red-400/90">
                         {proj.failedTasks}
                       </span>
                     </div>
@@ -331,257 +237,76 @@ export default function ResearcherDashboard() {
 
               {/* Expanded section */}
               {expanded === proj.id && (
-                <div
-                  style={{
-                    marginTop: "20px",
-                    paddingTop: "15px",
-                    borderTop: "1px solid #ddd",
-                    animation: "fadeIn 0.3s ease-in",
-                  }}
-                >
-                  <p style={{ color: "#333", marginBottom: "15px" }}>
+                <div className="mt-5 pt-4 border-t border-white/10 animate-[fadeIn_0.3s_ease-in]">
+                  <p className="text-white/80 mb-4">
                     {isComplete
                       ? "This project has finished computing."
                       : "This project is still processing across volunteer devices."}
                   </p>
 
                   {/* Task Statistics */}
-                  <div
-                    style={{
-                      marginBottom: "15px",
-                      padding: "12px",
-                      background: "#f0f4f8",
-                      borderRadius: "8px",
-                    }}
-                  >
-                    <h3
-                      style={{
-                        fontSize: "16px",
-                        margin: "0 0 8px 0",
-                        color: "#333",
-                      }}
-                    >
-                      Task Statistics
-                    </h3>
-                    <p
-                      style={{
-                        fontSize: "12px",
-                        color: "#777",
-                        margin: "0 0 10px 0",
-                        fontStyle: "italic",
-                      }}
-                    >
-                      Breakdown of computational tasks that process your data
-                      chunks
+                  <div className="mb-4 p-3 rounded-xl bg-white/5 border border-white/10">
+                    <h3 className="text-base font-semibold text-white/90 m-0 mb-2">Task Statistics</h3>
+                    <p className="text-xs text-white/60 m-0 mb-2 italic">
+                      Breakdown of computational tasks that process your data chunks
                     </p>
-                    <div style={{ fontSize: "14px" }}>
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          marginBottom: "6px",
-                        }}
-                      >
-                        <span style={{ color: "#666" }}>Completed:</span>
-                        <span style={{ fontWeight: "600", color: "#2ecc71" }}>
-                          {proj.completedTasks.toLocaleString()}
+                    <div className="text-sm">
+                      <div className="flex justify-between mb-1.5">
+                        <span className="text-white/60">Completed:</span>
+                        <span className="font-semibold text-emerald-400/90">{proj.completedTasks.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between mb-1.5">
+                        <span className="text-white/60">Remaining (pending/assigned):</span>
+                        <span className="font-semibold text-amber-400/90">
+                          {(proj.totalTasks - proj.completedTasks - proj.failedTasks).toLocaleString()}
                         </span>
                       </div>
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          marginBottom: "6px",
-                        }}
-                      >
-                        <span style={{ color: "#666" }}>
-                          Remaining (pending/assigned):
-                        </span>
-                        <span style={{ fontWeight: "600", color: "#e67e22" }}>
-                          {(
-                            proj.totalTasks -
-                            proj.completedTasks -
-                            proj.failedTasks
-                          ).toLocaleString()}
-                        </span>
-                      </div>
-                      <p
-                        style={{
-                          fontSize: "11px",
-                          color: "#999",
-                          margin: "0 0 6px 0",
-                          paddingLeft: "4px",
-                        }}
-                      >
-                        Tasks waiting to be processed or currently being worked
-                        on by volunteers
-                      </p>
+                      <p className="text-[11px] text-white/50 m-0 mb-1.5 pl-1">Tasks waiting to be processed or currently being worked on by volunteers</p>
                       {proj.failedTasks > 0 && (
                         <>
-                          <div
-                            style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              marginBottom: "6px",
-                            }}
-                          >
-                            <span style={{ color: "#666" }}>Failed:</span>
-                            <span
-                              style={{ fontWeight: "600", color: "#e74c3c" }}
-                            >
-                              {proj.failedTasks}
-                            </span>
+                          <div className="flex justify-between mb-1.5">
+                            <span className="text-white/60">Failed:</span>
+                            <span className="font-semibold text-red-400/90">{proj.failedTasks}</span>
                           </div>
-                          <p
-                            style={{
-                              fontSize: "11px",
-                              color: "#999",
-                              margin: "0 0 6px 0",
-                              paddingLeft: "4px",
-                            }}
-                          >
-                            Tasks that encountered errors and may be retried
-                            automatically
-                          </p>
+                          <p className="text-[11px] text-white/50 m-0 mb-1.5 pl-1">Tasks that encountered errors and may be retried automatically</p>
                         </>
                       )}
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          marginTop: "8px",
-                          paddingTop: "8px",
-                          borderTop: "1px solid #ddd",
-                        }}
-                      >
-                        <span style={{ color: "#666" }}>Total Tasks:</span>
-                        <span style={{ fontWeight: "600", color: "#333" }}>
-                          {proj.totalTasks.toLocaleString()}
-                        </span>
+                      <div className="flex justify-between mt-2 pt-2 border-t border-white/10">
+                        <span className="text-white/60">Total Tasks:</span>
+                        <span className="font-semibold text-white/90">{proj.totalTasks.toLocaleString()}</span>
                       </div>
                     </div>
                   </div>
 
                   {/* Project Metadata */}
-                  <div
-                    style={{
-                      marginBottom: "15px",
-                      padding: "12px",
-                      background: "#f8f9fa",
-                      borderRadius: "8px",
-                    }}
-                  >
-                    <h3
-                      style={{
-                        fontSize: "16px",
-                        margin: "0 0 8px 0",
-                        color: "#333",
-                      }}
-                    >
-                      Project Details
-                    </h3>
-                    <p
-                      style={{
-                        fontSize: "12px",
-                        color: "#777",
-                        margin: "0 0 10px 0",
-                        fontStyle: "italic",
-                      }}
-                    >
-                      Administrative information about your project lifecycle
-                    </p>
-                    <div style={{ fontSize: "14px" }}>
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          marginBottom: "6px",
-                        }}
-                      >
-                        <span style={{ color: "#666" }}>Total Runs:</span>
-                        <span style={{ fontWeight: "600", color: "#333" }}>
-                          {proj.totalRuns}
-                        </span>
+                  <div className="mb-4 p-3 rounded-xl bg-white/5 border border-white/10">
+                    <h3 className="text-base font-semibold text-white/90 m-0 mb-2">Project Details</h3>
+                    <p className="text-xs text-white/60 m-0 mb-2 italic">Administrative information about your project lifecycle</p>
+                    <div className="text-sm">
+                      <div className="flex justify-between mb-1.5">
+                        <span className="text-white/60">Total Runs:</span>
+                        <span className="font-semibold text-white/90">{proj.totalRuns}</span>
                       </div>
-                      <p
-                        style={{
-                          fontSize: "11px",
-                          color: "#999",
-                          margin: "0 0 6px 0",
-                          paddingLeft: "4px",
-                        }}
-                      >
-                        Number of times this project has been executed
-                      </p>
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          marginBottom: "6px",
-                        }}
-                      >
-                        <span style={{ color: "#666" }}>Created:</span>
-                        <span style={{ fontWeight: "500", color: "#333" }}>
-                          {new Date(proj.createdAt).toLocaleDateString()}
-                        </span>
+                      <p className="text-[11px] text-white/50 m-0 mb-1.5 pl-1">Number of times this project has been executed</p>
+                      <div className="flex justify-between mb-1.5">
+                        <span className="text-white/60">Created:</span>
+                        <span className="font-medium text-white/90">{new Date(proj.createdAt).toLocaleDateString()}</span>
                       </div>
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                        }}
-                      >
-                        <span style={{ color: "#666" }}>Last Updated:</span>
-                        <span style={{ fontWeight: "500", color: "#333" }}>
-                          {new Date(proj.updatedAt).toLocaleDateString()}
-                        </span>
+                      <div className="flex justify-between">
+                        <span className="text-white/60">Last Updated:</span>
+                        <span className="font-medium text-white/90">{new Date(proj.updatedAt).toLocaleDateString()}</span>
                       </div>
-                      <p
-                        style={{
-                          fontSize: "11px",
-                          color: "#999",
-                          margin: "6px 0 0 0",
-                          paddingLeft: "4px",
-                        }}
-                      >
-                        When the project was created and last had activity
-                      </p>
+                      <p className="text-[11px] text-white/50 mt-1.5 pl-1">When the project was created and last had activity</p>
                     </div>
                   </div>
 
                   {/* Performance Metrics */}
                   {proj.averageTaskTime && (
-                    <div
-                      style={{
-                        marginBottom: "15px",
-                        padding: "12px",
-                        background: "#fff5e6",
-                        borderRadius: "8px",
-                      }}
-                    >
-                      <h3
-                        style={{
-                          fontSize: "16px",
-                          margin: "0 0 10px 0",
-                          color: "#333",
-                        }}
-                      >
-                        Performance
-                      </h3>
-                      <div style={{ fontSize: "14px" }}>
-                        <div
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                          }}
-                        >
-                          <span style={{ color: "#666" }}>
-                            Avg Task Time:
-                          </span>
-                          <span style={{ fontWeight: "600", color: "#333" }}>
-                            {proj.averageTaskTime.toFixed(1)}s
-                          </span>
-                        </div>
+                    <div className="mb-4 p-3 rounded-xl bg-amber-500/10 border border-amber-400/20">
+                      <h3 className="text-base font-semibold text-white/90 m-0 mb-2">Performance</h3>
+                      <div className="text-sm flex justify-between">
+                        <span className="text-white/60">Avg Task Time:</span>
+                        <span className="font-semibold text-white/90">{proj.averageTaskTime.toFixed(1)}s</span>
                       </div>
                     </div>
                   )}
@@ -593,17 +318,7 @@ export default function ResearcherDashboard() {
                         e.stopPropagation();
                         downloadResults(proj.resultUrl!);
                       }}
-                      style={{
-                        padding: "10px 20px",
-                        background: "black",
-                        color: "white",
-                        borderRadius: "6px",
-                        border: "none",
-                        fontSize: "16px",
-                        cursor: "pointer",
-                        width: "100%",
-                        marginTop: "10px",
-                      }}
+                      className="w-full mt-3 py-3 px-4 rounded-xl bg-white/20 hover:bg-white/30 border border-white/20 text-white font-medium cursor-pointer transition-colors"
                     >
                       Download Results
                     </button>
@@ -613,13 +328,8 @@ export default function ResearcherDashboard() {
             </div>
           );
         })}
+        </div>
       </div>
-
-      <div style={{ marginTop: "40px", textAlign: "center" }}>
-        <a href="/" style={{ fontSize: "18px", color: "black" }}>
-          ← Back to Home
-        </a>
-      </div>
-    </GradientBackground>
+    </ConstellationStarfieldBackground>
   );
 }

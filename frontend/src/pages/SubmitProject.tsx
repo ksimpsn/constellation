@@ -1,7 +1,9 @@
 import ConstellationStarfieldBackground from "../components/ConstellationStarfieldBackground";
-import AppNav from "../components/AppNav";
+import FlowNav from "../components/FlowNav";
 import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 export default function SubmitProject() {
   const [title, setTitle] = useState("");
@@ -35,7 +37,7 @@ export default function SubmitProject() {
     formData.append("data_file", dataFile);
 
     try {
-      const response = await fetch("http://localhost:5001/submit", {
+      const response = await fetch(`${API_BASE_URL}/submit`, {
         method: "POST",
         body: formData,
       });
@@ -64,7 +66,7 @@ export default function SubmitProject() {
     if (jobId == null) return;
 
     try {
-      const response = await fetch(`http://localhost:5001/status/${jobId}`);
+      const response = await fetch(`${API_BASE_URL}/status/${jobId}`);
       const result = await response.json();
       setJobStatus(result.status);
 
@@ -83,7 +85,7 @@ export default function SubmitProject() {
     if (jobId == null) return;
 
     try {
-      const response = await fetch(`http://localhost:5001/results/${jobId}`);
+      const response = await fetch(`${API_BASE_URL}/results/${jobId}`);
       const result = await response.json();
       setJobResults(result.results);
     } catch (err) {
@@ -130,11 +132,8 @@ export default function SubmitProject() {
 
   return (
     <ConstellationStarfieldBackground>
-      <div className="absolute top-0 left-0 right-0 z-20 p-4">
-        <AppNav variant="dark" />
-      </div>
-
-      <div className="px-6 py-24 pt-28 max-w-[700px] mx-auto w-full">
+      <FlowNav />
+      <div className="relative z-10 px-6 pt-24 pb-16 max-w-[700px] mx-auto w-full">
         <h1 className="text-4xl font-bold text-white/90 mb-8">
           Submit a Research Project
         </h1>

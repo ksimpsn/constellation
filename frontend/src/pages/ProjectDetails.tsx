@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import AppNav from '../components/AppNav';
+import FlowNav from '../components/FlowNav';
 import ConstellationStarfieldBackground from '../components/ConstellationStarfieldBackground';
 
 const projectData: Record<string, { name: string; progress: number }> = {
@@ -96,11 +96,8 @@ export default function ProjectDetails() {
         }}
       />
 
-      <div className="absolute top-0 left-0 right-0 z-20 p-4">
-        <AppNav variant="dark" />
-      </div>
-
-      <div className="px-6 py-24 pt-36 max-w-6xl mx-auto w-full min-h-screen">
+      <FlowNav />
+      <div className="relative z-10 px-6 pt-24 pb-16 max-w-6xl mx-auto w-full min-h-screen">
         <Link
           to="/dashboard"
           className="inline-flex items-center gap-2 text-white/80 hover:text-white no-underline text-sm mb-8 transition-colors"
