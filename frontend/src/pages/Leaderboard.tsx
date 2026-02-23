@@ -1,7 +1,6 @@
 import ConstellationStarfieldBackground from "../components/ConstellationStarfieldBackground";
 import AppNav from "../components/AppNav";
 
-const RANK_MEDALS = ["🥇", "🥈", "🥉"] as const;
 const RANK_GLOWS = [
   "rgba(251,191,36,0.4)",
   "rgba(148,163,184,0.35)",
@@ -54,28 +53,30 @@ export default function Leaderboard() {
     return `${value} projects`;
   };
 
+  const rankBadgeStyles = [
+    "bg-gradient-to-br from-amber-400 to-amber-600 text-amber-950 font-bold",
+    "bg-gradient-to-br from-slate-300 to-slate-500 text-slate-900 font-bold",
+    "bg-gradient-to-br from-amber-700 to-amber-900 text-amber-200 font-bold",
+  ] as const;
+
   const ContributorList = ({
     contributors,
     title,
     valueType,
-    icon,
     accentColor,
   }: {
     contributors: Array<{ username: string; value: number }>;
     title: string;
     valueType: string;
-    icon: string;
     accentColor: string;
   }) => (
     <div className="flex-1 min-w-[320px] max-w-[380px] p-6 rounded-2xl bg-white/[0.06] backdrop-blur-sm border border-white/10 hover:border-white/20 hover:shadow-[0_0_40px_rgba(255,255,255,0.08)] transition-all duration-300">
-      <div className="flex items-center justify-center gap-2 mb-5">
-        <span className="text-2xl">{icon}</span>
+      <div className="mb-5 pb-3 border-b border-white/10">
         <h2 className="text-lg font-semibold text-white/95 text-center">{title}</h2>
       </div>
       <div className="flex flex-col gap-2">
         {contributors.map((contributor, index) => {
           const isTopThree = index < 3;
-          const medal = RANK_MEDALS[index];
           const glow = RANK_GLOWS[index];
           return (
             <div
@@ -91,8 +92,12 @@ export default function Leaderboard() {
                   : undefined
               }
             >
-              <span className="text-xl w-8 shrink-0 text-center tabular-nums">
-                {medal ?? index + 1}
+              <span
+                className={`w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-sm tabular-nums ${
+                  isTopThree ? rankBadgeStyles[index] : "bg-white/10 text-white/80 font-medium"
+                }`}
+              >
+                {index + 1}
               </span>
               <span
                 className={`flex-1 truncate font-medium ${
@@ -124,7 +129,7 @@ export default function Leaderboard() {
         {/* Hero */}
         <div className="text-center mb-14">
           <div className="inline-flex items-center gap-2 text-amber-400/90 text-sm font-medium mb-3 tracking-wider uppercase">
-            <span className="opacity-80">✦</span> Top Contributors <span className="opacity-80">✦</span>
+            Top Contributors
           </div>
           <h1
             className="text-4xl md:text-6xl font-bold tracking-tight m-0"
@@ -150,19 +155,19 @@ export default function Leaderboard() {
           </h3>
           <div className="flex justify-center items-end gap-4 md:gap-8 max-w-2xl mx-auto">
             <div className="flex flex-col items-center flex-1 max-w-[120px]">
-              <span className="text-3xl mb-1">🥈</span>
+              <span className="w-10 h-10 rounded-full bg-gradient-to-br from-slate-300 to-slate-500 text-slate-900 font-bold flex items-center justify-center text-lg mb-2">2</span>
               <span className="text-white font-semibold text-center text-sm truncate w-full">{mostProjects[1]?.username}</span>
               <div className="w-full h-16 mt-2 rounded-t-lg bg-gradient-to-t from-slate-600/60 to-slate-400/30 border border-slate-400/30" />
               <span className="text-xs text-white/60 mt-1">2nd</span>
             </div>
             <div className="flex flex-col items-center flex-1 max-w-[140px]">
-              <span className="text-4xl mb-1">🥇</span>
+              <span className="w-12 h-12 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 text-amber-950 font-bold flex items-center justify-center text-xl mb-2 shadow-[0_0_20px_rgba(251,191,36,0.4)]">1</span>
               <span className="text-white font-bold text-center text-base truncate w-full">{mostProjects[0]?.username}</span>
               <div className="w-full h-24 mt-2 rounded-t-lg bg-gradient-to-t from-amber-700/70 to-amber-400/40 border border-amber-400/40 shadow-[0_0_30px_rgba(251,191,36,0.3)]" />
               <span className="text-xs text-amber-300/90 font-semibold mt-1">1st</span>
             </div>
             <div className="flex flex-col items-center flex-1 max-w-[120px]">
-              <span className="text-3xl mb-1">🥉</span>
+              <span className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-700 to-amber-900 text-amber-200 font-bold flex items-center justify-center text-lg mb-2">3</span>
               <span className="text-white font-semibold text-center text-sm truncate w-full">{mostProjects[2]?.username}</span>
               <div className="w-full h-12 mt-2 rounded-t-lg bg-gradient-to-t from-amber-800/60 to-amber-700/30 border border-amber-600/30" />
               <span className="text-xs text-white/60 mt-1">3rd</span>
@@ -176,21 +181,18 @@ export default function Leaderboard() {
             contributors={mostProjects}
             title="Most Projects"
             valueType="projects"
-            icon="📂"
             accentColor="rgb(96, 165, 250)"
           />
           <ContributorList
             contributors={mostCompute}
             title="Most Compute"
             valueType="compute"
-            icon="⚡"
             accentColor="rgb(167, 139, 250)"
           />
           <ContributorList
             contributors={mostTime}
             title="Most Time"
             valueType="time"
-            icon="⏱"
             accentColor="rgb(74, 222, 128)"
           />
         </div>

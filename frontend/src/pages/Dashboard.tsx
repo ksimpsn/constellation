@@ -12,6 +12,17 @@ export default function Dashboard() {
       <div className="px-6 py-24 pt-28 max-w-6xl mx-auto w-full">
         <h1 className="text-4xl font-bold text-white/90 mb-10">My Dashboard</h1>
 
+        <div className="mb-8">
+          <Link
+            to="/browse"
+            className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-white/95 font-medium no-underline transition-all duration-200 hover:shadow-[0_0_24px_rgba(255,255,255,0.15)]"
+          >
+            Browse more projects
+            <span className="text-lg" aria-hidden>→</span>
+          </Link>
+          <p className="text-white/60 text-sm mt-2">Find new research projects and contribute your CPU</p>
+        </div>
+
         <div className="flex flex-col lg:flex-row justify-between gap-6 w-full">
           <div className="flex-1 min-w-0 p-5 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10 overflow-y-auto min-h-[300px]">
             <h2 className="text-xl font-semibold text-white/90 mt-0 mb-3">In-Progress</h2>

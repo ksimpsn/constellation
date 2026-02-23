@@ -10,6 +10,19 @@ const projectData: Record<string, { name: string; progress: number }> = {
   'Berlin Marathon Analytics': { name: 'Berlin Marathon Analytics', progress: 100 },
   'Deep Learning Research': { name: 'Deep Learning Research', progress: 100 },
   'PTSD Detection Model': { name: 'PTSD Detection Model', progress: 100 },
+  // Browse projects (contribute CPU)
+  'Protein Folding Simulation': { name: 'Protein Folding Simulation', progress: 35 },
+  'Climate Modeling': { name: 'Climate Modeling', progress: 22 },
+  'AI for Drug Discovery': { name: 'AI for Drug Discovery', progress: 58 },
+  'Genomic Variant Mapping': { name: 'Genomic Variant Mapping', progress: 41 },
+  'Dark Matter Particle Search': { name: 'Dark Matter Particle Search', progress: 18 },
+  'Brain-Computer Interface Research': { name: 'Brain-Computer Interface Research', progress: 67 },
+  'Ocean Acidification Study': { name: 'Ocean Acidification Study', progress: 12 },
+  'CRISPR Off-Target Prediction': { name: 'CRISPR Off-Target Prediction', progress: 29 },
+  'Federated Medical Imaging': { name: 'Federated Medical Imaging', progress: 55 },
+  'Quantum Chemistry Simulations': { name: 'Quantum Chemistry Simulations', progress: 8 },
+  'Wildlife Migration Tracking': { name: 'Wildlife Migration Tracking', progress: 73 },
+  'Renewable Grid Optimization': { name: 'Renewable Grid Optimization', progress: 44 },
 };
 
 export default function ProjectDetails() {
