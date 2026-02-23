@@ -1,6 +1,6 @@
 import ConstellationStarfieldBackground from "../components/ConstellationStarfieldBackground";
-import AppNav from "../components/AppNav";
-import { useState, useMemo } from "react";
+import FlowNav from "../components/FlowNav";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { Link } from "react-router-dom";
 
 interface LearnMoreLink {
@@ -13,15 +13,31 @@ interface Project {
   title: string;
   description: string;
   longDescription?: string;
+  tags: string[];
   whyJoin: string[];
   learnMore: LearnMoreLink[];
 }
+
+const ALL_TAGS = [
+  "Biology",
+  "Climate",
+  "AI / ML",
+  "Physics",
+  "Medicine",
+  "Conservation",
+  "Chemistry",
+  "Energy",
+  "Privacy-preserving",
+  "Genomics",
+  "Neuroscience",
+] as const;
 
 const sampleProjects: Project[] = [
   {
     id: 1,
     title: "Protein Folding Simulation",
     description: "Crowdsourced molecular dynamics simulations to explore protein stability.",
+    tags: ["Biology", "Chemistry"],
     longDescription: "We run large-scale molecular dynamics simulations to understand how proteins fold and interact. Your device helps explore conformations that could lead to new treatments for diseases from Alzheimer's to cancer.",
     whyJoin: ["Directly advance basic science that underpins drug discovery.", "Results are published openly; contributors are acknowledged.", "No special hardware needed—runs on everyday laptops and desktops."],
     learnMore: [
@@ -33,6 +49,7 @@ const sampleProjects: Project[] = [
     id: 2,
     title: "Climate Modeling",
     description: "Distributed computation of regional weather predictions using ensemble models.",
+    tags: ["Climate"],
     longDescription: "Regional climate models need huge amounts of compute. We run ensemble forecasts to improve predictions for droughts, floods, and extreme heat so communities can plan better.",
     whyJoin: ["Improve climate resilience for vulnerable regions.", "Support open climate science used by policymakers.", "Your contribution is credited in project publications."],
     learnMore: [
@@ -44,6 +61,7 @@ const sampleProjects: Project[] = [
     id: 3,
     title: "AI for Drug Discovery",
     description: "GPU-assisted virtual screening on user devices to accelerate compound searches.",
+    tags: ["AI / ML", "Medicine", "Chemistry"],
     longDescription: "We screen millions of molecules against disease targets using distributed GPUs and CPUs. Your contribution can help identify candidate drugs faster and at lower cost.",
     whyJoin: ["Accelerate the search for new medicines.", "Open-source pipeline; results shared with the research community.", "GPU optional—CPU-only participation welcome."],
     learnMore: [
@@ -55,6 +73,7 @@ const sampleProjects: Project[] = [
     id: 4,
     title: "Genomic Variant Mapping",
     description: "Mapping millions of short reads to detect rare mutations.",
+    tags: ["Genomics", "Medicine", "Privacy-preserving"],
     longDescription: "We align sequencing reads to reference genomes and call variants. This helps find rare disease mutations and understand population genetics—all while keeping data privacy-preserving.",
     whyJoin: ["Support rare disease and cancer genomics research.", "Privacy-first: only computed results leave your device.", "Part of consortia that publish in top journals."],
     learnMore: [
@@ -66,6 +85,7 @@ const sampleProjects: Project[] = [
     id: 5,
     title: "Dark Matter Particle Search",
     description: "Distributed Monte Carlo models to simulate particle interactions.",
+    tags: ["Physics"],
     longDescription: "Monte Carlo simulations help us interpret data from dark matter experiments. Your CPU runs millions of collision scenarios so we can tell signal from background.",
     whyJoin: ["Contribute to one of physics' biggest open questions.", "Fully open data and methods; results are reproducible.", "No physics background required—just spare compute."],
     learnMore: [
@@ -77,6 +97,7 @@ const sampleProjects: Project[] = [
     id: 6,
     title: "Brain-Computer Interface Research",
     description: "Neural signal processing using federated learning.",
+    tags: ["Neuroscience", "AI / ML", "Privacy-preserving"],
     longDescription: "We train and evaluate models for decoding brain signals—for assistive devices and basic neuroscience—using federated learning so raw data never leaves the hospital.",
     whyJoin: ["Help advance assistive tech for people with paralysis.", "Privacy-preserving: only model updates are shared.", "Interdisciplinary team; volunteers are recognized."],
     learnMore: [
@@ -88,6 +109,7 @@ const sampleProjects: Project[] = [
     id: 7,
     title: "Ocean Acidification Study",
     description: "Long-term ocean chemistry modeling to understand ecosystem impact.",
+    tags: ["Climate", "Conservation"],
     longDescription: "We model how rising CO₂ changes ocean chemistry and affects shellfish, coral, and food webs. Long-running simulations need distributed compute to explore scenarios.",
     whyJoin: ["Direct impact on marine conservation and fisheries policy.", "Open models and open data for global researchers.", "Suitable for long, low-priority runs on any machine."],
     learnMore: [
@@ -99,6 +121,7 @@ const sampleProjects: Project[] = [
     id: 8,
     title: "CRISPR Off-Target Prediction",
     description: "Machine learning to predict and reduce off-target gene editing effects.",
+    tags: ["Biology", "AI / ML", "Genomics"],
     longDescription: "We train and run models that predict where CRISPR might cut besides the intended site. Better predictions mean safer gene therapies and crops.",
     whyJoin: ["Make gene editing safer for clinical and agricultural use.", "Models are open; you help improve a global tool.", "CPU-only; runs on any modern processor."],
     learnMore: [
@@ -110,6 +133,7 @@ const sampleProjects: Project[] = [
     id: 9,
     title: "Federated Medical Imaging",
     description: "Privacy-preserving analysis of medical images across institutions.",
+    tags: ["Medicine", "AI / ML", "Privacy-preserving"],
     longDescription: "Hospitals keep data local; we train diagnostic models by aggregating only model updates. Your device can run training rounds or evaluation tasks.",
     whyJoin: ["Advance medical AI without moving patient data.", "Aligned with strict privacy and ethics guidelines.", "Contributors acknowledged in papers and tools."],
     learnMore: [
@@ -121,6 +145,7 @@ const sampleProjects: Project[] = [
     id: 10,
     title: "Quantum Chemistry Simulations",
     description: "Distributed ab initio calculations for molecular properties.",
+    tags: ["Chemistry", "Physics"],
     longDescription: "We run quantum chemistry calculations to predict molecular energies, spectra, and reactivity. Distributed compute lets us study larger systems and longer timescales.",
     whyJoin: ["Push the limits of computational chemistry.", "Results feed into materials and drug design.", "Batch-friendly; run when your machine is idle."],
     learnMore: [
@@ -132,6 +157,7 @@ const sampleProjects: Project[] = [
     id: 11,
     title: "Wildlife Migration Tracking",
     description: "Satellite and sensor data fusion to model species migration.",
+    tags: ["Conservation", "AI / ML"],
     longDescription: "We combine satellite imagery, GPS tags, and environmental data to model where species move and why. This supports conservation planning and policy.",
     whyJoin: ["Support conservation and biodiversity science.", "Data and code are open for education and research.", "Flexible workload; good for variable availability."],
     learnMore: [
@@ -143,6 +169,7 @@ const sampleProjects: Project[] = [
     id: 12,
     title: "Renewable Grid Optimization",
     description: "Real-time optimization of renewable energy dispatch and storage.",
+    tags: ["Energy", "AI / ML"],
     longDescription: "We optimize how wind, solar, and storage are dispatched across grids under uncertainty. Your compute helps run thousands of scenarios for planning and operations.",
     whyJoin: ["Accelerate the transition to clean energy.", "Used by researchers and grid operators worldwide.", "Deterministic runs; reproducible and citable."],
     learnMore: [
@@ -154,29 +181,57 @@ const sampleProjects: Project[] = [
 
 export default function BrowseProjects() {
   const [search, setSearch] = useState("");
+  const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
+  const [filterOpen, setFilterOpen] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const filterRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (filterRef.current && !filterRef.current.contains(e.target as Node)) {
+        setFilterOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const toggleTag = (tag: string) => {
+    setSelectedTags((prev) => {
+      const next = new Set(prev);
+      if (next.has(tag)) next.delete(tag);
+      else next.add(tag);
+      return next;
+    });
+  };
+
+  const clearTagFilters = () => setSelectedTags(new Set());
 
   const filteredProjects = useMemo(() => {
-    if (!search.trim()) return sampleProjects;
+    let list = sampleProjects;
+    if (selectedTags.size > 0) {
+      list = list.filter((p) =>
+        p.tags.some((t) => selectedTags.has(t))
+      );
+    }
+    if (!search.trim()) return list;
     const q = search.trim().toLowerCase();
-    return sampleProjects.filter(
+    return list.filter(
       (p) =>
         p.title.toLowerCase().includes(q) ||
-        p.description.toLowerCase().includes(q)
+        p.description.toLowerCase().includes(q) ||
+        p.tags.some((t) => t.toLowerCase().includes(q))
     );
-  }, [search]);
+  }, [search, selectedTags]);
 
   return (
     <ConstellationStarfieldBackground>
-      <div className="absolute top-0 left-0 right-0 z-20 p-4">
-        <AppNav variant="dark" />
-      </div>
-
-      <div className="px-6 py-24 pt-28 max-w-6xl mx-auto w-full min-h-screen flex flex-col">
+      <FlowNav />
+      <div className="relative z-10 px-6 pt-24 pb-16 max-w-6xl mx-auto w-full min-h-screen flex flex-col">
         <h1 className="text-4xl font-bold text-white/90 mb-4">Browse Research Projects</h1>
         <p className="text-white/70 mb-6">Click a project to learn more, then contribute your CPU if you’d like to join.</p>
 
-        <div className="mb-6">
+        <div className="mb-6 flex flex-wrap items-center gap-3">
           <label htmlFor="browse-search" className="sr-only">
             Search projects
           </label>
@@ -186,8 +241,79 @@ export default function BrowseProjects() {
             placeholder="Search by name or description..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full max-w-md px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white/95 placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/30 focus:border-white/30 transition-all"
+            className="shrink-0 w-full min-w-[200px] max-w-sm px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white/95 placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/30 focus:border-white/30 transition-all"
           />
+          <div className="relative shrink-0" ref={filterRef}>
+            <button
+              type="button"
+              onClick={() => setFilterOpen((o) => !o)}
+              className={`flex items-center gap-2 px-4 py-3 rounded-xl border transition-all ${
+                filterOpen
+                  ? "bg-white/15 border-white/30 text-white"
+                  : "bg-white/10 border-white/20 text-white/90 hover:bg-white/15 hover:border-white/25"
+              }`}
+              aria-expanded={filterOpen}
+              aria-haspopup="listbox"
+            >
+              <span className="text-sm font-medium">Filters</span>
+              {selectedTags.size > 0 && (
+                <span className="min-w-[20px] h-5 px-1.5 flex items-center justify-center rounded-full bg-emerald-500/40 text-emerald-200 text-xs font-semibold">
+                  {selectedTags.size}
+                </span>
+              )}
+              <span className="text-white/60 text-xs" aria-hidden>
+                {filterOpen ? "▴" : "▾"}
+              </span>
+            </button>
+            {filterOpen && (
+              <div
+                className="absolute left-0 top-full mt-1.5 min-w-[220px] py-2 rounded-xl bg-white/10 border border-white/20 shadow-xl backdrop-blur-md z-20"
+                role="listbox"
+              >
+                <div className="px-3 py-1.5 text-xs font-semibold text-white/60 uppercase tracking-wider">
+                  Filter by interest
+                </div>
+                {ALL_TAGS.map((tag) => {
+                  const isSelected = selectedTags.has(tag);
+                  return (
+                    <button
+                      key={tag}
+                      type="button"
+                      role="option"
+                      aria-selected={isSelected}
+                      onClick={() => toggleTag(tag)}
+                      className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-white/10 transition-colors ${
+                        isSelected ? "text-emerald-200" : "text-white/90"
+                      }`}
+                    >
+                      <span
+                        className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+                          isSelected
+                            ? "bg-emerald-500/50 border-emerald-400/70"
+                            : "border-white/30"
+                        }`}
+                      >
+                        {isSelected && <span className="text-emerald-200 text-xs">✓</span>}
+                      </span>
+                      {tag}
+                    </button>
+                  );
+                })}
+                {selectedTags.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      clearTagFilters();
+                      setFilterOpen(false);
+                    }}
+                    className="w-full text-left px-3 py-2 text-sm text-white/70 hover:bg-white/10 hover:text-white border-t border-white/10 mt-1 pt-2"
+                  >
+                    Clear all filters
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         <div
@@ -195,7 +321,9 @@ export default function BrowseProjects() {
           style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}
         >
           {filteredProjects.length === 0 ? (
-            <p className="col-span-full text-white/60 py-8">No projects match your search. Try different keywords.</p>
+            <p className="col-span-full text-white/60 py-8">
+              No projects match your {selectedTags.size > 0 ? "selected tags or " : ""}search. Try different filters or keywords.
+            </p>
           ) : (
             filteredProjects.map((proj) => {
               const isExpanded = expandedId === proj.id;
@@ -222,6 +350,16 @@ export default function BrowseProjects() {
                           ×
                         </button>
                       )}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {proj.tags.map((tag) => (
+                        <span
+                          key={tag}
+                          className="px-2 py-0.5 rounded-md bg-white/15 text-white/70 text-xs border border-white/15"
+                        >
+                          {tag}
+                        </span>
+                      ))}
                     </div>
                     {!isExpanded ? (
                       <p className="mt-2.5 text-white/70 text-[15px] line-clamp-2">

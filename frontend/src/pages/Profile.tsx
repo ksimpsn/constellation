@@ -1,6 +1,6 @@
 import { useNavigate, Link } from 'react-router-dom';
 import ConstellationStarfieldBackground from '../components/ConstellationStarfieldBackground';
-import AppNav from '../components/AppNav';
+import FlowNav from '../components/FlowNav';
 
 export default function Profile() {
   const navigate = useNavigate();
@@ -11,11 +11,8 @@ export default function Profile() {
 
   return (
     <ConstellationStarfieldBackground>
-      <div className="absolute top-0 left-0 right-0 z-20 p-4">
-        <AppNav variant="dark" />
-      </div>
-
-      <div className="px-6 py-24 pt-28 max-w-5xl mx-auto w-full">
+      <FlowNav />
+      <div className="relative z-10 px-6 pt-24 pb-16 max-w-5xl mx-auto w-full">
         <h1 className="text-4xl font-bold text-white/90 mb-10 text-center">My Profile</h1>
 
         <div className="flex flex-col lg:flex-row gap-10 items-start w-full">

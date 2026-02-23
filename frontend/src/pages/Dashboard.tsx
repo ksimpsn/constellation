@@ -1,15 +1,12 @@
 import ConstellationStarfieldBackground from "../components/ConstellationStarfieldBackground";
-import AppNav from "../components/AppNav";
+import FlowNav from "../components/FlowNav";
 import { Link } from "react-router-dom";
 
 export default function Dashboard() {
   return (
     <ConstellationStarfieldBackground>
-      <div className="absolute top-0 left-0 right-0 z-20 p-4">
-        <AppNav variant="dark" />
-      </div>
-
-      <div className="px-6 py-24 pt-28 max-w-6xl mx-auto w-full">
+      <FlowNav />
+      <div className="relative z-10 px-6 pt-24 pb-16 max-w-6xl mx-auto w-full min-h-screen">
         <h1 className="text-4xl font-bold text-white/90 mb-10">My Dashboard</h1>
 
         <div className="mb-8">

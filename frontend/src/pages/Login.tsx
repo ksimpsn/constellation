@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import ConstellationStarfieldBackground from '../components/ConstellationStarfieldBackground';
+import FlowNav from '../components/FlowNav';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5001";
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 const Login: React.FC = () => {
   const [username, setUsername] = useState('');
@@ -52,7 +53,7 @@ const Login: React.FC = () => {
       console.error('Login error:', error);
       // Check if it's a network error (backend not running)
       if (error.message?.includes('Failed to fetch') || error.name === 'TypeError') {
-        setMessage('Cannot connect to server. Please make sure the backend is running on http://localhost:5001');
+        setMessage(`Cannot connect to server. Please make sure the backend is running on ${API_BASE_URL}`);
       } else {
         setMessage(`Login failed: ${error.message || 'Please try again'}`);
       }
@@ -74,21 +75,8 @@ const Login: React.FC = () => {
 
   return (
     <ConstellationStarfieldBackground>
-      <div className="absolute top-8 left-8 z-20">
-        <Link to="/" className="block w-[60px] h-[60px] opacity-90 hover:opacity-100 transition-opacity">
-          <img src="/src/assets/logo.png" alt="Constellation Home" className="w-full h-full object-contain" />
-        </Link>
-      </div>
-      <div className="absolute top-8 right-8 z-20 flex items-center gap-4">
-        <Link to="/signup" className="text-white/60 hover:text-white/90 transition-colors text-lg">
-          Sign Up
-        </Link>
-        <Link to="/" className="hover:opacity-80 transition-opacity">
-          <img src="/src/assets/logo.png" alt="Constellation Logo" className="h-10 w-auto" />
-        </Link>
-      </div>
-
-      <div className="flex flex-col items-center justify-center min-h-screen px-6 py-24">
+      <FlowNav />
+      <div className="relative z-10 flex flex-col items-center justify-center min-h-screen px-6 py-24">
         <h1 className="text-4xl md:text-5xl font-bold text-white/90 mb-8">Log In to Constellation</h1>
         <form onSubmit={handleSubmit} className="w-full max-w-[600px] p-8 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
           <div className="mb-5">

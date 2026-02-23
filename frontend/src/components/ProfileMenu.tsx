@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, useLocation } from "react-router-dom";
+import { useView } from "../context/ViewContext";
 import "./ProfileMenu.css";
 
 export default function ProfileMenu() {
@@ -9,12 +10,7 @@ export default function ProfileMenu() {
   const ref = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const location = useLocation();
-
-  // Determine if we're on researcher profile or volunteer profile
-  // Check for researcher routes (profile, dashboard, or any researcher-specific page)
-  const isResearcherProfile = location.pathname === '/researcher-profile' ||
-                               location.pathname === '/researcher' ||
-                               location.pathname.startsWith('/researcher');
+  const { isResearcher, setView } = useView();
 
   // Check if we're on home page (don't show switch buttons on home)
   const isHomePage = location.pathname === '/';
@@ -86,7 +82,7 @@ export default function ProfileMenu() {
               e.preventDefault();
               e.stopPropagation();
               setOpen(false);
-              navigate(isResearcherProfile ? "/researcher-profile" : "/profile");
+              navigate(isResearcher ? "/researcher-profile" : "/profile");
             }}
           >
             My Profile
@@ -97,7 +93,7 @@ export default function ProfileMenu() {
               e.preventDefault();
               e.stopPropagation();
               setOpen(false);
-              navigate(isResearcherProfile ? "/researcher" : "/dashboard");
+              navigate(isResearcher ? "/researcher" : "/dashboard");
             }}
           >
             My Dashboard
@@ -125,35 +121,21 @@ export default function ProfileMenu() {
             Settings
           </div>
 
-          {/* Switch buttons - only show if not on home page */}
+          {/* Switch view - only show if not on home page */}
           {!isHomePage && (
             <>
               <div className="dropdown-divider"></div>
-              {isResearcherProfile ? (
-                <div
-                  className="dropdown-item switch-profile"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setOpen(false);
-                    navigate("/profile");
-                  }}
-                >
-                  Switch to Volunteer
-                </div>
-              ) : (
-                <div
-                  className="dropdown-item switch-profile"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setOpen(false);
-                    navigate("/researcher-profile");
-                  }}
-                >
-                  Switch to Researcher
-                </div>
-              )}
+              <div
+                className="dropdown-item switch-profile"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setOpen(false);
+                  setView(isResearcher ? "volunteer" : "researcher");
+                }}
+              >
+                Switch to {isResearcher ? "Volunteer" : "Researcher"}
+              </div>
             </>
           )}
 

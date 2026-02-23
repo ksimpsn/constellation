@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { ViewProvider } from "./context/ViewContext.tsx";
 
 import Home from "./pages/Home.tsx";
 import Dashboard from "./pages/Dashboard.tsx";
@@ -17,10 +18,9 @@ import Leaderboard from "./pages/Leaderboard.tsx";
 import BigDipperDemo from "./components/BigDipperDemo.tsx";
 import SecurityResearch from "./pages/SecurityResearch.tsx";
 
-function App() {
+function AppRoutes() {
   return (
-    <BrowserRouter>
-      <Routes>
+    <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/why" element={<Why />} />
@@ -38,6 +38,15 @@ function App() {
         <Route path="/big-dipper" element={<BigDipperDemo />} />
         <Route path="/project/:projectName" element={<ProjectDetails />} />
       </Routes>
+  );
+}
+
+function App() {
+  return (
+    <BrowserRouter>
+      <ViewProvider>
+        <AppRoutes />
+      </ViewProvider>
     </BrowserRouter>
   );
 }
