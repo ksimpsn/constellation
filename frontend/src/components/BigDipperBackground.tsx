@@ -2,7 +2,7 @@ interface BigDipperBackgroundProps {
   className?: string;
   /** If set, only this many constellations are shown (e.g. 3 for a calmer home screen). */
   limit?: number;
-  /** If set, only these constellation ids are shown (e.g. ['orion', 'bigDipper', 'lyra'] to include "This is you"). */
+  /** If set, only these constellation ids are shown (e.g. ['orion', 'bigDipper'] to include "This is you"). */
   onlyIds?: string[];
   /** Scale of the constellation layer. Default 1.32 (larger). Use e.g. 0.55 to show more constellations smaller. */
   scale?: number;
@@ -31,7 +31,7 @@ const constellations = {
       { x: 260, y: 230, r: 3 },
       { x: 180, y: 270, r: 3.5 },
       { x: 340, y: 170, r: 3 },
-      { x: 440, y: 150, r: 4 },
+      { x: 440, y: 150, r: 4.5, isYou: true },
       { x: 520, y: 130, r: 3.5 },
     ],
     lines: [
@@ -151,12 +151,11 @@ const constellations = {
     region: "center-left",
   },
   lyra: {
-    // Harp-shaped constellation with "you" as the bright center star; lines avoid crossings
     stars: [
       { x: 690, y: 358, r: 2.8 },
       { x: 770, y: 332, r: 3 },
       { x: 850, y: 358, r: 2.8 },
-      { x: 770, y: 398, r: 4.5, isYou: true },
+      { x: 770, y: 430, r: 3 },
       { x: 708, y: 448, r: 2.6 },
       { x: 832, y: 448, r: 2.6 },
     ],
@@ -335,72 +334,89 @@ export function BigDipperBackground({ className = "", limit, onlyIds, scale: sca
           </linearGradient>
         </defs>
 
-        {/* Constellation stars and lines – scale from center; no line crosses another; slow drift */}
-        <g className="constellation-drift">
-          <g transform={`translate(500, 300) scale(${scale}) translate(-500, -300)`}>
-          {shown.map(([key, { stars, lines }], constellationIndex) => {
-            const phaseDelay = constellationPhaseDelays[constellationIndex] ?? constellationIndex * 0.7;
-            const safeLines = nonCrossingLines(stars, lines as Array<[number, number]>);
-            return (
-              <g key={key}>
-                {stars.map((s, i) => (
-                  <g key={i}>
-                    <circle
-                      cx={s.x}
-                      cy={s.y}
-                      r={s.r}
-                      fill={"isYou" in s && s.isYou ? "url(#youStarGlow)" : "white"}
-                      filter={"isYou" in s && s.isYou ? "url(#youStarShadow)" : "drop-shadow(0 0 4px rgba(255, 255, 255, 0.8))"}
-                      opacity={1}
-                      className={"isYou" in s && s.isYou ? "animate-you-star" : undefined}
-                    />
-                    {"isYou" in s && s.isYou && (
-                      <g filter="url(#youLabelGlow)">
-                        <text
-                          x={s.x}
-                          y={s.y + 26}
-                          textAnchor="middle"
-                          fill="rgba(254, 243, 199, 1)"
-                          fontSize="13"
-                          fontWeight="600"
-                          fontFamily="'Space Grotesk', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
-                          letterSpacing="0.02em"
-                        >
-                          This is you.
-                        </text>
-                      </g>
-                    )}
-                  </g>
-                ))}
-                {safeLines.map(([a, b], i) => {
-                  const lineStagger = (i % 7) * 0.08;
-                  const totalDelay = phaseDelay + lineStagger;
+        {/* Constellation strip: two copies for seamless right-to-left infinite scroll */}
+        <g className="constellation-scan">
+          {[0, 1000].map((stripOffset) => (
+            <g key={stripOffset} transform={`translate(${stripOffset}, 0)`}>
+              <g transform={`translate(500, 300) scale(${scale}) translate(-500, -300)`}>
+                {shown.map(([key, { stars, lines }], constellationIndex) => {
+                  const phaseDelay = constellationPhaseDelays[constellationIndex] ?? constellationIndex * 0.7;
+                  const safeLines = nonCrossingLines(stars, lines as Array<[number, number]>);
                   return (
-                    <line
-                      key={`${a}-${b}`}
-                      x1={stars[a].x}
-                      y1={stars[a].y}
-                      x2={stars[b].x}
-                      y2={stars[b].y}
-                      className="animated-line"
-                      style={{ animationDelay: `${totalDelay}s` }}
-                    />
+                    <g key={key}>
+                      {stars.map((s, i) => (
+                        <g key={i}>
+                          <circle
+                            cx={s.x}
+                            cy={s.y}
+                            r={s.r}
+                            fill={"isYou" in s && s.isYou ? "url(#youStarGlow)" : "white"}
+                            filter={"isYou" in s && s.isYou ? "url(#youStarShadow)" : "drop-shadow(0 0 4px rgba(255, 255, 255, 0.8))"}
+                            opacity={1}
+                            className={"isYou" in s && s.isYou ? "animate-you-star" : undefined}
+                          />
+                          {"isYou" in s && s.isYou && (
+                            <g filter="url(#youLabelGlow)">
+                              {/* Thin arrow from label up to star */}
+                              <line
+                                x1={s.x}
+                                y1={s.y + 6}
+                                x2={s.x}
+                                y2={s.y + 18}
+                                stroke="rgba(254, 243, 199, 0.9)"
+                                strokeWidth="0.8"
+                                strokeLinecap="round"
+                              />
+                              <path
+                                d={`M ${s.x} ${s.y + 6} L ${s.x - 3} ${s.y + 11} L ${s.x + 3} ${s.y + 11} Z`}
+                                fill="rgba(254, 243, 199, 0.95)"
+                              />
+                              <text
+                                x={s.x}
+                                y={s.y + 26}
+                                textAnchor="middle"
+                                fill="rgba(254, 243, 199, 1)"
+                                fontSize="9"
+                                fontWeight="400"
+                                fontFamily="'Space Grotesk', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+                                letterSpacing="0.02em"
+                              >
+                                This is you.
+                              </text>
+                            </g>
+                          )}
+                        </g>
+                      ))}
+                      {safeLines.map(([a, b], i) => {
+                        const lineStagger = (i % 7) * 0.08;
+                        const totalDelay = phaseDelay + lineStagger;
+                        return (
+                          <line
+                            key={`${a}-${b}`}
+                            x1={stars[a].x}
+                            y1={stars[a].y}
+                            x2={stars[b].x}
+                            y2={stars[b].y}
+                            className="animated-line"
+                            style={{ animationDelay: `${totalDelay}s` }}
+                          />
+                        );
+                      })}
+                    </g>
                   );
                 })}
               </g>
-            );
-          })}
-          </g>
-          {/* Scattered stars – same drift as constellations */}
-          {scatteredStars.map((s, i) => (
-            <circle
-              key={`scatter-${i}`}
-              cx={s.x}
-              cy={s.y}
-              r={s.r}
-              fill="white"
-              filter="drop-shadow(0 0 1.5px rgba(255, 255, 255, 0.6))"
-            />
+              {scatteredStars.map((s, i) => (
+                <circle
+                  key={`scatter-${stripOffset}-${i}`}
+                  cx={s.x}
+                  cy={s.y}
+                  r={s.r}
+                  fill="white"
+                  filter="drop-shadow(0 0 1.5px rgba(255, 255, 255, 0.6))"
+                />
+              ))}
+            </g>
           ))}
         </g>
 
@@ -424,14 +440,12 @@ export function BigDipperBackground({ className = "", limit, onlyIds, scale: sca
         <style
           dangerouslySetInnerHTML={{
             __html: `
-              @keyframes constellationDrift {
-                0%, 100% { transform: translate(0, 0); }
-                25% { transform: translate(12px, 6px); }
-                50% { transform: translate(-8px, 10px); }
-                75% { transform: translate(-10px, -6px); }
+              @keyframes skyScan {
+                0% { transform: translate(0, 0); }
+                100% { transform: translate(-1000px, 0); }
               }
-              .constellation-drift {
-                animation: constellationDrift 90s ease-in-out infinite;
+              .constellation-scan {
+                animation: skyScan 120s linear infinite;
               }
 
               @keyframes drawLine {
