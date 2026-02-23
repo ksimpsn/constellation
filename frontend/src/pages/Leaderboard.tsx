@@ -1,11 +1,6 @@
 import ConstellationStarfieldBackground from "../components/ConstellationStarfieldBackground";
 import FlowNav from "../components/FlowNav";
 
-const RANK_GLOWS = [
-  "rgba(250,204,21,0.5)",
-  "rgba(203,213,225,0.45)",
-  "rgba(217,119,6,0.45)",
-] as const;
 
 export default function Leaderboard() {
   const mostProjects = [
@@ -53,12 +48,6 @@ export default function Leaderboard() {
     return `${value} projects`;
   };
 
-  const rankBadgeStyles = [
-    "bg-gradient-to-br from-yellow-300 via-amber-400 to-yellow-600 text-amber-950 font-bold shadow-[0_0_12px_rgba(250,204,21,0.4)]",
-    "bg-gradient-to-br from-slate-200 via-slate-300 to-slate-500 text-slate-900 font-bold shadow-[0_0_12px_rgba(203,213,225,0.3)]",
-    "bg-gradient-to-br from-amber-600 via-amber-700 to-amber-800 text-amber-100 font-bold shadow-[0_0_12px_rgba(217,119,6,0.35)]",
-  ] as const;
-
   const ContributorList = ({
     contributors,
     title,
@@ -77,7 +66,6 @@ export default function Leaderboard() {
       <div className="flex flex-col gap-2">
         {contributors.map((contributor, index) => {
           const isTopThree = index < 3;
-          const glow = RANK_GLOWS[index];
           return (
             <div
               key={index}
@@ -86,17 +74,8 @@ export default function Leaderboard() {
                   ? "bg-white/[0.12] border border-white/25"
                   : "bg-white/[0.06] border border-white/10 hover:border-white/20 hover:bg-white/[0.08]"
               }`}
-              style={
-                isTopThree
-                  ? { boxShadow: `0 0 28px ${glow}, 0 0 0 1px rgba(255,255,255,0.06)` }
-                  : undefined
-              }
             >
-              <span
-                className={`w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-sm tabular-nums ${
-                  isTopThree ? rankBadgeStyles[index] : "bg-white/10 text-white/85 font-medium"
-                }`}
-              >
+              <span className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-sm tabular-nums bg-white/10 text-white/85 font-medium">
                 {index + 1}
               </span>
               <span
@@ -152,22 +131,22 @@ export default function Leaderboard() {
           </h3>
           <div className="flex justify-center items-end gap-4 md:gap-8 max-w-2xl mx-auto">
             <div className="flex flex-col items-center flex-1 max-w-[120px]">
-              <span className="w-10 h-10 rounded-full bg-gradient-to-br from-slate-200 via-slate-300 to-slate-500 text-slate-900 font-bold flex items-center justify-center text-lg mb-2 shadow-[0_0_14px_rgba(203,213,225,0.35)]">2</span>
+              <span className="w-10 h-10 rounded-full bg-white/10 text-white/85 font-bold flex items-center justify-center text-lg mb-2">2</span>
               <span className="text-white font-semibold text-center text-sm truncate w-full">{mostProjects[1]?.username}</span>
-              <div className="w-full h-16 mt-2 rounded-t-lg bg-gradient-to-t from-slate-600/70 to-slate-400/40 border border-slate-400/40 shadow-inner" />
-              <span className="text-xs text-slate-300 font-medium mt-1">2nd</span>
+              <div className="w-full h-16 mt-2 rounded-t-lg bg-white/10 border border-white/20 shadow-inner" />
+              <span className="text-xs text-white/70 font-medium mt-1">2nd</span>
             </div>
             <div className="flex flex-col items-center flex-1 max-w-[140px]">
-              <span className="w-12 h-12 rounded-full bg-gradient-to-br from-yellow-300 via-amber-400 to-yellow-600 text-amber-950 font-bold flex items-center justify-center text-xl mb-2 shadow-[0_0_24px_rgba(250,204,21,0.5)]">1</span>
+              <span className="w-12 h-12 rounded-full bg-white/10 text-white/85 font-bold flex items-center justify-center text-xl mb-2">1</span>
               <span className="text-white font-bold text-center text-base truncate w-full">{mostProjects[0]?.username}</span>
-              <div className="w-full h-24 mt-2 rounded-t-lg bg-gradient-to-t from-amber-600/80 via-amber-500/50 to-amber-400/40 border border-amber-400/50 shadow-[0_0_32px_rgba(251,191,36,0.25)]" />
-              <span className="text-xs text-amber-300 font-semibold mt-1">1st</span>
+              <div className="w-full h-24 mt-2 rounded-t-lg bg-white/10 border border-white/20 shadow-inner" />
+              <span className="text-xs text-white/70 font-semibold mt-1">1st</span>
             </div>
             <div className="flex flex-col items-center flex-1 max-w-[120px]">
-              <span className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-600 via-amber-700 to-amber-800 text-amber-100 font-bold flex items-center justify-center text-lg mb-2 shadow-[0_0_14px_rgba(217,119,6,0.4)]">3</span>
+              <span className="w-10 h-10 rounded-full bg-white/10 text-white/85 font-bold flex items-center justify-center text-lg mb-2">3</span>
               <span className="text-white font-semibold text-center text-sm truncate w-full">{mostProjects[2]?.username}</span>
-              <div className="w-full h-12 mt-2 rounded-t-lg bg-gradient-to-t from-amber-700/70 to-amber-600/40 border border-amber-500/40" />
-              <span className="text-xs text-amber-200/90 font-medium mt-1">3rd</span>
+              <div className="w-full h-12 mt-2 rounded-t-lg bg-white/10 border border-white/20" />
+              <span className="text-xs text-white/70 font-medium mt-1">3rd</span>
             </div>
           </div>
         </div>
