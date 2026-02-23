@@ -25,13 +25,9 @@ export default function Home() {
     console.log("Starting local compute node...");
   };
   return (
-    <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-indigo-950 via-slate-900 to-purple-950">
-      {/* Big Dipper Background */}
+    <div className="relative min-h-screen bg-gradient-to-br from-indigo-950 via-slate-900 to-purple-950">
       <BigDipperBackground scale={1.4} />
-
       <FlowNav />
-
-      {/* Content Overlay */}
       <div className="relative z-10 flex flex-col items-center justify-center min-h-screen px-6 py-20">
         <h1 className="text-5xl md:text-7xl font-bold text-white/90 leading-tight text-center mb-6">
           Welcome to Constellation.
