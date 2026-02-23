@@ -3,10 +3,11 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import ConstellationLogo from "./ConstellationLogo";
 import { useView } from "../context/ViewContext";
 
+// Security uses same page as home "Privacy & Security" link (/security), not /security-research
 const discoverLinks = [
   { path: "/", label: "Home" },
   { path: "/why", label: "Why Constellation" },
-  { path: "/security", label: "Security" },
+  { path: "/security", label: "Privacy & Security" },
 ];
 
 const contributeVolunteer = [
@@ -105,7 +106,12 @@ export default function FlowNav() {
                   <p className="text-xs font-medium uppercase tracking-wider text-white/50 mb-2">Discover</p>
                   <ul className="space-y-0.5">
                     {discoverLinks.map(({ path, label }) => {
-                      const active = path === "/" ? location.pathname === "/" : location.pathname.startsWith(path);
+                      const active =
+                        path === "/"
+                          ? location.pathname === "/"
+                          : path === "/security"
+                            ? location.pathname === "/security"
+                            : location.pathname.startsWith(path);
                       return (
                         <li key={path}>
                           <button
