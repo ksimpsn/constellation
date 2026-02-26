@@ -154,7 +154,7 @@ if __name__ == "__main__":
 
     # Normalized findings
     findings = semgrep_findings(
-        "../test",
+        "smoketest.py",
         config=["p/security-audit"],
         extra_args=["--exclude", "venv", "--exclude", ".git"],
     )
