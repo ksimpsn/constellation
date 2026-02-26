@@ -150,12 +150,12 @@ def semgrep_findings(filepath: str, **kwargs: Any) -> List[SemgrepFinding]:
 
 # Raw JSON
 if __name__ == "__main__":
-    report = run_semgrep_analysis("backend/analysis/semgrep.py")
+    report = run_semgrep_analysis("smoketest.py")
 
     # Normalized findings
     findings = semgrep_findings(
-        "backend/test/",
-        config=["p/security-audit", "./rules/constellation-policy.yml"],
+        "../test",
+        config=["p/security-audit"],
         extra_args=["--exclude", "venv", "--exclude", ".git"],
     )
     print(findings)
