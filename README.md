@@ -14,7 +14,10 @@ The system is built on **Ray**, enabling scalable task distribution, progress tr
     python3 -m venv env
     source env/bin/activate  # On Windows: env\Scripts\activate
 3. **Install Python dependencies:**
-    pip install flask flask-cors ray sqlalchemy dill
+    ```bash
+    pip install -r requirements.txt
+    ```
+    Or: `pip install flask flask-cors ray sqlalchemy dill psycopg2-binary`
 4. **Initialize the database:**
     python3 -c "from backend.core.database import init_db; init_db()"
 5. **Run the Flask backend server:**
@@ -79,6 +82,24 @@ Constellation supports distributed computing across multiple machines on the sam
    ```
 
 3. **Submit projects as usual** - tasks will automatically distribute across all connected workers.
+
+## AWS PostgreSQL (optional)
+
+To sync projects and task progress to an AWS RDS Postgres database:
+
+1. Create the tables in Postgres (e.g. `users`, `researchers`, `projects`, `project_users`, `tasks` as in your schema).
+2. Set the environment variable before starting the backend:
+   ```bash
+   export AWS_DATABASE_URL="postgresql://USER:PASSWORD@HOST:5432/DATABASE"
+   python3 -m flask --app backend.app run --reload --host 0.0.0.0 --port 5001
+   ```
+3. On each job submit, a row is written to `projects` and rows to `tasks`. As the job runs, `chunks_completed` and task `status` are updated.
+
+To use Postgres as the **primary** database (instead of SQLite), set:
+```bash
+export DATABASE_URL="postgresql://USER:PASSWORD@HOST:5432/DATABASE"
+```
+Note: The primary schema uses different tables (e.g. `jobs`, `runs`); use this only if you have migrated or created those tables in Postgres.
 
 ### Requirements
 

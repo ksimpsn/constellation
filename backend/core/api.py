@@ -37,6 +37,16 @@ from backend.core.database import (
     create_task_result,
     register_worker, update_worker_heartbeat, get_available_workers
 )
+from backend.core.database_aws import (
+    init_aws_db,
+    is_aws_db_configured,
+    create_aws_project,
+    create_aws_tasks,
+    update_aws_project_progress,
+    set_aws_task_completed,
+    set_aws_project_tasks_running,
+    ensure_aws_researcher,
+)
 
 class ConstellationAPI:
     """
@@ -52,6 +62,10 @@ class ConstellationAPI:
         # Map legacy job_id (integer) to run_id (string) for backward compatibility
         self.job_id_to_run_id: dict[int, str] = {}
         self.counter = 0  # for legacy job_id compatibility
+        # Optional AWS Postgres sync
+        init_aws_db()
+        if is_aws_db_configured():
+            logging.info("[ConstellationAPI] AWS Postgres sync enabled (AWS_DATABASE_URL).")
         print("[ConstellationAPI] Initialized API layer.")
 
     # ---------------------------------------------------------
@@ -323,6 +337,25 @@ class ConstellationAPI:
             tasks.append(task)
 
         # ---------------------------------------------------------
+        # 5b. Sync to AWS Postgres if configured
+        # ---------------------------------------------------------
+        aws_project_id = None
+        if is_aws_db_configured():
+            try:
+                researcher_username = "default_researcher"
+                ensure_aws_researcher(researcher_username)
+                aws_project_id = create_aws_project(
+                    researcher_username=researcher_username,
+                    name=title or project.title,
+                    description=description or "",
+                    total_chunks=len(chunks),
+                )
+                create_aws_tasks(aws_project_id, len(chunks))
+                logging.info(f"[INFO] Synced to AWS Postgres: project_id={aws_project_id}, tasks={len(chunks)}")
+            except Exception as e:
+                logging.warning(f"[AWS] Sync failed on submit: {e}")
+
+        # ---------------------------------------------------------
         # 6. Create Ray payloads (using DB task_ids)
         # ---------------------------------------------------------
         payloads = []
@@ -360,8 +393,11 @@ class ConstellationAPI:
         self.counter += 1
         self.job_id_to_run_id[legacy_job_id] = run.run_id
         
-        # Also save to legacy Job table for backward compatibility
-        save_job(job_id=legacy_job_id, data={"run_id": run.run_id, "project_id": project.project_id}, status="submitted")
+        # Also save to legacy Job table for backward compatibility (include aws_project_id for AWS sync)
+        job_data = {"run_id": run.run_id, "project_id": project.project_id}
+        if aws_project_id is not None:
+            job_data["aws_project_id"] = aws_project_id
+        save_job(job_id=legacy_job_id, data=job_data, status="submitted")
 
         logging.info(f"[INFO] Submitted uploaded project: project_id={project.project_id}, run_id={run.run_id}, job_id={legacy_job_id}, chunks={len(chunks)}")
 
@@ -434,6 +470,11 @@ class ConstellationAPI:
             if not run:
                 logging.error(f"[ConstellationAPI] Run {run_id} not found in DB")
                 raise Exception("Run not found")
+            # AWS Postgres: get aws_project_id from legacy job data for progress sync
+            legacy_job = get_job(job_id)
+            aws_project_id = None
+            if legacy_job and isinstance(legacy_job.data, dict):
+                aws_project_id = legacy_job.data.get("aws_project_id")
             
             current_status = run.status
             logging.info(f"[ConstellationAPI] Current stored status for run {run_id}: {current_status}")
@@ -459,13 +500,31 @@ class ConstellationAPI:
             if len(done) == len(futures):
                 logging.info(f"[ConstellationAPI] All futures completed for run {run_id}")
                 update_run(run_id, status="completed", completed_at=datetime.utcnow())
-                # Update legacy job too
                 update_job(job_id, status="complete")
+                # Sync to AWS Postgres
+                if is_aws_db_configured() and aws_project_id is not None:
+                    try:
+                        update_aws_project_progress(aws_project_id, run.total_tasks)
+                        for i in range(run.total_tasks):
+                            set_aws_task_completed(aws_project_id, i)
+                    except Exception as e:
+                        logging.warning(f"[AWS] Sync progress failed: {e}")
                 return "complete"
             else:
                 if current_status == "pending":
                     update_run(run_id, status="running", started_at=datetime.utcnow())
+                    if is_aws_db_configured() and aws_project_id is not None:
+                        try:
+                            set_aws_project_tasks_running(aws_project_id)
+                        except Exception as e:
+                            logging.warning(f"[AWS] Sync running failed: {e}")
                 update_job(job_id, status="running")
+                # Optionally update AWS chunks_completed to len(done)
+                if is_aws_db_configured() and aws_project_id is not None:
+                    try:
+                        update_aws_project_progress(aws_project_id, len(done))
+                    except Exception as e:
+                        logging.warning(f"[AWS] Sync progress failed: {e}")
                 return "running"
         
         # Fallback to legacy Job table

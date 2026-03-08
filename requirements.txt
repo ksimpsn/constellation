@@ -1,0 +1,6 @@
+flask>=2.0
+flask-cors>=3.0
+ray>=2.0
+sqlalchemy>=1.4
+dill>=0.3
+psycopg2-binary>=2.9

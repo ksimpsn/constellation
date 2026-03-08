@@ -13,12 +13,15 @@ from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy.dialects.sqlite import JSON
 from contextlib import contextmanager
 from datetime import datetime
+import os
 import uuid
 import hashlib
 import json
 
-# Create SQLite database (local file: constellation.db)
-DATABASE_URL = "sqlite:///constellation.db"
+# Primary database: use DATABASE_URL from env or default to SQLite
+DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///constellation.db")
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 # SQLAlchemy setup
 engine = create_engine(DATABASE_URL, echo=False)
