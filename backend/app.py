@@ -93,6 +93,8 @@ def submit_job():
     description = request.form.get("description")
     py_file = request.files.get("py_file")
     data_file = request.files.get("data_file")
+    replication_factor = request.form.get("replication_factor", type=int) or 2
+    max_verification_attempts = request.form.get("max_verification_attempts", type=int) or 2
 
     if not title or not py_file or not data_file:
         return jsonify({"error": "Missing required fields"}), 400
@@ -116,7 +118,9 @@ def submit_job():
             code_path=py_path,
             dataset_path=data_path,
             file_type=ext,
-            func_name="main"
+            func_name="main",
+            replication_factor=replication_factor,
+            max_verification_attempts=max_verification_attempts,
         )
     except Exception as e:
         import traceback

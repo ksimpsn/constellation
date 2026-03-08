@@ -63,6 +63,8 @@ class Project(Base):
     dataset_type = Column(String(10), nullable=False)  # 'csv' or 'json'
     func_name = Column(String(255), nullable=False, default="main")
     chunk_size = Column(Integer, nullable=False, default=1000)
+    replication_factor = Column(Integer, nullable=False, default=2)  # Number of times each task is run for verification
+    max_verification_attempts = Column(Integer, nullable=False, default=2)  # Max re-submits for unverified tasks
     status = Column(String(50), nullable=False, default="active", index=True)  # 'active', 'archived', 'deleted'
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
@@ -383,7 +385,8 @@ def user_has_role(user_id: str, role: str) -> bool:
 
 def create_project(researcher_id: str, title: str, description: str, 
                    code_path: str, dataset_path: str, dataset_type: str,
-                   func_name: str = "main", chunk_size: int = 1000) -> Project:
+                   func_name: str = "main", chunk_size: int = 1000,
+                   replication_factor: int = 2, max_verification_attempts: int = 2) -> Project:
     """Create a new project."""
     with SessionLocal() as session:
         project = Project(
@@ -394,7 +397,9 @@ def create_project(researcher_id: str, title: str, description: str,
             dataset_s3_path=dataset_path,  # Will be S3 path later
             dataset_type=dataset_type,
             func_name=func_name,
-            chunk_size=chunk_size
+            chunk_size=chunk_size,
+            replication_factor=replication_factor,
+            max_verification_attempts=max_verification_attempts,
         )
         session.add(project)
         session.commit()

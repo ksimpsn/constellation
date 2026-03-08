@@ -1,4 +1,5 @@
 from typing import Any, List
+from collections import Counter
 
 import ray
 import logging
@@ -291,66 +292,99 @@ class Cluster:
             "hashes": [hash1, hash2]
         }
 
-    def submit_uploaded_tasks_with_verification(self, data: list[dict], func_bytes, max_rerun_attempts=2):
+    def _verify_replicated_results(self, all_attempts: List[list], replication_factor: int):
         """
-        Submit uploaded tasks twice and verify results. If any task is unverified
-        (attempt1 != attempt2), re-submit only those tasks for verification again
-        until they match or max_rerun_attempts is reached.
+        Given replication_factor result lists (each list is one full run of all tasks),
+        for each task index determine: (final_result, verified).
+        Verified if a majority of runs agree (>= (replication_factor + 1) // 2 same hashes).
+        Returns (final_results, unverified_indices).
         """
-        logging.info("[VERIFICATION] Running Uploaded Attempt 1")
-        futures1 = self.submit_uploaded_tasks(data, func_bytes)
-        results1 = ray.get(futures1)
+        n = len(all_attempts[0]) if all_attempts else 0
+        final_results = [all_attempts[0][i] for i in range(n)]
+        unverified_indices = []
+        for i in range(n):
+            hashes = [self._hash_single_result(attempt[i]) for attempt in all_attempts]
+            counts = Counter(hashes)
+            majority_hash, count = counts.most_common(1)[0]
+            # Strict majority: need more than half (e.g. 2-of-2, 2-of-3, 3-of-4)
+            threshold = (replication_factor // 2) + 1
+            if count >= threshold:
+                # Use the result that produced majority_hash
+                for attempt in all_attempts:
+                    if self._hash_single_result(attempt[i]) == majority_hash:
+                        final_results[i] = attempt[i]
+                        break
+            else:
+                unverified_indices.append(i)
+                final_results[i] = all_attempts[0][i]
+        return final_results, unverified_indices
 
-        logging.info("[VERIFICATION] Running Uploaded Attempt 2")
-        futures2 = self.submit_uploaded_tasks(data, func_bytes)
-        results2 = ray.get(futures2)
+    def submit_uploaded_tasks_with_verification(
+        self,
+        data: list[dict],
+        func_bytes,
+        replication_factor: int = 2,
+        max_rerun_attempts: int = 2,
+    ):
+        """
+        Submit uploaded tasks with configurable replication and verification.
 
-        verified_mask, unverified_indices, hash1_list, hash2_list = self._verify_attempts_per_task(
-            results1, results2
+        - replication_factor: each task is run this many times; verified if a majority agree.
+        - max_rerun_attempts: max times to re-submit unverified tasks (each re-run uses replication_factor again).
+        """
+        replication_factor = max(2, int(replication_factor))
+        max_rerun_attempts = max(1, int(max_rerun_attempts))
+
+        all_attempts = []
+        for r in range(replication_factor):
+            logging.info(f"[VERIFICATION] Running Uploaded Attempt {r + 1}/{replication_factor}")
+            futures = self.submit_uploaded_tasks(data, func_bytes)
+            results = ray.get(futures)
+            all_attempts.append(results)
+
+        final_results, unverified_indices = self._verify_replicated_results(
+            all_attempts, replication_factor
         )
-        n = len(results1)
-        final_results = list(results1)
+        n = len(final_results)
 
         if unverified_indices:
-            logging.info(f"[VERIFICATION] {len(unverified_indices)} task(s) unverified, re-submitting for verification")
+            logging.info(
+                f"[VERIFICATION] {len(unverified_indices)} task(s) unverified, re-submitting (max {max_rerun_attempts} attempt(s))"
+            )
             unverified_payloads = [data[i] for i in unverified_indices]
             rerun_attempt = 0
             while rerun_attempt < max_rerun_attempts and unverified_indices:
                 rerun_attempt += 1
-                logging.info(f"[VERIFICATION] Re-run attempt {rerun_attempt} for {len(unverified_payloads)} task(s)")
-                rerun_futures1 = self.submit_uploaded_tasks(unverified_payloads, func_bytes)
-                rerun_results1 = ray.get(rerun_futures1)
-                rerun_futures2 = self.submit_uploaded_tasks(unverified_payloads, func_bytes)
-                rerun_results2 = ray.get(rerun_futures2)
-
-                still_unverified = []
-                still_unverified_payloads = []
+                logging.info(
+                    f"[VERIFICATION] Re-run attempt {rerun_attempt}/{max_rerun_attempts} for {len(unverified_payloads)} task(s) (replication={replication_factor})"
+                )
+                rerun_attempts = []
+                for r in range(replication_factor):
+                    rerun_futures = self.submit_uploaded_tasks(unverified_payloads, func_bytes)
+                    rerun_attempts.append(ray.get(rerun_futures))
+                rerun_final, still_unverified = self._verify_replicated_results(
+                    rerun_attempts, replication_factor
+                )
                 for j, orig_idx in enumerate(unverified_indices):
-                    h1 = self._hash_single_result(rerun_results1[j])
-                    h2 = self._hash_single_result(rerun_results2[j])
-                    if h1 == h2:
-                        final_results[orig_idx] = rerun_results1[j]
-                    else:
-                        still_unverified.append(orig_idx)
-                        still_unverified_payloads.append(data[orig_idx])
-                        final_results[orig_idx] = rerun_results1[j]
-
-                unverified_indices = still_unverified
-                unverified_payloads = still_unverified_payloads
+                    final_results[orig_idx] = rerun_final[j]
+                unverified_indices = [unverified_indices[k] for k in still_unverified]
+                unverified_payloads = [data[i] for i in unverified_indices]
                 if not unverified_indices:
                     logging.info("[VERIFICATION] All re-submitted tasks verified")
                     break
 
             if unverified_indices:
-                logging.warning(f"[VERIFICATION] {len(unverified_indices)} task(s) still disputed after {max_rerun_attempts} re-run(s)")
+                logging.warning(
+                    f"[VERIFICATION] {len(unverified_indices)} task(s) still disputed after {max_rerun_attempts} re-run(s)"
+                )
 
         overall_status = "verified" if not unverified_indices else "disputed"
-        hash1 = self._hash_results(results1)
-        hash2 = self._hash_results(results2)
+        hash1 = self._hash_results(all_attempts[0])
+        hash2 = self._hash_results(all_attempts[1]) if replication_factor >= 2 else hash1
         logging.info(f"[VERIFICATION] Uploaded Status = {overall_status}")
 
         return {
-            "attempts": [results1, results2, final_results],
+            "attempts": all_attempts + [final_results],
             "verification_status": overall_status,
             "hashes": [hash1, hash2],
             "final_results": final_results,
