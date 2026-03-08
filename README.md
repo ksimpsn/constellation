@@ -16,7 +16,14 @@ The system is built on **Ray**, enabling scalable task distribution, progress tr
 3. **Install Python dependencies:**
     pip install flask flask-cors ray sqlalchemy dill
 4. **Initialize the database:**
+    ```bash
     python3 -c "from backend.core.database import init_db; init_db()"
+    ```
+    If you already have a `projects` table and are upgrading, add verification columns:
+    ```sql
+    ALTER TABLE projects ADD COLUMN replication_factor INTEGER NOT NULL DEFAULT 2;
+    ALTER TABLE projects ADD COLUMN max_verification_attempts INTEGER NOT NULL DEFAULT 2;
+    ```
 5. **Run the Flask backend server:**
     python3 -m flask --app backend.app run --reload --host 0.0.0.0 --port 5001
 
@@ -39,6 +46,7 @@ The system is built on **Ray**, enabling scalable task distribution, progress tr
    - Enter project title and description
    - Upload a Python script (must contain a `main(row)` function)
    - Upload a CSV or JSON dataset
+   - Optionally set **replication factor** (how many times each task is run for verification; default 2) and **max verification attempts** (how many times to re-submit unverified tasks; default 2) via the form or API.
    - Click "Submit Project"
 
 2. **Monitor Status:**

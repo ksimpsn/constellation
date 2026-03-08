@@ -223,7 +223,9 @@ class ConstellationAPI:
             chunk_size: int = 1000,
             researcher_id: str = None,
             title: str = None,
-            description: str = None
+            description: str = None,
+            replication_factor: int = 2,
+            max_verification_attempts: int = 2,
     ) -> int:
         """
         Full pipeline for researcher-uploaded projects.
@@ -289,7 +291,9 @@ class ConstellationAPI:
             dataset_path=dataset_path,  # Will be S3 path later
             dataset_type=file_type,
             func_name=func_name,
-            chunk_size=chunk_size
+            chunk_size=chunk_size,
+            replication_factor=replication_factor,
+            max_verification_attempts=max_verification_attempts,
         )
         
         # Copy files to project directory
@@ -344,7 +348,12 @@ class ConstellationAPI:
         # ---------------------------------------------------------
         print(f"[DEBUG] About to submit: {len(payloads)} payloads")
         # futures = self.server.submit_uploaded_tasks(payloads, fn_bytes)
-        execution = self.server.submit_uploaded_tasks_with_verification(payloads, fn_bytes)
+        execution = self.server.submit_uploaded_tasks_with_verification(
+            payloads,
+            fn_bytes,
+            replication_factor=project.replication_factor,
+            max_rerun_attempts=project.max_verification_attempts,
+        )
         futures = execution.get("futures", [])
         print(f"[DEBUG] Received {len(futures)} futures from submit_uploaded_tasks")
         
