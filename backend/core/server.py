@@ -225,9 +225,41 @@ class Cluster:
         serialized = json.dumps(results, sort_keys=True, default=str)
         return hashlib.sha256(serialized.encode()).hexdigest()
 
+    def _hash_single_result(self, task_result_dict):
+        """
+        Deterministic hash of a single task result (for per-task verification).
+        """
+        # Use result_hash if present, else hash the whole result payload
+        h = task_result_dict.get("result_hash")
+        if h is not None:
+            return h
+        return self._hash_results(task_result_dict.get("results", task_result_dict))
+
+    def _verify_attempts_per_task(self, results_attempt1, results_attempt2):
+        """
+        Compare two result lists per task (by index).
+        Returns (verified_mask, unverified_indices, hash1_list, hash2_list).
+        """
+        n = min(len(results_attempt1), len(results_attempt2))
+        verified_mask = []
+        unverified_indices = []
+        hash1_list = []
+        hash2_list = []
+        for i in range(n):
+            h1 = self._hash_single_result(results_attempt1[i])
+            h2 = self._hash_single_result(results_attempt2[i])
+            hash1_list.append(h1)
+            hash2_list.append(h2)
+            if h1 == h2:
+                verified_mask.append(True)
+            else:
+                verified_mask.append(False)
+                unverified_indices.append(i)
+        return verified_mask, unverified_indices, hash1_list, hash2_list
+
     def _verify_attempts(self, results_attempt1, results_attempt2):
         """
-        Compare two result sets using hashes.
+        Compare two result sets using hashes (overall).
         """
         hash1 = self._hash_results(results_attempt1)
         hash2 = self._hash_results(results_attempt2)
@@ -259,11 +291,12 @@ class Cluster:
             "hashes": [hash1, hash2]
         }
 
-    def submit_uploaded_tasks_with_verification(self, data: list[dict], func_bytes):
+    def submit_uploaded_tasks_with_verification(self, data: list[dict], func_bytes, max_rerun_attempts=2):
         """
-        Submit uploaded tasks twice and verify results.
+        Submit uploaded tasks twice and verify results. If any task is unverified
+        (attempt1 != attempt2), re-submit only those tasks for verification again
+        until they match or max_rerun_attempts is reached.
         """
-
         logging.info("[VERIFICATION] Running Uploaded Attempt 1")
         futures1 = self.submit_uploaded_tasks(data, func_bytes)
         results1 = ray.get(futures1)
@@ -272,12 +305,53 @@ class Cluster:
         futures2 = self.submit_uploaded_tasks(data, func_bytes)
         results2 = ray.get(futures2)
 
-        status, hash1, hash2 = self._verify_attempts(results1, results2)
+        verified_mask, unverified_indices, hash1_list, hash2_list = self._verify_attempts_per_task(
+            results1, results2
+        )
+        n = len(results1)
+        final_results = list(results1)
 
-        logging.info(f"[VERIFICATION] Uploaded Status = {status}")
+        if unverified_indices:
+            logging.info(f"[VERIFICATION] {len(unverified_indices)} task(s) unverified, re-submitting for verification")
+            unverified_payloads = [data[i] for i in unverified_indices]
+            rerun_attempt = 0
+            while rerun_attempt < max_rerun_attempts and unverified_indices:
+                rerun_attempt += 1
+                logging.info(f"[VERIFICATION] Re-run attempt {rerun_attempt} for {len(unverified_payloads)} task(s)")
+                rerun_futures1 = self.submit_uploaded_tasks(unverified_payloads, func_bytes)
+                rerun_results1 = ray.get(rerun_futures1)
+                rerun_futures2 = self.submit_uploaded_tasks(unverified_payloads, func_bytes)
+                rerun_results2 = ray.get(rerun_futures2)
+
+                still_unverified = []
+                still_unverified_payloads = []
+                for j, orig_idx in enumerate(unverified_indices):
+                    h1 = self._hash_single_result(rerun_results1[j])
+                    h2 = self._hash_single_result(rerun_results2[j])
+                    if h1 == h2:
+                        final_results[orig_idx] = rerun_results1[j]
+                    else:
+                        still_unverified.append(orig_idx)
+                        still_unverified_payloads.append(data[orig_idx])
+                        final_results[orig_idx] = rerun_results1[j]
+
+                unverified_indices = still_unverified
+                unverified_payloads = still_unverified_payloads
+                if not unverified_indices:
+                    logging.info("[VERIFICATION] All re-submitted tasks verified")
+                    break
+
+            if unverified_indices:
+                logging.warning(f"[VERIFICATION] {len(unverified_indices)} task(s) still disputed after {max_rerun_attempts} re-run(s)")
+
+        overall_status = "verified" if not unverified_indices else "disputed"
+        hash1 = self._hash_results(results1)
+        hash2 = self._hash_results(results2)
+        logging.info(f"[VERIFICATION] Uploaded Status = {overall_status}")
 
         return {
-            "attempts": [results1, results2],
-            "verification_status": status,
-            "hashes": [hash1, hash2]
+            "attempts": [results1, results2, final_results],
+            "verification_status": overall_status,
+            "hashes": [hash1, hash2],
+            "final_results": final_results,
         }
