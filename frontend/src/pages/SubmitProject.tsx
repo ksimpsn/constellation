@@ -1,15 +1,19 @@
 import GradientBackground from "../components/GradientBackground";
 import { useState, useEffect, useRef } from "react";
+import { getApiUrl } from "../api/config";
 
 export default function SubmitProject() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [pyFile, setPyFile] = useState<File | null>(null);
   const [dataFile, setDataFile] = useState<File | null>(null);
+  const [chunkSize, setChunkSize] = useState(1000);
   const [message, setMessage] = useState("");
 
-  // Track job ID, status, and results
+  // Track job ID, run ID, project ID, status, and results
   const [jobId, setJobId] = useState<number | null>(null);
+  const [runId, setRunId] = useState<string | null>(null);
+  const [projectId, setProjectId] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<string | null>(null);
   const [jobResults, setJobResults] = useState<any | null>(null);
   const pollingIntervalRef = useRef<number | null>(null);
@@ -24,16 +28,16 @@ export default function SubmitProject() {
       return;
     }
 
-    console.log("inside handle submit");
-
+    const base = getApiUrl();
     const formData = new FormData();
     formData.append("title", title);
     formData.append("description", description);
     formData.append("py_file", pyFile);
     formData.append("data_file", dataFile);
+    formData.append("chunk_size", String(chunkSize));
 
     try {
-      const response = await fetch("http://localhost:5001/submit", {
+      const response = await fetch(`${base}/submit`, {
         method: "POST",
         body: formData,
       });
@@ -45,28 +49,26 @@ export default function SubmitProject() {
         return;
       }
 
-      // Save job ID and reset status/results
       setJobId(result.job_id);
+      setRunId(result.run_id ?? null);
+      setProjectId(result.project_id ?? null);
       setJobStatus("submitted");
       setJobResults(null);
-
-      setMessage(`Project submitted successfully! Job ID: ${result.job_id}`);
+      const taskMsg = result.total_tasks != null ? ` (${result.total_tasks} tasks created)` : "";
+      setMessage(`Project submitted. Run ID: ${result.run_id ?? result.job_id}${taskMsg}`);
     } catch (err) {
       console.error(err);
       setMessage("Failed to submit project.");
     }
   };
 
-  // Check status function (used by polling)
   const checkStatus = async () => {
     if (jobId == null) return;
-
+    const base = getApiUrl();
     try {
-      const response = await fetch(`http://localhost:5001/status/${jobId}`);
+      const response = await fetch(`${base}/status/${jobId}`);
       const result = await response.json();
       setJobStatus(result.status);
-
-      // Auto-fetch results when job completes
       if (result.status === "complete" && jobResults === null) {
         handleGetResults();
       }
@@ -76,12 +78,11 @@ export default function SubmitProject() {
     }
   };
 
-  // Fetch results
   const handleGetResults = async () => {
     if (jobId == null) return;
-
+    const base = getApiUrl();
     try {
-      const response = await fetch(`http://localhost:5001/results/${jobId}`);
+      const response = await fetch(`${base}/results/${jobId}`);
       const result = await response.json();
       setJobResults(result.results);
     } catch (err) {
@@ -211,6 +212,28 @@ export default function SubmitProject() {
           )}
         </div>
 
+        {/* Chunk size: rows per task (more tasks = more parallelism) */}
+        <div>
+          <label style={{ fontSize: "18px" }}>Rows per task (chunk size)</label>
+          <p style={{ fontSize: "14px", color: "#555", marginTop: "4px" }}>
+            Tasks are created from dataset <strong>rows</strong> (CSV records), not file lines. Smaller value = more tasks and better parallelism.
+          </p>
+          <input
+            type="number"
+            min={1}
+            value={chunkSize}
+            onChange={(e) => setChunkSize(Math.max(1, parseInt(e.target.value, 10) || 1000))}
+            style={{
+              marginTop: "8px",
+              width: "120px",
+              padding: "8px 12px",
+              fontSize: "16px",
+              borderRadius: "6px",
+              border: "1px solid #ccc",
+            }}
+          />
+        </div>
+
         {/* Submit Button */}
         <button
           onClick={handleSubmit}
@@ -249,6 +272,12 @@ export default function SubmitProject() {
           >
             <p style={{ margin: 0, marginBottom: "8px" }}>
               <strong>Job ID:</strong> {jobId}
+              {runId != null && (
+                <> · <strong>Run ID:</strong> {runId}</>
+              )}
+              {projectId != null && (
+                <> · <strong>Project ID:</strong> {projectId}</>
+              )}
             </p>
 
             <p style={{ margin: 0, marginBottom: "12px" }}>
@@ -267,8 +296,6 @@ export default function SubmitProject() {
                 }}
               >
                 {jobStatus ?? "submitted"}
-                {jobStatus === "running"}
-                {jobStatus === "complete"}
               </span>
             </p>
 
