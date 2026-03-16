@@ -16,6 +16,7 @@ from datetime import datetime
 import uuid
 import hashlib
 import json
+import boto3
 
 # Create SQLite database (local file: constellation.db)
 DATABASE_URL = "sqlite:///constellation.db"
@@ -25,6 +26,8 @@ engine = create_engine(DATABASE_URL, echo=False)
 SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
+BUCKET_NAME = "constellation-bucket-005988779256-us-east-1-an"
+s3 = boto3.client("s3")
 
 # ============================================================================
 # DynamoDB-Equivalent Tables (Transactional Data)
@@ -389,25 +392,33 @@ def user_has_role(user_id: str, role: str) -> bool:
     # Role can be 'researcher', 'volunteer', or 'researcher,volunteer'
     return role in user.role.split(',')
 
-
 def create_project(researcher_id: str, title: str, description: str, 
                    code_path: str, dataset_path: str, dataset_type: str,
                    func_name: str = "main", chunk_size: int = 1000,
                    replication_factor: int = 2, max_verification_attempts: int = 2) -> Project:
     """Create a new project."""
+
     with SessionLocal() as session:
         project = Project(
             researcher_id=researcher_id,
             title=title,
             description=description,
-            code_s3_path=code_path,  # Will be S3 path later
-            dataset_s3_path=dataset_path,  # Will be S3 path later
+            # code_s3_path=code_path,  # Will be S3 path later
+            # dataset_s3_path=dataset_path,  # Will be S3 path later
             dataset_type=dataset_type,
             func_name=func_name,
             chunk_size=chunk_size,
             replication_factor=replication_factor,
             max_verification_attempts=max_verification_attempts,
         )
+        code_key = f"{project.project_id}/code.py"
+        s3.upload_file(code_path, BUCKET_NAME, code_key)
+        project.code_s3_path = f"s3://{BUCKET_NAME}/{code_key}"
+
+        dataset_key = f"{project.project_id}/dataset.{dataset_type}"
+        s3.upload_file(dataset_path, BUCKET_NAME, dataset_key)
+        project.dataset_s3_path = f"s3://{BUCKET_NAME}/{dataset_key}"
+
         session.add(project)
         session.commit()
         session.refresh(project)
