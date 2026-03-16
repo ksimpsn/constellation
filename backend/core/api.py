@@ -314,19 +314,19 @@ class ConstellationAPI:
             max_verification_attempts=max_verification_attempts,
         )
         
-        # Copy files to project directory
-        os.makedirs(f"uploads/{project.project_id}", exist_ok=True)
-        stored_code_path = f"uploads/{project.project_id}/project.py"
-        stored_dataset_path = f"uploads/{project.project_id}/dataset.{file_type}"
-        shutil.copyfile(code_path, stored_code_path)
-        shutil.copyfile(dataset_path, stored_dataset_path)
+        # # Copy files to project directory
+        # os.makedirs(f"uploads/{project.project_id}", exist_ok=True)
+        # stored_code_path = f"uploads/{project.project_id}/project.py"
+        # stored_dataset_path = f"uploads/{project.project_id}/dataset.{file_type}"
+        # shutil.copyfile(code_path, stored_code_path)
+        # shutil.copyfile(dataset_path, stored_dataset_path)
         
-        # Update project with stored paths
-        project.code_s3_path = stored_code_path
-        project.dataset_s3_path = stored_dataset_path
-        with get_session() as session:
-            session.merge(project)
-            session.commit()
+        # # Update project with stored paths
+        # project.code_s3_path = stored_code_path
+        # project.dataset_s3_path = stored_dataset_path
+        # with get_session() as session:
+        #     session.merge(project)
+        #     session.commit()
 
         # ---------------------------------------------------------
         # 5. Create Run and Tasks in DB
