@@ -61,8 +61,8 @@ class Project(Base):
     researcher_id = Column(String, ForeignKey("users.user_id"), nullable=False, index=True)
     title = Column(String(500), nullable=False)
     description = Column(Text, nullable=True)
-    code_s3_path = Column(String(1000), nullable=False)  # Will be S3 path, currently local path
-    dataset_s3_path = Column(String(1000), nullable=False)  # Will be S3 path, currently local path
+    code_s3_path = Column(String(1000), nullable=True)  # Will be S3 path, currently local path
+    dataset_s3_path = Column(String(1000), nullable=True)  # Will be S3 path, currently local path
     dataset_type = Column(String(10), nullable=False)  # 'csv' or 'json'
     func_name = Column(String(255), nullable=False, default="main")
     chunk_size = Column(Integer, nullable=False, default=1000)
@@ -403,14 +403,15 @@ def create_project(researcher_id: str, title: str, description: str,
             researcher_id=researcher_id,
             title=title,
             description=description,
-            # code_s3_path=code_path,  # Will be S3 path later
-            # dataset_s3_path=dataset_path,  # Will be S3 path later
             dataset_type=dataset_type,
             func_name=func_name,
             chunk_size=chunk_size,
             replication_factor=replication_factor,
             max_verification_attempts=max_verification_attempts,
         )
+        session.add(project)
+        session.flush()  # Assign project_id (from default) before using it for S3 keys
+
         code_key = f"{project.project_id}/code.py"
         s3.upload_file(code_path, BUCKET_NAME, code_key)
         project.code_s3_path = f"s3://{BUCKET_NAME}/{code_key}"
@@ -419,7 +420,6 @@ def create_project(researcher_id: str, title: str, description: str,
         s3.upload_file(dataset_path, BUCKET_NAME, dataset_key)
         project.dataset_s3_path = f"s3://{BUCKET_NAME}/{dataset_key}"
 
-        session.add(project)
         session.commit()
         session.refresh(project)
         return project
