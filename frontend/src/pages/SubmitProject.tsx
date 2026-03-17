@@ -1,20 +1,32 @@
 import ConstellationStarfieldBackground from "../components/ConstellationStarfieldBackground";
 import FlowNav from "../components/FlowNav";
 import { useState, useEffect, useRef } from "react";
+<<<<<<< HEAD
 import { Link } from "react-router-dom";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+=======
+import { getApiUrl } from "../api/config";
+>>>>>>> annabella/result-verification
 
 export default function SubmitProject() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [pyFile, setPyFile] = useState<File | null>(null);
   const [dataFile, setDataFile] = useState<File | null>(null);
+<<<<<<< HEAD
   const [rowsPerTask, setRowsPerTask] = useState<number>(1000);
+=======
+  const [chunkSize, setChunkSize] = useState(1000);
+  const [replicationFactor, setReplicationFactor] = useState(2);
+  const [maxVerificationAttempts, setMaxVerificationAttempts] = useState(2);
+>>>>>>> annabella/result-verification
   const [message, setMessage] = useState("");
 
-  // Track job ID, status, and results
+  // Track job ID, run ID, project ID, status, and results
   const [jobId, setJobId] = useState<number | null>(null);
+  const [runId, setRunId] = useState<string | null>(null);
+  const [projectId, setProjectId] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<string | null>(null);
   const [jobResults, setJobResults] = useState<any | null>(null);
   const pollingIntervalRef = useRef<number | null>(null);
@@ -33,17 +45,25 @@ export default function SubmitProject() {
       return;
     }
 
-    console.log("inside handle submit");
-
+    const base = getApiUrl();
     const formData = new FormData();
     formData.append("title", title);
     formData.append("description", description);
     formData.append("py_file", pyFile);
     formData.append("data_file", dataFile);
+<<<<<<< HEAD
     formData.append("chunk_size", String(Math.floor(rowsPerTask)));
 
     try {
       const response = await fetch(`${API_BASE_URL}/submit`, {
+=======
+    formData.append("chunk_size", String(chunkSize));
+    formData.append("replication_factor", String(replicationFactor));
+    formData.append("max_verification_attempts", String(maxVerificationAttempts));
+
+    try {
+      const response = await fetch(`${base}/submit`, {
+>>>>>>> annabella/result-verification
         method: "POST",
         body: formData,
       });
@@ -55,28 +75,30 @@ export default function SubmitProject() {
         return;
       }
 
-      // Save job ID and reset status/results
       setJobId(result.job_id);
+      setRunId(result.run_id ?? null);
+      setProjectId(result.project_id ?? null);
       setJobStatus("submitted");
       setJobResults(null);
-
-      setMessage(`Project submitted successfully! Job ID: ${result.job_id}`);
+      const taskMsg = result.total_tasks != null ? ` (${result.total_tasks} tasks created)` : "";
+      setMessage(`Project submitted. Run ID: ${result.run_id ?? result.job_id}${taskMsg}`);
     } catch (err) {
       console.error(err);
       setMessage("Failed to submit project.");
     }
   };
 
-  // Check status function (used by polling)
   const checkStatus = async () => {
     if (jobId == null) return;
-
+    const base = getApiUrl();
     try {
+<<<<<<< HEAD
       const response = await fetch(`${API_BASE_URL}/status/${jobId}`);
+=======
+      const response = await fetch(`${base}/status/${jobId}`);
+>>>>>>> annabella/result-verification
       const result = await response.json();
       setJobStatus(result.status);
-
-      // Auto-fetch results when job completes
       if (result.status === "complete" && jobResults === null) {
         handleGetResults();
       }
@@ -86,12 +108,15 @@ export default function SubmitProject() {
     }
   };
 
-  // Fetch results
   const handleGetResults = async () => {
     if (jobId == null) return;
-
+    const base = getApiUrl();
     try {
+<<<<<<< HEAD
       const response = await fetch(`${API_BASE_URL}/results/${jobId}`);
+=======
+      const response = await fetch(`${base}/results/${jobId}`);
+>>>>>>> annabella/result-verification
       const result = await response.json();
       setJobResults(result.results);
     } catch (err) {
@@ -167,6 +192,7 @@ export default function SubmitProject() {
             />
           </div>
 
+<<<<<<< HEAD
           <div>
             <label className="text-white/80 text-sm font-medium">Upload Python Script (.py)</label>
             <input
@@ -179,6 +205,217 @@ export default function SubmitProject() {
               <p className="text-white/60 text-sm mt-1.5">
                 Selected: <strong className="text-white/80">{pyFile.name}</strong>
               </p>
+=======
+        {/* Python File Upload */}
+        <div>
+          <label style={{ fontSize: "18px" }}>Upload Python Script (.py)</label>
+          <input
+            type="file"
+            accept=".py"
+            onChange={(e) => setPyFile(e.target.files?.[0] || null)}
+            style={{ marginTop: "10px" }}
+          />
+
+          {pyFile && (
+            <p style={{ color: "#444", marginTop: "6px" }}>
+              Selected: <strong>{pyFile.name}</strong>
+            </p>
+          )}
+        </div>
+
+        {/* Dataset Upload */}
+        <div>
+          <label style={{ fontSize: "18px" }}>
+            Upload Dataset (.csv or .json)
+          </label>
+          <input
+            type="file"
+            accept=".csv,.json"
+            onChange={(e) => setDataFile(e.target.files?.[0] || null)}
+            style={{ marginTop: "10px" }}
+          />
+
+          {dataFile && (
+            <p style={{ color: "#444", marginTop: "6px" }}>
+              Selected: <strong>{dataFile.name}</strong>
+            </p>
+          )}
+        </div>
+
+        {/* Chunk size: rows per task (more tasks = more parallelism) */}
+        <div>
+          <label style={{ fontSize: "18px" }}>Rows per task (chunk size)</label>
+          <p style={{ fontSize: "14px", color: "#555", marginTop: "4px" }}>
+            Tasks are created from dataset <strong>rows</strong> (CSV records), not file lines. Smaller value = more tasks and better parallelism.
+          </p>
+          <input
+            type="number"
+            min={1}
+            value={chunkSize}
+            onChange={(e) => setChunkSize(Math.max(1, parseInt(e.target.value, 10) || 1000))}
+            style={{
+              marginTop: "8px",
+              width: "120px",
+              padding: "8px 12px",
+              fontSize: "16px",
+              borderRadius: "6px",
+              border: "1px solid #ccc",
+            }}
+          />
+        </div>
+
+        {/* Verification settings */}
+        <div>
+          <label style={{ fontSize: "18px" }}>Result verification (redundant runs)</label>
+          <p style={{ fontSize: "14px", color: "#555", marginTop: "4px" }}>
+            Each task is run multiple times and compared. Higher values increase trust but use more compute.
+          </p>
+          <div style={{ display: "flex", gap: "24px", flexWrap: "wrap", marginTop: "8px" }}>
+            <div>
+              <label style={{ fontSize: "16px" }}>Replication factor</label>
+              <input
+                type="number"
+                min={2}
+                value={replicationFactor}
+                onChange={(e) =>
+                  setReplicationFactor(Math.max(2, parseInt(e.target.value, 10) || 2))
+                }
+                style={{
+                  marginTop: "6px",
+                  width: "100px",
+                  padding: "8px 12px",
+                  fontSize: "16px",
+                  borderRadius: "6px",
+                  border: "1px solid #ccc",
+                }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: "16px" }}>Max verification attempts</label>
+              <input
+                type="number"
+                min={1}
+                value={maxVerificationAttempts}
+                onChange={(e) =>
+                  setMaxVerificationAttempts(Math.max(1, parseInt(e.target.value, 10) || 1))
+                }
+                style={{
+                  marginTop: "6px",
+                  width: "100px",
+                  padding: "8px 12px",
+                  fontSize: "16px",
+                  borderRadius: "6px",
+                  border: "1px solid #ccc",
+                }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Submit Button */}
+        <button
+          onClick={handleSubmit}
+          style={{
+            padding: "14px 28px",
+            background: "black",
+            color: "white",
+            fontSize: "18px",
+            border: "none",
+            borderRadius: "6px",
+            cursor: "pointer",
+            width: "fit-content",
+          }}
+        >
+          Submit Project
+        </button>
+
+        {/* Message */}
+        {message && (
+          <p style={{ color: "#333", marginTop: "10px", fontSize: "16px" }}>
+            {message}
+          </p>
+        )}
+
+        {/* Job status + results */}
+        {jobId !== null && (
+          <div
+            style={{
+              marginTop: "20px",
+              padding: "16px",
+              borderRadius: "8px",
+              background: "white",
+              boxShadow: "0 2px 4px rgba(0,0,0,0.08)",
+              color: "black",
+            }}
+          >
+            <p style={{ margin: 0, marginBottom: "8px" }}>
+              <strong>Job ID:</strong> {jobId}
+              {runId != null && (
+                <> · <strong>Run ID:</strong> {runId}</>
+              )}
+              {projectId != null && (
+                <> · <strong>Project ID:</strong> {projectId}</>
+              )}
+            </p>
+
+            <p style={{ margin: 0, marginBottom: "12px" }}>
+              <strong>Status:</strong>{" "}
+              <span
+                style={{
+                  color:
+                    jobStatus === "complete"
+                      ? "#2ecc71"
+                      : jobStatus === "running"
+                      ? "#3498db"
+                      : jobStatus === "error"
+                      ? "#e74c3c"
+                      : "#555",
+                  fontWeight: "600",
+                }}
+              >
+                {jobStatus ?? "submitted"}
+              </span>
+            </p>
+
+            {/* Only show manual "Get Results" button if not auto-fetched yet */}
+            {jobStatus === "complete" && jobResults === null && (
+              <button
+                onClick={handleGetResults}
+                style={{
+                  padding: "10px 20px",
+                  background: "black",
+                  color: "white",
+                  fontSize: "16px",
+                  border: "none",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  marginBottom: "12px",
+                }}
+              >
+                Get Results
+              </button>
+            )}
+
+            {jobResults !== null && (
+              <div
+                style={{
+                  marginTop: "8px",
+                  maxHeight: "200px",
+                  overflow: "auto",
+                  textAlign: "left",
+                  fontFamily: "monospace",
+                  fontSize: "13px",
+                  background: "#f5f5f5",
+                  padding: "10px",
+                  borderRadius: "6px",
+                }}
+              >
+                <strong>Results:</strong>
+                <pre style={{ marginTop: "6px", whiteSpace: "pre-wrap" }}>
+                  {JSON.stringify(jobResults, null, 2)}
+                </pre>
+              </div>
+>>>>>>> annabella/result-verification
             )}
           </div>
 

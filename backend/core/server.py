@@ -1,4 +1,5 @@
 from typing import Any, List
+from collections import Counter
 
 import ray
 import logging
@@ -7,6 +8,8 @@ import os
 import subprocess
 import warnings
 from backend.core.worker import compute_task, compute_uploaded_task
+import hashlib
+import json
 
 logging.basicConfig(level=logging.INFO)
 
@@ -29,13 +32,23 @@ class Cluster:
                 self.context = ray.init(address="auto", ignore_reinit_error=True)
                 logging.info("[INFO] Connected to existing Ray head node")
             except Exception as connect_error:
+                ray_address = os.environ.get("RAY_ADDRESS")
+                if ray_address:
+                    logging.error(
+                        f"[ERROR] No Ray cluster at {ray_address}. "
+                        "Start the head first in another terminal: ./scripts/start-ray-head.sh"
+                    )
+                    raise RuntimeError(
+                        f"No Ray cluster at {ray_address}. "
+                        "Start the head first: ./scripts/start-ray-head.sh"
+                    ) from connect_error
                 # Start new Ray head node via subprocess
                 # Note: This requires Ray to be installed and in PATH
                 logging.info("[INFO] No existing Ray cluster found, starting new head node...")
                 try:
                     # Try starting Ray head node with remote connections enabled
                     result = subprocess.run(
-                        ["ray", "start", "--head", "--port=6379", "--node-ip-address=0.0.0.0"],
+                        ["ray", "start", "--head", "--port=6379", "--node-ip-address=127.0.0.1"],
                         check=True,
                         capture_output=True,
                         text=True,
@@ -50,8 +63,10 @@ class Cluster:
                     logging.info("[INFO] Connected to Ray head node on port 6379 (allowing remote connections)")
                 except subprocess.CalledProcessError as e:
                     # Show actual error from Ray command
-                    error_output = e.stderr.decode() if e.stderr else str(e)
-                    stdout_output = e.stdout.decode() if e.stdout else ""
+                    error_output = e.stderr if e.stderr else str(e)
+                    stdout_output = e.stdout if e.stdout else ""
+                    # error_output = e.stderr.decode() if e.stderr else str(e)
+                    # stdout_output = e.stdout.decode() if e.stdout else ""
                     logging.error(f"[ERROR] Failed to start Ray head node via command line:")
                     logging.error(f"[ERROR] Return code: {e.returncode}")
                     if stdout_output:
@@ -134,7 +149,7 @@ class Cluster:
                     logging.info(f"[INFO] Ray head node listening on {node_address} - ready for remote connections")
                 else:
                     logging.warning(f"[WARNING] Ray head node listening on {node_address} - may not accept remote connections")
-                    logging.info("[INFO] To enable remote connections, start Ray manually: ray start --head --port=6379 --node-ip-address=0.0.0.0")
+                    logging.info("[INFO] For same-machine workers use --node-ip-address=127.0.0.1; for remote workers use your LAN IP. See scripts/start-ray-head.sh.")
         
         for node in nodes:
             # type(nodes) - dict[str, Any]
@@ -213,3 +228,174 @@ class Cluster:
             logging.exception("[ERROR] Ray backend not initialized. Call start_cluster first.")
             raise RuntimeError("[ERROR] Ray backend not initialized. Call start_cluster first.")
         return ray.get(futures)
+    
+    def _hash_results(self, results):
+        """
+        Deterministic hash of task results for verification.
+        """
+        serialized = json.dumps(results, sort_keys=True, default=str)
+        return hashlib.sha256(serialized.encode()).hexdigest()
+
+    def _hash_single_result(self, task_result_dict):
+        """
+        Deterministic hash of a single task result (for per-task verification).
+        """
+        # Use result_hash if present, else hash the whole result payload
+        h = task_result_dict.get("result_hash")
+        if h is not None:
+            return h
+        return self._hash_results(task_result_dict.get("results", task_result_dict))
+
+    def _verify_attempts_per_task(self, results_attempt1, results_attempt2):
+        """
+        Compare two result lists per task (by index).
+        Returns (verified_mask, unverified_indices, hash1_list, hash2_list).
+        """
+        n = min(len(results_attempt1), len(results_attempt2))
+        verified_mask = []
+        unverified_indices = []
+        hash1_list = []
+        hash2_list = []
+        for i in range(n):
+            h1 = self._hash_single_result(results_attempt1[i])
+            h2 = self._hash_single_result(results_attempt2[i])
+            hash1_list.append(h1)
+            hash2_list.append(h2)
+            if h1 == h2:
+                verified_mask.append(True)
+            else:
+                verified_mask.append(False)
+                unverified_indices.append(i)
+        return verified_mask, unverified_indices, hash1_list, hash2_list
+
+    def _verify_attempts(self, results_attempt1, results_attempt2):
+        """
+        Compare two result sets using hashes (overall).
+        """
+        hash1 = self._hash_results(results_attempt1)
+        hash2 = self._hash_results(results_attempt2)
+
+        status = "verified" if hash1 == hash2 else "disputed"
+
+        return status, hash1, hash2
+
+    def submit_tasks_with_verification(self, data: list[dict]):
+        """
+        Submit tasks twice and verify results.
+        """
+
+        logging.info("[VERIFICATION] Running Attempt 1")
+        futures1 = self.submit_tasks(data)
+        results1 = ray.get(futures1)
+
+        logging.info("[VERIFICATION] Running Attempt 2")
+        futures2 = self.submit_tasks(data)
+        results2 = ray.get(futures2)
+
+        status, hash1, hash2 = self._verify_attempts(results1, results2)
+
+        logging.info(f"[VERIFICATION] Status = {status}")
+
+        return {
+            "attempts": [results1, results2],
+            "verification_status": status,
+            "hashes": [hash1, hash2]
+        }
+
+    def _verify_replicated_results(self, all_attempts: List[list], replication_factor: int):
+        """
+        Given replication_factor result lists (each list is one full run of all tasks),
+        for each task index determine: (final_result, verified).
+        Verified if a majority of runs agree (>= (replication_factor + 1) // 2 same hashes).
+        Returns (final_results, unverified_indices).
+        """
+        n = len(all_attempts[0]) if all_attempts else 0
+        final_results = [all_attempts[0][i] for i in range(n)]
+        unverified_indices = []
+        for i in range(n):
+            hashes = [self._hash_single_result(attempt[i]) for attempt in all_attempts]
+            counts = Counter(hashes)
+            majority_hash, count = counts.most_common(1)[0]
+            # Strict majority: need more than half (e.g. 2-of-2, 2-of-3, 3-of-4)
+            threshold = (replication_factor // 2) + 1
+            if count >= threshold:
+                # Use the result that produced majority_hash
+                for attempt in all_attempts:
+                    if self._hash_single_result(attempt[i]) == majority_hash:
+                        final_results[i] = attempt[i]
+                        break
+            else:
+                unverified_indices.append(i)
+                final_results[i] = all_attempts[0][i]
+        return final_results, unverified_indices
+
+    def submit_uploaded_tasks_with_verification(
+        self,
+        data: list[dict],
+        func_bytes,
+        replication_factor: int = 2,
+        max_rerun_attempts: int = 2,
+    ):
+        """
+        Submit uploaded tasks with configurable replication and verification.
+
+        - replication_factor: each task is run this many times; verified if a majority agree.
+        - max_rerun_attempts: max times to re-submit unverified tasks (each re-run uses replication_factor again).
+        """
+        replication_factor = max(2, int(replication_factor))
+        max_rerun_attempts = max(1, int(max_rerun_attempts))
+
+        all_attempts = []
+        for r in range(replication_factor):
+            logging.info(f"[VERIFICATION] Running Uploaded Attempt {r + 1}/{replication_factor}")
+            futures = self.submit_uploaded_tasks(data, func_bytes)
+            results = ray.get(futures)
+            all_attempts.append(results)
+
+        final_results, unverified_indices = self._verify_replicated_results(
+            all_attempts, replication_factor
+        )
+        n = len(final_results)
+
+        if unverified_indices:
+            logging.info(
+                f"[VERIFICATION] {len(unverified_indices)} task(s) unverified, re-submitting (max {max_rerun_attempts} attempt(s))"
+            )
+            unverified_payloads = [data[i] for i in unverified_indices]
+            rerun_attempt = 0
+            while rerun_attempt < max_rerun_attempts and unverified_indices:
+                rerun_attempt += 1
+                logging.info(
+                    f"[VERIFICATION] Re-run attempt {rerun_attempt}/{max_rerun_attempts} for {len(unverified_payloads)} task(s) (replication={replication_factor})"
+                )
+                rerun_attempts = []
+                for r in range(replication_factor):
+                    rerun_futures = self.submit_uploaded_tasks(unverified_payloads, func_bytes)
+                    rerun_attempts.append(ray.get(rerun_futures))
+                rerun_final, still_unverified = self._verify_replicated_results(
+                    rerun_attempts, replication_factor
+                )
+                for j, orig_idx in enumerate(unverified_indices):
+                    final_results[orig_idx] = rerun_final[j]
+                unverified_indices = [unverified_indices[k] for k in still_unverified]
+                unverified_payloads = [data[i] for i in unverified_indices]
+                if not unverified_indices:
+                    logging.info("[VERIFICATION] All re-submitted tasks verified")
+                    break
+
+            if unverified_indices:
+                logging.warning(
+                    f"[VERIFICATION] {len(unverified_indices)} task(s) still disputed after {max_rerun_attempts} re-run(s)"
+                )
+
+        overall_status = "verified" if not unverified_indices else "disputed"
+        hash1 = self._hash_results(all_attempts[0])
+        hash2 = self._hash_results(all_attempts[1]) if replication_factor >= 2 else hash1
+        logging.info(f"[VERIFICATION] Uploaded Status = {overall_status}")
+
+        return {
+            "attempts": all_attempts + [final_results],
+            "verification_status": overall_status,
+            "hashes": [hash1, hash2],
+            "final_results": final_results,
+        }

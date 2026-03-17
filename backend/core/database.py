@@ -14,6 +14,9 @@ from sqlalchemy.dialects.sqlite import JSON
 from contextlib import contextmanager
 from datetime import datetime
 import uuid
+import hashlib
+import json
+import boto3
 
 # Create SQLite database (local file: constellation.db)
 DATABASE_URL = "sqlite:///constellation.db"
@@ -23,6 +26,8 @@ engine = create_engine(DATABASE_URL, echo=False)
 SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
+BUCKET_NAME = "constellation-bucket-005988779256-us-east-1-an"
+s3 = boto3.client("s3")
 
 # ============================================================================
 # DynamoDB-Equivalent Tables (Transactional Data)
@@ -39,7 +44,7 @@ class User(Base):
     user_metadata = Column("metadata", JSON, nullable=True)  # Flexible storage (signup reasons, preferences)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-
+    
     # Relationships
     projects = relationship("Project", back_populates="researcher", cascade="all, delete-orphan")
     workers = relationship("Worker", back_populates="owner", cascade="all, delete-orphan")
@@ -56,11 +61,13 @@ class Project(Base):
     researcher_id = Column(String, ForeignKey("users.user_id"), nullable=False, index=True)
     title = Column(String(500), nullable=False)
     description = Column(Text, nullable=True)
-    code_s3_path = Column(String(1000), nullable=False)  # Will be S3 path, currently local path
-    dataset_s3_path = Column(String(1000), nullable=False)  # Will be S3 path, currently local path
+    code_s3_path = Column(String(1000), nullable=True)  # Will be S3 path, currently local path
+    dataset_s3_path = Column(String(1000), nullable=True)  # Will be S3 path, currently local path
     dataset_type = Column(String(10), nullable=False)  # 'csv' or 'json'
     func_name = Column(String(255), nullable=False, default="main")
     chunk_size = Column(Integer, nullable=False, default=1000)
+    replication_factor = Column(Integer, nullable=False, default=2)  # Number of times each task is run for verification
+    max_verification_attempts = Column(Integer, nullable=False, default=2)  # Max re-submits for unverified tasks
     status = Column(String(50), nullable=False, default="active", index=True)  # 'active', 'archived', 'deleted'
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
@@ -94,6 +101,12 @@ class Run(Base):
     results_s3_path = Column(String(1000), nullable=True)  # Will be S3 path, currently local path
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    verification_status = Column(String(50), nullable=True, index=True)
+    verification_attempts = Column(Integer, nullable=False, default=0)
+    verification_hash_attempt1 = Column(String(128), nullable=True)
+    verification_hash_attempt2 = Column(String(128), nullable=True)
+    verification_completed_at = Column(DateTime, nullable=True)
 
     # Relationships
     project = relationship("Project", back_populates="runs")
@@ -184,8 +197,12 @@ class TaskResult(Base):
     """Historical task execution results - matches Redshift task_results"""
     __tablename__ = "task_results"
 
+    __table_args__ = (
+        UniqueConstraint("task_id", "attempt_id", name="uix_task_attempt"),
+    )
+
     task_result_id = Column(String, primary_key=True, default=lambda: f"result-{uuid.uuid4()}")
-    task_id = Column(String, ForeignKey("tasks.task_id"), unique=True, nullable=False, index=True)
+    task_id = Column(String, ForeignKey("tasks.task_id"), nullable=False, index=True)
     run_id = Column(String, nullable=False, index=True)  # Denormalized for analytics
     project_id = Column(String, nullable=False, index=True)  # Denormalized for analytics
     worker_id = Column(String, ForeignKey("workers.worker_id"), nullable=False, index=True)
@@ -194,6 +211,12 @@ class TaskResult(Base):
     memory_used_mb = Column(Float, nullable=True)
     completed_at = Column(DateTime, nullable=False, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    
+    attempt_id = Column(Integer, nullable=False, default=0)
+
+    result_hash = Column(String(128), nullable=True, index=True)
+    verification_status = Column(String(50), nullable=True, index=True)
+    verification_attempt = Column(Integer, nullable=False, default=1)
 
     # Relationships
     task = relationship("Task", back_populates="result")
@@ -332,14 +355,21 @@ def delete_job(job_id):
 # Helper Functions for New Schema
 # ============================================================================
 
-def create_user(email: str, name: str, role: str = "volunteer", metadata: dict = None) -> User:
-    """Create a new user."""
+def create_user(user_id: str, email: str, name: str, role: str = "volunteer", metadata: dict = None):
+    """
+    Create a new user with the given user_id (must be unique).
+    Returns (user, None) on success, or (None, error_message) if user_id or email already exists.
+    """
+    if get_user_by_id(user_id):
+        return None, "user_id already exists"
+    if get_user_by_email(email):
+        return None, "email already exists"
     with SessionLocal() as session:
-        user = User(email=email, name=name, role=role, user_metadata=metadata or {})
+        user = User(user_id=user_id, email=email, name=name, role=role, user_metadata=metadata or {})
         session.add(user)
         session.commit()
         session.refresh(user)
-        return user
+        return user, None
 
 
 def get_user_by_email(email: str) -> User:
@@ -362,23 +392,39 @@ def user_has_role(user_id: str, role: str) -> bool:
     # Role can be 'researcher', 'volunteer', or 'researcher,volunteer'
     return role in user.role.split(',')
 
+<<<<<<< HEAD
 
 def create_project(researcher_id: str, title: str, description: str,
+=======
+def create_project(researcher_id: str, title: str, description: str, 
+>>>>>>> annabella/result-verification
                    code_path: str, dataset_path: str, dataset_type: str,
-                   func_name: str = "main", chunk_size: int = 1000) -> Project:
+                   func_name: str = "main", chunk_size: int = 1000,
+                   replication_factor: int = 2, max_verification_attempts: int = 2) -> Project:
     """Create a new project."""
+
     with SessionLocal() as session:
         project = Project(
             researcher_id=researcher_id,
             title=title,
             description=description,
-            code_s3_path=code_path,  # Will be S3 path later
-            dataset_s3_path=dataset_path,  # Will be S3 path later
             dataset_type=dataset_type,
             func_name=func_name,
-            chunk_size=chunk_size
+            chunk_size=chunk_size,
+            replication_factor=replication_factor,
+            max_verification_attempts=max_verification_attempts,
         )
         session.add(project)
+        session.flush()  # Assign project_id (from default) before using it for S3 keys
+
+        code_key = f"{project.project_id}/code.py"
+        s3.upload_file(code_path, BUCKET_NAME, code_key)
+        project.code_s3_path = f"s3://{BUCKET_NAME}/{code_key}"
+
+        dataset_key = f"{project.project_id}/dataset.{dataset_type}"
+        s3.upload_file(dataset_path, BUCKET_NAME, dataset_key)
+        project.dataset_s3_path = f"s3://{BUCKET_NAME}/{dataset_key}"
+
         session.commit()
         session.refresh(project)
         return project
@@ -467,8 +513,12 @@ def update_task(task_id: str, **kwargs) -> bool:
 
 def create_task_result(task_id: str, run_id: str, project_id: str, worker_id: str,
                        result_data: dict, runtime_seconds: float = None,
-                       memory_used_mb: float = None) -> TaskResult:
+                       memory_used_mb: float = None,
+                       verification_attempt: int = 1,
+                       verification_status: str = None) -> TaskResult:
     """Create a task result."""
+    result_hash = _hash_result(result_data)
+
     with SessionLocal() as session:
         result = TaskResult(
             task_id=task_id,
@@ -478,8 +528,12 @@ def create_task_result(task_id: str, run_id: str, project_id: str, worker_id: st
             result_data=result_data,
             runtime_seconds=runtime_seconds,
             memory_used_mb=memory_used_mb,
+            result_hash=result_hash,
+            verification_attempt=verification_attempt,
+            verification_status=verification_status,
             completed_at=datetime.utcnow()
         )
+
         session.add(result)
         session.commit()
         session.refresh(result)
@@ -569,6 +623,103 @@ def get_available_workers(limit: int = None) -> list:
         if limit:
             query = query.limit(limit)
         return query.all()
+
+def create_task_result(task_id: str, run_id: str, project_id: str, worker_id: str,
+                       result_data: dict, runtime_seconds: float = None,
+                       memory_used_mb: float = None,
+                       verification_attempt: int = 1,
+                       verification_status: str = None) -> TaskResult:
+
+    result_hash = _hash_result(result_data)
+
+    with SessionLocal() as session:
+        result = TaskResult(
+            task_id=task_id,
+            run_id=run_id,
+            project_id=project_id,
+            worker_id=worker_id,
+            result_data=result_data,
+            runtime_seconds=runtime_seconds,
+            memory_used_mb=memory_used_mb,
+            result_hash=result_hash,
+            verification_attempt=verification_attempt,
+            verification_status=verification_status,
+            completed_at=datetime.utcnow()
+        )
+
+        session.add(result)
+        session.commit()
+        session.refresh(result)
+        return result
+    
+def _hash_result(result_data):
+    serialized = json.dumps(result_data, sort_keys=True, default=str)
+    return hashlib.sha256(serialized.encode()).hexdigest()
+
+def get_all_projects(researcher_id: str = None, limit: int = None) -> list:
+    """List all projects, optionally filtered by researcher_id."""
+    with SessionLocal() as session:
+        query = session.query(Project).filter(Project.status == "active")
+        if researcher_id:
+            query = query.filter(Project.researcher_id == researcher_id)
+        query = query.order_by(Project.created_at.desc())
+        if limit:
+            query = query.limit(limit)
+        return query.all()
+
+
+def get_runs_for_project(project_id: str, limit: int = None) -> list:
+    """List runs for a project, newest first."""
+    with SessionLocal() as session:
+        query = session.query(Run).filter(Run.project_id == project_id).order_by(Run.created_at.desc())
+        if limit:
+            query = query.limit(limit)
+        return query.all()
+
+
+def get_tasks_for_run(run_id: str) -> list:
+    """List all tasks for a run (for dashboard)."""
+    with SessionLocal() as session:
+        return session.query(Task).filter(Task.run_id == run_id).order_by(Task.task_index).all()
+
+
+def get_run_worker_count(run_id: str) -> int:
+    """Count distinct workers that have been assigned tasks in this run."""
+    with SessionLocal() as session:
+        from sqlalchemy import func
+        count = session.query(func.count(func.distinct(Task.assigned_worker_id))).filter(
+            Task.run_id == run_id,
+            Task.assigned_worker_id.isnot(None)
+        ).scalar()
+        return count or 0
+
+
+def get_all_workers() -> list:
+    """List all workers (for dashboard)."""
+    with SessionLocal() as session:
+        return session.query(Worker).order_by(Worker.last_heartbeat.desc()).all()
+
+
+def get_task_results_for_run(run_id: str) -> list:
+    """Get all task results for a run, ordered by task_index (for download). Returns list of dicts."""
+    with SessionLocal() as session:
+        rows = (
+            session.query(TaskResult, Task.task_index)
+            .join(Task, TaskResult.task_id == Task.task_id)
+            .filter(TaskResult.run_id == run_id)
+            .order_by(Task.task_index)
+            .all()
+        )
+        return [
+            {
+                "task_id": tr.task_id,
+                "task_index": idx,
+                "result_data": tr.result_data,
+                "runtime_seconds": tr.runtime_seconds,
+                "completed_at": tr.completed_at.isoformat() if tr.completed_at else None,
+            }
+            for tr, idx in rows
+        ]
 
 
 def get_researcher_projects_with_stats(researcher_id: str) -> list:

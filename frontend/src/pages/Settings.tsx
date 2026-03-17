@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import { useState } from 'react';
 import ConstellationStarfieldBackground from '../components/ConstellationStarfieldBackground';
 import FlowNav from '../components/FlowNav';
@@ -11,8 +12,25 @@ const inputStyle = {
   color: 'white',
   border: '1px solid rgba(255, 255, 255, 0.3)',
 } as const;
+=======
+import React, { useState, useEffect } from 'react';
+import GradientBackground from '../components/GradientBackground';
+import { getApiUrl, setApiUrl } from '../api/config';
+>>>>>>> annabella/result-verification
 
 export default function Settings() {
+  const [apiBaseUrl, setApiBaseUrl] = useState('');
+  const [apiUrlSaved, setApiUrlSaved] = useState(false);
+  useEffect(() => {
+    setApiBaseUrl(getApiUrl());
+  }, []);
+  const handleSaveApiUrl = (e: React.FormEvent) => {
+    e.preventDefault();
+    setApiUrl(apiBaseUrl.trim() || 'http://localhost:5001');
+    setApiUrlSaved(true);
+    setTimeout(() => setApiUrlSaved(false), 2000);
+  };
+
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -48,12 +66,50 @@ export default function Settings() {
       <div className="relative z-10 px-6 pt-24 pb-16 max-w-[800px] mx-auto w-full flex flex-col gap-8">
         <h1 className="text-4xl font-bold text-white/90 mb-2 text-center">Account Settings</h1>
 
+<<<<<<< HEAD
         <div className="p-6 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
           <h2 className="text-xl font-bold text-white/90 m-0 mb-5">Reset Password</h2>
           <form onSubmit={handlePasswordReset} className="flex flex-col gap-5">
             <div className="flex flex-col gap-2">
               <label className="text-white/80 text-sm font-medium">Current Password</label>
               <input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} style={inputStyle} required />
+=======
+      <div style={settingsContainer}>
+        {/* Constellation API URL (head node) */}
+        <div style={sectionCard}>
+          <h2 style={sectionTitle}>Constellation API URL</h2>
+          <p style={{ margin: '0 0 12px 0', color: '#555', fontSize: '14px' }}>
+            Backend (head node) URL. Researchers: usually <code>http://localhost:5001</code>. Volunteers: use the researcher&apos;s IP, e.g. <code>http://192.168.1.50:5001</code>.
+          </p>
+          <form onSubmit={handleSaveApiUrl} style={form}>
+            <div style={formGroup}>
+              <input
+                type="url"
+                value={apiBaseUrl}
+                onChange={(e) => setApiBaseUrl(e.target.value)}
+                placeholder="http://localhost:5001"
+                style={{ ...input, fontFamily: 'monospace' }}
+              />
+            </div>
+            <button type="submit" style={primaryButton}>Save API URL</button>
+            {apiUrlSaved && <span style={{ marginLeft: '12px', color: '#2e7d32' }}>Saved.</span>}
+          </form>
+        </div>
+
+        {/* Password Reset Section */}
+        <div style={sectionCard}>
+          <h2 style={sectionTitle}>Reset Password</h2>
+          <form onSubmit={handlePasswordReset} style={form}>
+            <div style={formGroup}>
+              <label style={label}>Current Password</label>
+              <input
+                type="password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                style={input}
+                required
+              />
+>>>>>>> annabella/result-verification
             </div>
             <div className="flex flex-col gap-2">
               <label className="text-white/80 text-sm font-medium">New Password</label>

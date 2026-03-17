@@ -54,6 +54,24 @@ class ConstellationAPI:
         self.counter = 0  # for legacy job_id compatibility
         print("[ConstellationAPI] Initialized API layer.")
 
+    def get_run_progress(self, run_id):
+        """
+        Return (completed_count, total_count) for a run from Ray futures when available.
+        Used so the frontend can show live task progress while a run is in progress.
+        """
+        run = get_run(run_id)
+        if not run:
+            return None
+        total = run.total_tasks or 0
+        futures = self.futures.get(run_id, [])
+        if not futures:
+            return (run.completed_tasks, total)
+        try:
+            done, _ = ray.wait(futures, num_returns=len(futures), timeout=0)
+            return (len(done), total)
+        except Exception:
+            return (run.completed_tasks, total)
+
     # ---------------------------------------------------------
     # Worker Management
     # ---------------------------------------------------------
@@ -223,7 +241,9 @@ class ConstellationAPI:
             chunk_size: int = 1000,
             researcher_id: str = None,
             title: str = None,
-            description: str = None
+            description: str = None,
+            replication_factor: int = 2,
+            max_verification_attempts: int = 2,
     ) -> int:
         """
         Full pipeline for researcher-uploaded projects.
@@ -289,22 +309,24 @@ class ConstellationAPI:
             dataset_path=dataset_path,  # Will be S3 path later
             dataset_type=file_type,
             func_name=func_name,
-            chunk_size=chunk_size
+            chunk_size=chunk_size,
+            replication_factor=replication_factor,
+            max_verification_attempts=max_verification_attempts,
         )
         
-        # Copy files to project directory
-        os.makedirs(f"uploads/{project.project_id}", exist_ok=True)
-        stored_code_path = f"uploads/{project.project_id}/project.py"
-        stored_dataset_path = f"uploads/{project.project_id}/dataset.{file_type}"
-        shutil.copyfile(code_path, stored_code_path)
-        shutil.copyfile(dataset_path, stored_dataset_path)
+        # # Copy files to project directory
+        # os.makedirs(f"uploads/{project.project_id}", exist_ok=True)
+        # stored_code_path = f"uploads/{project.project_id}/project.py"
+        # stored_dataset_path = f"uploads/{project.project_id}/dataset.{file_type}"
+        # shutil.copyfile(code_path, stored_code_path)
+        # shutil.copyfile(dataset_path, stored_dataset_path)
         
-        # Update project with stored paths
-        project.code_s3_path = stored_code_path
-        project.dataset_s3_path = stored_dataset_path
-        with get_session() as session:
-            session.merge(project)
-            session.commit()
+        # # Update project with stored paths
+        # project.code_s3_path = stored_code_path
+        # project.dataset_s3_path = stored_dataset_path
+        # with get_session() as session:
+        #     session.merge(project)
+        #     session.commit()
 
         # ---------------------------------------------------------
         # 5. Create Run and Tasks in DB
@@ -343,8 +365,27 @@ class ConstellationAPI:
         # 8. Submit tasks to Ray
         # ---------------------------------------------------------
         print(f"[DEBUG] About to submit: {len(payloads)} payloads")
-        futures = self.server.submit_uploaded_tasks(payloads, fn_bytes)
+        # futures = self.server.submit_uploaded_tasks(payloads, fn_bytes)
+        execution = self.server.submit_uploaded_tasks_with_verification(
+            payloads,
+            fn_bytes,
+            replication_factor=project.replication_factor,
+            max_rerun_attempts=project.max_verification_attempts,
+        )
+        futures = execution.get("futures", [])
         print(f"[DEBUG] Received {len(futures)} futures from submit_uploaded_tasks")
+        
+        verification_status, completed_count = self._persist_verification_results(
+            run.run_id, project.project_id, execution
+        )
+        
+        update_run(
+            run.run_id,
+            status=verification_status,
+            completed_tasks=completed_count,
+            failed_tasks=0,
+            completed_at=datetime.utcnow(),
+        )
         
         # Store futures mapped to run_id
         self.futures[run.run_id] = futures
@@ -359,7 +400,12 @@ class ConstellationAPI:
 
         logging.info(f"[INFO] Submitted uploaded project: project_id={project.project_id}, run_id={run.run_id}, job_id={legacy_job_id}, chunks={len(chunks)}")
 
-        return legacy_job_id  # Return legacy job_id for frontend compatibility
+        return {
+            "run_id": run.run_id,
+            "project_id": project.project_id,
+            "job_id": legacy_job_id,
+            "total_tasks": len(chunks),
+        }
 
     def submit_project(self, data):
         """
@@ -383,11 +429,14 @@ class ConstellationAPI:
         ]
 
         # submit tasks to Ray
-        futures = self.server.submit_tasks(payloads)
+        execution = self.server.submit_tasks_with_verification(payloads)
+        verification_status = execution["verification_status"]
+
         # store futures in memory
-        self.futures[job_id] = futures
+        self.futures[job_id] = execution.get("futures", [])
 
         # store metadata in DB
+        save_job(job_id=job_id, data={"num_chunks": len(payloads)}, status=verification_status)
         # save_job(job_id=job_id, data=payloads, status="submitted")
         # FIXME: payloads contains a bunch of binary so may want to rethink
         # save_job(job_id=job_id, data={"num_chunks": len(payloads)}, status="submitted")
@@ -641,3 +690,44 @@ class ConstellationAPI:
         print(f"[ConstellationAPI] Verifying results for job: {job_id}")
         # TODO: Add redundancy check
         return True
+    
+    def _persist_verification_results(self, run_id, project_id, execution):
+        """
+        Store all verification attempts into TaskResult table and
+        return both the overall verification_status and the number of
+        distinct tasks that produced results.
+        """
+
+        verification_status = execution["verification_status"]
+        attempts = execution["attempts"]
+        seen_task_ids = set()
+
+        with get_session() as session:
+            for attempt_id, attempt_results in enumerate(attempts, start=1):
+                for ray_result in attempt_results:
+                    task_id = ray_result.get("task_id")
+                    if task_id:
+                        seen_task_ids.add(task_id)
+
+                    node_id = ray_result.get("node_id")
+                    worker = session.query(Worker).filter_by(ray_node_id=node_id).first()
+                    worker_id = worker.worker_id if worker else "worker-unknown"
+
+                    tr = TaskResult(
+                        task_id=task_id,
+                        run_id=run_id,
+                        project_id=project_id,
+                        worker_id=worker_id,
+                        attempt_id=attempt_id,
+                        verification_status=verification_status,
+                        result_data=ray_result.get("results"),
+                        result_hash=ray_result.get("result_hash"),
+                        runtime_seconds=ray_result.get("runtime_seconds"),
+                        completed_at=datetime.utcnow()
+                    )
+                    session.add(tr)
+
+            session.commit()
+
+        completed_count = len(seen_task_ids)
+        return verification_status, completed_count
