@@ -1,10 +1,9 @@
 """
-Constellation Database Models
-SQLite implementation matching AWS schema from DATABASE.md
+Constellation Database Models (SQLite for runs, tasks, workers, results).
 
-This module provides SQLAlchemy models for:
-- DynamoDB-equivalent tables: Users, Projects, Runs, Tasks, Workers
-- Redshift-equivalent tables: TaskResults, WorkerHeartbeats
+- AWS RDS (when AWS_DATABASE_URL is set): users, researchers, projects, project_users
+  See backend/core/database_aws.py.
+- SQLite (this module): runs, tasks, workers, task_results, worker_heartbeats, jobs
 """
 
 from sqlalchemy import create_engine, Column, Integer, String, Text, Float, DateTime, ForeignKey, Index, UniqueConstraint
@@ -30,68 +29,15 @@ BUCKET_NAME = "constellation-bucket-005988779256-us-east-1-an"
 s3 = boto3.client("s3")
 
 # ============================================================================
-# DynamoDB-Equivalent Tables (Transactional Data)
+# SQLite tables: runs, tasks, workers, task_results, worker_heartbeats, jobs
 # ============================================================================
 
-class User(Base):
-    """User accounts (researchers and volunteers) - matches constellation-users"""
-    __tablename__ = "users"
-
-    user_id = Column(String, primary_key=True, default=lambda: f"user-{uuid.uuid4()}")
-    email = Column(String(255), unique=True, nullable=False, index=True)
-    name = Column(String(255), nullable=False)
-    role = Column(String(50), nullable=False)  # 'researcher', 'volunteer', or 'researcher,volunteer'
-    user_metadata = Column("metadata", JSON, nullable=True)  # Flexible storage (signup reasons, preferences)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-    
-    # Relationships
-    projects = relationship("Project", back_populates="researcher", cascade="all, delete-orphan")
-    workers = relationship("Worker", back_populates="owner", cascade="all, delete-orphan")
-
-    def __repr__(self):
-        return f"<User(user_id={self.user_id}, email={self.email}, role={self.role})>"
-
-
-class Project(Base):
-    """Research projects - matches constellation-projects"""
-    __tablename__ = "projects"
-
-    project_id = Column(String, primary_key=True, default=lambda: f"project-{uuid.uuid4()}")
-    researcher_id = Column(String, ForeignKey("users.user_id"), nullable=False, index=True)
-    title = Column(String(500), nullable=False)
-    description = Column(Text, nullable=True)
-    code_s3_path = Column(String(1000), nullable=True)  # Will be S3 path, currently local path
-    dataset_s3_path = Column(String(1000), nullable=True)  # Will be S3 path, currently local path
-    dataset_type = Column(String(10), nullable=False)  # 'csv' or 'json'
-    func_name = Column(String(255), nullable=False, default="main")
-    chunk_size = Column(Integer, nullable=False, default=1000)
-    replication_factor = Column(Integer, nullable=False, default=2)  # Number of times each task is run for verification
-    max_verification_attempts = Column(Integer, nullable=False, default=2)  # Max re-submits for unverified tasks
-    status = Column(String(50), nullable=False, default="active", index=True)  # 'active', 'archived', 'deleted'
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-
-    # Relationships
-    researcher = relationship("User", back_populates="projects")
-    runs = relationship("Run", back_populates="project", cascade="all, delete-orphan")
-
-    # Indexes
-    __table_args__ = (
-        Index('idx_project_researcher_created', 'researcher_id', 'created_at'),
-        Index('idx_project_status_created', 'status', 'created_at'),
-    )
-
-    def __repr__(self):
-        return f"<Project(project_id={self.project_id}, title={self.title}, status={self.status})>"
-
-
 class Run(Base):
-    """Execution runs - matches constellation-runs"""
+    """Execution runs. project_id is a string reference (AWS project id or 'local')."""
     __tablename__ = "runs"
 
     run_id = Column(String, primary_key=True, default=lambda: f"run-{uuid.uuid4()}")
-    project_id = Column(String, ForeignKey("projects.project_id"), nullable=False, index=True)
+    project_id = Column(String, nullable=False, index=True)
     status = Column(String(50), nullable=False, default="pending", index=True)  # 'pending', 'running', 'completed', 'failed', 'cancelled'
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
@@ -108,11 +54,8 @@ class Run(Base):
     verification_hash_attempt2 = Column(String(128), nullable=True)
     verification_completed_at = Column(DateTime, nullable=True)
 
-    # Relationships
-    project = relationship("Project", back_populates="runs")
     tasks = relationship("Task", back_populates="run", cascade="all, delete-orphan")
 
-    # Indexes
     __table_args__ = (
         Index('idx_run_project_created', 'project_id', 'created_at'),
         Index('idx_run_status_created', 'status', 'created_at'),
@@ -155,11 +98,11 @@ class Task(Base):
 
 
 class Worker(Base):
-    """LAN worker nodes - matches constellation-workers"""
+    """LAN worker nodes. user_id is a string reference (AWS username or local)."""
     __tablename__ = "workers"
 
-    worker_id = Column(String, primary_key=True)  # Can be UUID or device MAC address
-    user_id = Column(String, ForeignKey("users.user_id"), nullable=True, index=True)
+    worker_id = Column(String, primary_key=True)
+    user_id = Column(String, nullable=True, index=True)
     worker_name = Column(String(255), nullable=False)
     ip_address = Column(String(45), nullable=True)  # IPv6 max length
     ray_node_id = Column(String(255), nullable=True)
@@ -174,8 +117,6 @@ class Worker(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
-    # Relationships
-    owner = relationship("User", back_populates="workers")
     assigned_tasks = relationship("Task", back_populates="assigned_worker")
     task_results = relationship("TaskResult", back_populates="worker")
     heartbeats = relationship("WorkerHeartbeat", back_populates="worker", cascade="all, delete-orphan")
@@ -352,84 +293,8 @@ def delete_job(job_id):
 
 
 # ============================================================================
-# Helper Functions for New Schema
+# Helper Functions (SQLite: Run, Task, TaskResult, Worker, Job)
 # ============================================================================
-
-def create_user(user_id: str, email: str, name: str, role: str = "volunteer", metadata: dict = None):
-    """
-    Create a new user with the given user_id (must be unique).
-    Returns (user, None) on success, or (None, error_message) if user_id or email already exists.
-    """
-    if get_user_by_id(user_id):
-        return None, "user_id already exists"
-    if get_user_by_email(email):
-        return None, "email already exists"
-    with SessionLocal() as session:
-        user = User(user_id=user_id, email=email, name=name, role=role, user_metadata=metadata or {})
-        session.add(user)
-        session.commit()
-        session.refresh(user)
-        return user, None
-
-
-def get_user_by_email(email: str) -> User:
-    """Get user by email."""
-    with SessionLocal() as session:
-        return session.query(User).filter_by(email=email).first()
-
-
-def get_user_by_id(user_id: str) -> User:
-    """Get user by ID."""
-    with SessionLocal() as session:
-        return session.query(User).filter_by(user_id=user_id).first()
-
-
-def user_has_role(user_id: str, role: str) -> bool:
-    """Check if user has a specific role."""
-    user = get_user_by_id(user_id)
-    if not user:
-        return False
-    # Role can be 'researcher', 'volunteer', or 'researcher,volunteer'
-    return role in user.role.split(',')
-
-def create_project(researcher_id: str, title: str, description: str, 
-                   code_path: str, dataset_path: str, dataset_type: str,
-                   func_name: str = "main", chunk_size: int = 1000,
-                   replication_factor: int = 2, max_verification_attempts: int = 2) -> Project:
-    """Create a new project."""
-
-    with SessionLocal() as session:
-        project = Project(
-            researcher_id=researcher_id,
-            title=title,
-            description=description,
-            dataset_type=dataset_type,
-            func_name=func_name,
-            chunk_size=chunk_size,
-            replication_factor=replication_factor,
-            max_verification_attempts=max_verification_attempts,
-        )
-        session.add(project)
-        session.flush()  # Assign project_id (from default) before using it for S3 keys
-
-        code_key = f"{project.project_id}/code.py"
-        s3.upload_file(code_path, BUCKET_NAME, code_key)
-        project.code_s3_path = f"s3://{BUCKET_NAME}/{code_key}"
-
-        dataset_key = f"{project.project_id}/dataset.{dataset_type}"
-        s3.upload_file(dataset_path, BUCKET_NAME, dataset_key)
-        project.dataset_s3_path = f"s3://{BUCKET_NAME}/{dataset_key}"
-
-        session.commit()
-        session.refresh(project)
-        return project
-
-
-def get_project(project_id: str) -> Project:
-    """Get project by ID."""
-    with SessionLocal() as session:
-        return session.query(Project).filter_by(project_id=project_id).first()
-
 
 def create_run(project_id: str, total_tasks: int = 0) -> Run:
     """Create a new run."""
@@ -652,15 +517,11 @@ def _hash_result(result_data):
     return hashlib.sha256(serialized.encode()).hexdigest()
 
 def get_all_projects(researcher_id: str = None, limit: int = None) -> list:
-    """List all projects, optionally filtered by researcher_id."""
-    with SessionLocal() as session:
-        query = session.query(Project).filter(Project.status == "active")
-        if researcher_id:
-            query = query.filter(Project.researcher_id == researcher_id)
-        query = query.order_by(Project.created_at.desc())
-        if limit:
-            query = query.limit(limit)
-        return query.all()
+    """List all projects (from AWS RDS when configured), optionally filtered by researcher_id."""
+    from backend.core.database_aws import is_aws_db_configured, get_all_aws_projects
+    if is_aws_db_configured():
+        return get_all_aws_projects(researcher_id=researcher_id, limit=limit)
+    return []
 
 
 def get_runs_for_project(project_id: str, limit: int = None) -> list:
@@ -715,6 +576,84 @@ def get_task_results_for_run(run_id: str) -> list:
             }
             for tr, idx in rows
         ]
+
+
+# ============================================================================
+# User and project: delegate to AWS RDS when AWS_DATABASE_URL is set
+# ============================================================================
+
+def get_user_by_id(user_id: str):
+    """Get user by ID. Uses AWS RDS when AWS_DATABASE_URL is set, else None."""
+    from backend.core.database_aws import is_aws_db_configured, get_aws_user_by_id
+    if is_aws_db_configured():
+        return get_aws_user_by_id(user_id)
+    return None
+
+
+def get_user_by_email(email: str):
+    """Get user by email. Uses AWS RDS when configured, else None."""
+    from backend.core.database_aws import is_aws_db_configured, get_aws_user_by_email
+    if is_aws_db_configured():
+        return get_aws_user_by_email(email)
+    return None
+
+
+def user_has_role(user_id: str, role: str) -> bool:
+    """Check if user has the given role. Uses AWS RDS when configured."""
+    from backend.core.database_aws import is_aws_db_configured, user_has_aws_role
+    if is_aws_db_configured():
+        return user_has_aws_role(user_id, role)
+    return False
+
+
+def get_project(project_id: str):
+    """Get project by ID. Uses AWS RDS when configured, else None."""
+    from backend.core.database_aws import is_aws_db_configured, get_aws_project
+    if is_aws_db_configured():
+        return get_aws_project(project_id)
+    return None
+
+
+def create_user(user_id: str, email: str, name: str, role: str = "volunteer", metadata: dict = None):
+    """
+    Create a new user. Requires AWS_DATABASE_URL.
+    Returns (user_like, None) on success, or (None, error_message) if user_id/email exists.
+    """
+    from backend.core.database_aws import is_aws_db_configured, create_aws_user
+    if not is_aws_db_configured():
+        return None, "AWS database not configured. Set AWS_DATABASE_URL to create users."
+    try:
+        u = create_aws_user(user_id=user_id, email=email, name=name, role=role)
+        return u, None
+    except ValueError as e:
+        return None, str(e)
+
+
+def create_project(researcher_id: str, title: str, description: str,
+                   code_path: str, dataset_path: str, dataset_type: str,
+                   func_name: str = "main", chunk_size: int = 1000,
+                   replication_factor: int = 2, max_verification_attempts: int = 2):
+    """
+    Create a new project. When AWS_DATABASE_URL is set, creates in RDS and uploads code/dataset to S3.
+    Returns a project-like object (with project_id, code_s3_path, dataset_s3_path, etc.).
+    """
+    from backend.core.database_aws import is_aws_db_configured, create_aws_project
+    if is_aws_db_configured():
+        return create_aws_project(
+            researcher_id=researcher_id,
+            title=title,
+            description=description,
+            code_path=code_path,
+            dataset_path=dataset_path,
+            dataset_type=dataset_type,
+            func_name=func_name,
+            chunk_size=chunk_size,
+            replication_factor=replication_factor,
+            max_verification_attempts=max_verification_attempts,
+            s3_upload_fn=s3.upload_file,
+            bucket_name=BUCKET_NAME,
+        )
+    raise RuntimeError("AWS database not configured. Set AWS_DATABASE_URL to create projects.")
 
 
 # Simple test connection function

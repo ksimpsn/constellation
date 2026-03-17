@@ -26,11 +26,9 @@ from datetime import datetime
 from backend.core.server import Cluster
 
 from backend.core.database import (
-    get_session, 
-    # Legacy functions (for backward compatibility)
+    get_session,
     Job, save_job, update_job, get_job,
-    # New schema models and functions
-    Project, Run, Task, TaskResult, Worker, WorkerHeartbeat,
+    Run, Task, TaskResult, Worker, WorkerHeartbeat,
     create_project, get_project,
     create_run, get_run, update_run,
     create_task, get_pending_tasks, assign_task, update_task,
