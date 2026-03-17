@@ -8,6 +8,8 @@ export default function SubmitProject() {
   const [pyFile, setPyFile] = useState<File | null>(null);
   const [dataFile, setDataFile] = useState<File | null>(null);
   const [chunkSize, setChunkSize] = useState(1000);
+  const [replicationFactor, setReplicationFactor] = useState(2);
+  const [maxVerificationAttempts, setMaxVerificationAttempts] = useState(2);
   const [message, setMessage] = useState("");
 
   // Track job ID, run ID, project ID, status, and results
@@ -35,6 +37,8 @@ export default function SubmitProject() {
     formData.append("py_file", pyFile);
     formData.append("data_file", dataFile);
     formData.append("chunk_size", String(chunkSize));
+    formData.append("replication_factor", String(replicationFactor));
+    formData.append("max_verification_attempts", String(maxVerificationAttempts));
 
     try {
       const response = await fetch(`${base}/submit`, {
@@ -232,6 +236,54 @@ export default function SubmitProject() {
               border: "1px solid #ccc",
             }}
           />
+        </div>
+
+        {/* Verification settings */}
+        <div>
+          <label style={{ fontSize: "18px" }}>Result verification (redundant runs)</label>
+          <p style={{ fontSize: "14px", color: "#555", marginTop: "4px" }}>
+            Each task is run multiple times and compared. Higher values increase trust but use more compute.
+          </p>
+          <div style={{ display: "flex", gap: "24px", flexWrap: "wrap", marginTop: "8px" }}>
+            <div>
+              <label style={{ fontSize: "16px" }}>Replication factor</label>
+              <input
+                type="number"
+                min={2}
+                value={replicationFactor}
+                onChange={(e) =>
+                  setReplicationFactor(Math.max(2, parseInt(e.target.value, 10) || 2))
+                }
+                style={{
+                  marginTop: "6px",
+                  width: "100px",
+                  padding: "8px 12px",
+                  fontSize: "16px",
+                  borderRadius: "6px",
+                  border: "1px solid #ccc",
+                }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: "16px" }}>Max verification attempts</label>
+              <input
+                type="number"
+                min={1}
+                value={maxVerificationAttempts}
+                onChange={(e) =>
+                  setMaxVerificationAttempts(Math.max(1, parseInt(e.target.value, 10) || 1))
+                }
+                style={{
+                  marginTop: "6px",
+                  width: "100px",
+                  padding: "8px 12px",
+                  fontSize: "16px",
+                  borderRadius: "6px",
+                  border: "1px solid #ccc",
+                }}
+              />
+            </div>
+          </div>
         </div>
 
         {/* Submit Button */}

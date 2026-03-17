@@ -375,9 +375,17 @@ class ConstellationAPI:
         futures = execution.get("futures", [])
         print(f"[DEBUG] Received {len(futures)} futures from submit_uploaded_tasks")
         
-        verification_status = self._persist_verification_results(run.run_id, project.project_id, execution)
+        verification_status, completed_count = self._persist_verification_results(
+            run.run_id, project.project_id, execution
+        )
         
-        update_run(run.run_id, status=verification_status, completed_at=datetime.utcnow())
+        update_run(
+            run.run_id,
+            status=verification_status,
+            completed_tasks=completed_count,
+            failed_tasks=0,
+            completed_at=datetime.utcnow(),
+        )
         
         # Store futures mapped to run_id
         self.futures[run.run_id] = futures
@@ -685,16 +693,21 @@ class ConstellationAPI:
     
     def _persist_verification_results(self, run_id, project_id, execution):
         """
-        Store both verification attempts into TaskResult table.
+        Store all verification attempts into TaskResult table and
+        return both the overall verification_status and the number of
+        distinct tasks that produced results.
         """
 
         verification_status = execution["verification_status"]
         attempts = execution["attempts"]
+        seen_task_ids = set()
 
         with get_session() as session:
             for attempt_id, attempt_results in enumerate(attempts, start=1):
                 for ray_result in attempt_results:
                     task_id = ray_result.get("task_id")
+                    if task_id:
+                        seen_task_ids.add(task_id)
 
                     node_id = ray_result.get("node_id")
                     worker = session.query(Worker).filter_by(ray_node_id=node_id).first()
@@ -716,4 +729,5 @@ class ConstellationAPI:
 
             session.commit()
 
-        return verification_status
+        completed_count = len(seen_task_ids)
+        return verification_status, completed_count
