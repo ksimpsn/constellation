@@ -18,6 +18,7 @@ from backend.core.database import (
     get_project, get_run, get_all_projects, get_runs_for_project, get_tasks_for_run,
     get_all_workers, get_task_results_for_run,
 )
+from backend.core.database_aws import init_aws_db
 from backend.core.server import Cluster
 import os
 import uuid
@@ -36,8 +37,10 @@ CORS(app)
 #      allow_headers=["Content-Type"],
 #      supports_credentials=False)
 
-# Ensure DB tables exist on startup (idempotent; safe if already initialized)
+# Ensure SQLite tables exist (runs, tasks, workers, task_results, jobs)
 init_db()
+# Optional: connect to AWS RDS for users, researchers, projects, project_users
+init_aws_db()
 
 # Module-level variable that persists across Flask reloads
 _api_instance = None

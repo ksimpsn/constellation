@@ -24,6 +24,25 @@ The system is built on **Ray**, enabling scalable task distribution, progress tr
     ALTER TABLE projects ADD COLUMN replication_factor INTEGER NOT NULL DEFAULT 2;
     ALTER TABLE projects ADD COLUMN max_verification_attempts INTEGER NOT NULL DEFAULT 2;
     ```
+
+4a. **Optional – AWS RDS for users and projects:**  
+    If you use an AWS RDS (or any Postgres) database for users, researchers, projects, and project_users, set `AWS_DATABASE_URL` **before** starting Flask. Either:
+
+    - **Same terminal:** export in the same shell where you start the server:
+      ```bash
+      export AWS_DATABASE_URL="postgresql://user:password@host:5432/dbname"
+      ./scripts/start-flask-with-ray.sh
+      ```
+    - **Or use a `.env` file** in the project root (no quotes around the value):
+      ```
+      AWS_DATABASE_URL=postgresql://user:password@host:5432/dbname
+      ```
+      Then run `./scripts/start-flask-with-ray.sh`; it will load `.env` automatically.
+
+    When set, the app uses **RDS** for: `users`, `researchers`, `projects`, `project_users`.  
+    **SQLite** (local `constellation.db`) is still used for: runs, tasks, workers, task_results, worker_heartbeats, and legacy jobs.  
+    If `AWS_DATABASE_URL` is not set, user/project operations (signup, project creation, project list) are disabled unless you add a local implementation.
+
 5. **Run the Flask backend server:**
 
    **Option B (recommended on macOS/Windows):** Start the Ray head first, then Flask. Use two terminals:
