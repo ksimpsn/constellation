@@ -10,6 +10,7 @@ export default function SubmitProject() {
   const [description, setDescription] = useState("");
   const [pyFile, setPyFile] = useState<File | null>(null);
   const [dataFile, setDataFile] = useState<File | null>(null);
+  const [rowsPerTask, setRowsPerTask] = useState<number>(1000);
   const [message, setMessage] = useState("");
 
   // Track job ID, status, and results
@@ -27,6 +28,10 @@ export default function SubmitProject() {
       setMessage("Please upload both your .py file and dataset.");
       return;
     }
+    if (!Number.isFinite(rowsPerTask) || rowsPerTask <= 0) {
+      setMessage("Rows per task must be a positive number.");
+      return;
+    }
 
     console.log("inside handle submit");
 
@@ -35,6 +40,7 @@ export default function SubmitProject() {
     formData.append("description", description);
     formData.append("py_file", pyFile);
     formData.append("data_file", dataFile);
+    formData.append("chunk_size", String(Math.floor(rowsPerTask)));
 
     try {
       const response = await fetch(`${API_BASE_URL}/submit`, {
@@ -189,6 +195,22 @@ export default function SubmitProject() {
                 Selected: <strong className="text-white/80">{dataFile.name}</strong>
               </p>
             )}
+          </div>
+
+          <div>
+            <label className="text-white/80 text-sm font-medium">Rows per task (chunk size)</label>
+            <p className="text-white/60 text-sm mt-1.5 mb-0">
+              Tasks are created from <strong className="text-white/80">CSV rows (records)</strong>. Smaller values create more tasks and improve parallelism.
+            </p>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              step={1}
+              value={rowsPerTask}
+              onChange={(e) => setRowsPerTask(e.target.value === "" ? 0 : Number(e.target.value))}
+              style={inputStyle}
+            />
           </div>
 
           <button
