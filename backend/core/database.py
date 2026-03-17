@@ -392,12 +392,7 @@ def user_has_role(user_id: str, role: str) -> bool:
     # Role can be 'researcher', 'volunteer', or 'researcher,volunteer'
     return role in user.role.split(',')
 
-<<<<<<< HEAD
-
-def create_project(researcher_id: str, title: str, description: str,
-=======
 def create_project(researcher_id: str, title: str, description: str, 
->>>>>>> annabella/result-verification
                    code_path: str, dataset_path: str, dataset_type: str,
                    func_name: str = "main", chunk_size: int = 1000,
                    replication_factor: int = 2, max_verification_attempts: int = 2) -> Project:

@@ -12,16 +12,12 @@ Later, it will connect to:
 
 from flask import Flask, request, jsonify, Response
 from backend.core.api import ConstellationAPI
-<<<<<<< HEAD
-from backend.core.database import get_user_by_id, user_has_role, register_worker, get_session, get_researcher_projects_with_stats, create_user, get_user_by_email, init_db
-=======
 from backend.core.database import (
     init_db,
     get_user_by_id, user_has_role, register_worker, get_session, create_user,
     get_project, get_run, get_all_projects, get_runs_for_project, get_tasks_for_run,
     get_all_workers, get_task_results_for_run,
 )
->>>>>>> annabella/result-verification
 from backend.core.server import Cluster
 import os
 import uuid
@@ -221,32 +217,6 @@ def get_results(job_id):
     }), 200
 
 
-<<<<<<< HEAD
-@app.route("/api/signup", methods=["POST", "OPTIONS"])
-def signup():
-    """
-    Endpoint: POST /api/signup
-    Purpose: Create a new user account (volunteer or researcher).
-
-    Request body:
-    {
-        "name": "John Doe",
-        "email": "john@example.com",
-        "role": "volunteer" or "researcher",
-        "reasons": ["reason1", "reason2"]  # optional
-    }
-
-    Response:
-    {
-        "success": true,
-        "user_id": "user-xxx",
-        "message": "User created successfully"
-    }
-    """
-    if request.method == "OPTIONS":
-        return "", 200
-
-=======
 @app.route("/api/signup", methods=["POST"])
 def signup():
     """
@@ -254,95 +224,10 @@ def signup():
     Purpose: Register a new user (researcher and/or volunteer).
     Request body: { "full_name", "email", "user_id", "role" } (role: researcher, volunteer, or researcher,volunteer)
     """
->>>>>>> annabella/result-verification
     try:
         data = request.get_json()
         if not data:
             return jsonify({"error": "Missing request body"}), 400
-<<<<<<< HEAD
-
-        name = data.get("name")
-        email = data.get("email")
-        role = data.get("role")
-        reasons = data.get("reasons", [])
-
-        # Validate required fields
-        if not name or not email or not role:
-            return jsonify({
-                "error": "Missing required fields: name, email, and role are required"
-            }), 400
-
-        # Validate role
-        if role not in ["volunteer", "researcher", "contributor"]:
-            return jsonify({
-                "error": "Invalid role. Must be 'volunteer', 'researcher', or 'contributor'"
-            }), 400
-
-        # Map "contributor" to "volunteer" (same thing)
-        if role == "contributor":
-            role = "volunteer"
-
-        # Initialize database if needed
-        init_db()
-
-        # Check if user already exists
-        existing_user = get_user_by_email(email)
-        if existing_user:
-            return jsonify({
-                "error": f"User with email {email} already exists",
-                "user_id": existing_user.user_id,
-                "role": existing_user.role
-            }), 409
-
-        # Create user
-        user = create_user(
-            email=email,
-            name=name,
-            role=role,
-            metadata={"signup_reasons": reasons} if reasons else None
-        )
-
-        logging.info(f"[INFO] Created new user: {user.user_id} ({role})")
-
-        return jsonify({
-            "success": True,
-            "user_id": user.user_id,
-            "email": user.email,
-            "role": user.role,
-            "message": "User created successfully"
-        }), 201
-
-    except Exception as e:
-        logging.error(f"[ERROR] Error in signup endpoint: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/api/login", methods=["POST", "OPTIONS"])
-def login():
-    """
-    Endpoint: POST /api/login
-    Purpose: Authenticate a user by email and return user info.
-
-    Request body:
-    {
-        "email": "user@example.com"
-    }
-
-    Response:
-    {
-        "success": true,
-        "user_id": "user-xxx",
-        "email": "user@example.com",
-        "name": "User Name",
-        "role": "volunteer" or "researcher"
-    }
-    """
-    if request.method == "OPTIONS":
-        return "", 200
-
-=======
         full_name = data.get("full_name") or data.get("name")
         email = data.get("email")
         user_id = data.get("user_id")
@@ -513,334 +398,10 @@ def register_worker_endpoint():
     Request body: { "user_id", "worker_name" }
     Does NOT call ray.init; matches request.remote_addr to Ray node NodeManagerAddress.
     """
->>>>>>> annabella/result-verification
     try:
         data = request.get_json()
         if not data:
             return jsonify({"error": "Missing request body"}), 400
-<<<<<<< HEAD
-
-        email = data.get("email")
-
-        if not email:
-            return jsonify({"error": "Email is required"}), 400
-
-        # Initialize database if needed
-        init_db()
-
-        # Find user by email
-        user = get_user_by_email(email)
-        if not user:
-            return jsonify({
-                "error": "User not found. Please sign up first."
-            }), 404
-
-        logging.info(f"[INFO] User logged in: {user.user_id} ({user.role})")
-
-        return jsonify({
-            "success": True,
-            "user_id": user.user_id,
-            "email": user.email,
-            "name": user.name,
-            "role": user.role
-        }), 200
-
-    except Exception as e:
-        logging.error(f"[ERROR] Error in login endpoint: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/api/researcher/debug-id", methods=["GET", "OPTIONS"])
-def get_debug_researcher_id():
-    """
-    Endpoint: GET /api/researcher/debug-id
-    Purpose: Get the debug researcher user ID for testing.
-    Uses the same debug user system as DEBUG_USERS.md.
-    Returns the debug researcher user, or creates one if it doesn't exist.
-
-    This matches the debug users created by: python3 backend/create_debug_user.py
-
-    Response:
-    {
-        "researcher_id": "user-xxx",
-        "email": "debug-researcher@constellation.test",
-        "name": "Debug Researcher",
-        "role": "researcher"
-    }
-    """
-    try:
-        from backend.core.database import get_user_by_email, create_user, init_db
-
-        # Initialize DB if needed
-        init_db()
-
-        # Get debug researcher (same email as in DEBUG_USERS.md and create_debug_user.py)
-        researcher_email = "debug-researcher@constellation.test"
-        researcher = get_user_by_email(researcher_email)
-
-        if not researcher:
-            # Create debug researcher if it doesn't exist (same as create_debug_user.py)
-            researcher = create_user(
-                email=researcher_email,
-                name="Debug Researcher",
-                role="researcher",
-                metadata={"debug": True}
-            )
-            logging.info(f"[INFO] Created debug researcher: {researcher.user_id}")
-
-        return jsonify({
-            "researcher_id": researcher.user_id,
-            "email": researcher.email,
-            "name": researcher.name,
-            "role": researcher.role
-        }), 200
-
-    except Exception as e:
-        logging.error(f"[ERROR] Error in get_debug_researcher_id endpoint: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/api/debug-users", methods=["GET"])
-def get_debug_users():
-    """
-    Endpoint: GET /api/debug-users
-    Purpose: Get all debug users (matching DEBUG_USERS.md).
-    Returns all three debug users: volunteer, researcher, and both.
-
-    Response:
-    {
-        "volunteer": {
-            "user_id": "user-xxx",
-            "email": "debug-volunteer@constellation.test",
-            "name": "Debug Volunteer",
-            "role": "volunteer"
-        },
-        "researcher": {
-            "user_id": "user-xxx",
-            "email": "debug-researcher@constellation.test",
-            "name": "Debug Researcher",
-            "role": "researcher"
-        },
-        "both": {
-            "user_id": "user-xxx",
-            "email": "debug-both@constellation.test",
-            "name": "Debug Both",
-            "role": "researcher,volunteer"
-        }
-    }
-    """
-    try:
-        from backend.core.database import get_user_by_email, create_user, init_db
-
-        # Initialize DB if needed
-        init_db()
-
-        # Get or create all debug users (same as create_debug_user.py)
-        debug_users = {}
-
-        # Volunteer
-        volunteer_email = "debug-volunteer@constellation.test"
-        volunteer = get_user_by_email(volunteer_email)
-        if not volunteer:
-            volunteer = create_user(
-                email=volunteer_email,
-                name="Debug Volunteer",
-                role="volunteer",
-                metadata={"debug": True}
-            )
-        debug_users["volunteer"] = {
-            "user_id": volunteer.user_id,
-            "email": volunteer.email,
-            "name": volunteer.name,
-            "role": volunteer.role
-        }
-
-        # Researcher
-        researcher_email = "debug-researcher@constellation.test"
-        researcher = get_user_by_email(researcher_email)
-        if not researcher:
-            researcher = create_user(
-                email=researcher_email,
-                name="Debug Researcher",
-                role="researcher",
-                metadata={"debug": True}
-            )
-        debug_users["researcher"] = {
-            "user_id": researcher.user_id,
-            "email": researcher.email,
-            "name": researcher.name,
-            "role": researcher.role
-        }
-
-        # Both
-        both_email = "debug-both@constellation.test"
-        both_user = get_user_by_email(both_email)
-        if not both_user:
-            both_user = create_user(
-                email=both_email,
-                name="Debug Both",
-                role="researcher,volunteer",
-                metadata={"debug": True}
-            )
-        debug_users["both"] = {
-            "user_id": both_user.user_id,
-            "email": both_user.email,
-            "name": both_user.name,
-            "role": both_user.role
-        }
-
-        return jsonify(debug_users), 200
-
-    except Exception as e:
-        logging.error(f"[ERROR] Error in get_debug_users endpoint: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/api/researcher/<researcher_id>/stats", methods=["GET", "OPTIONS"])
-def get_researcher_stats(researcher_id):
-    """
-    Endpoint: GET /api/researcher/<researcher_id>/stats
-    Purpose: Get aggregated statistics for a researcher profile.
-
-    Response:
-    {
-        "totalProjects": 5,
-        "completedProjects": 2,
-        "totalContributors": 150
-    }
-    """
-    try:
-        from backend.core.database import get_user_by_id, user_has_role, get_session
-        from backend.core.database import Project, Run, TaskResult
-        from sqlalchemy import func, distinct
-
-        # Validate user exists
-        user = get_user_by_id(researcher_id)
-        if not user:
-            return jsonify({"error": f"User {researcher_id} not found"}), 404
-
-        # Validate user has researcher role
-        if not user_has_role(researcher_id, "researcher"):
-            return jsonify({
-                "error": f"User {researcher_id} does not have 'researcher' role"
-            }), 403
-
-        with get_session() as session:
-            from backend.core.database import Task
-
-            # Get all projects for this researcher
-            projects = session.query(Project).filter_by(
-                researcher_id=researcher_id,
-                status="active"
-            ).all()
-
-            total_projects = len(projects)
-            completed_projects = 0
-
-            # Get unique contributors across all projects
-            all_contributors = set()
-
-            for project in projects:
-                # Check if project is completed (all tasks done)
-                runs = session.query(Run).filter_by(project_id=project.project_id).all()
-                total_tasks = 0
-                completed_tasks = 0
-
-                tasks = session.query(Task).join(Run).filter(
-                    Run.project_id == project.project_id
-                ).all()
-
-                for task in tasks:
-                    total_tasks += 1
-                    if task.status == "completed":
-                        completed_tasks += 1
-
-                if total_tasks > 0 and completed_tasks >= total_tasks:
-                    completed_projects += 1
-
-                # Get contributors for this project
-                contributors = session.query(distinct(TaskResult.worker_id)).filter(
-                    TaskResult.project_id == project.project_id,
-                    TaskResult.worker_id.isnot(None)
-                ).all()
-
-                for contrib in contributors:
-                    if contrib[0]:
-                        all_contributors.add(contrib[0])
-
-            total_contributors = len(all_contributors)
-
-            return jsonify({
-                "totalProjects": total_projects,
-                "completedProjects": completed_projects,
-                "totalContributors": total_contributors
-            }), 200
-
-    except Exception as e:
-        logging.error(f"[ERROR] Error in get_researcher_stats endpoint: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/api/researcher/<researcher_id>/projects", methods=["GET", "OPTIONS"])
-def get_researcher_projects(researcher_id):
-    """
-    Endpoint: GET /api/researcher/<researcher_id>/projects
-    Purpose: Get all projects for a researcher with aggregated statistics.
-
-    Response:
-    {
-        "projects": [
-            {
-                "id": "project-123",
-                "title": "Project Title",
-                "description": "Description",
-                "progress": 75,
-                "resultUrl": "/results/project-123.json",
-                "totalContributors": 50,
-                "activeContributors": 10,
-                "completedContributors": null,
-                "totalTasks": 1000,
-                "completedTasks": 750,
-                "failedTasks": 5,
-                "createdAt": "2024-01-15T10:00:00",
-                "updatedAt": "2024-03-20T14:30:00",
-                "totalRuns": 2,
-                "averageTaskTime": 45.2
-            },
-            ...
-        ]
-    }
-    """
-    try:
-        # Validate user exists
-        user = get_user_by_id(researcher_id)
-        if not user:
-            return jsonify({"error": f"User {researcher_id} not found"}), 404
-
-        # Validate user has researcher role
-        if not user_has_role(researcher_id, "researcher"):
-            return jsonify({
-                "error": f"User {researcher_id} does not have 'researcher' role"
-            }), 403
-
-        # Get projects with statistics
-        projects = get_researcher_projects_with_stats(researcher_id)
-
-        return jsonify({
-            "projects": projects
-        }), 200
-
-    except Exception as e:
-        logging.error(f"[ERROR] Error in get_researcher_projects endpoint: {e}")
-=======
         user_id = data.get("user_id")
         worker_name = data.get("worker_name")
         if not user_id or not worker_name:
@@ -920,7 +481,6 @@ def get_researcher_projects(researcher_id):
         }), 200
     except Exception as e:
         logging.error(f"[ERROR] register_worker: {e}")
->>>>>>> annabella/result-verification
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
@@ -1155,13 +715,8 @@ def start_head():
             if remote_ready:
                 logging.info("[INFO] Head node is ready for remote worker connections")
             else:
-<<<<<<< HEAD
-                logging.warning("[WARNING] Head node may not accept remote connections. Consider starting Ray manually: ray start --head --port=6379 --node-ip-address=0.0.0.0")
-
-=======
                 logging.warning("[WARNING] Head node may not accept remote connections. For same-machine demo use scripts/start-ray-head.sh (uses --node-ip-address=127.0.0.1).")
             
->>>>>>> annabella/result-verification
             return jsonify({
                 "status": "started",
                 "head_node_ip": local_ip,
