@@ -3,7 +3,8 @@ import FlowNav from "../components/FlowNav";
 import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+// Backend runs on 5001 by default; allow override via VITE_API_URL
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5001";
 
 export default function SubmitProject() {
   const [title, setTitle] = useState("");
@@ -11,6 +12,8 @@ export default function SubmitProject() {
   const [pyFile, setPyFile] = useState<File | null>(null);
   const [dataFile, setDataFile] = useState<File | null>(null);
   const [rowsPerTask, setRowsPerTask] = useState<number>(1000);
+  const [replicationFactor, setReplicationFactor] = useState<number>(2);
+  const [maxVerificationAttempts, setMaxVerificationAttempts] = useState<number>(1);
   const [message, setMessage] = useState("");
 
   // Track job ID, status, and results
@@ -32,6 +35,14 @@ export default function SubmitProject() {
       setMessage("Rows per task must be a positive number.");
       return;
     }
+    if (!Number.isFinite(replicationFactor) || replicationFactor <= 0) {
+      setMessage("Replication factor must be a positive number.");
+      return;
+    }
+    if (!Number.isFinite(maxVerificationAttempts) || maxVerificationAttempts <= 0) {
+      setMessage("Max verification attempts must be a positive number.");
+      return;
+    }
 
     console.log("inside handle submit");
 
@@ -41,6 +52,8 @@ export default function SubmitProject() {
     formData.append("py_file", pyFile);
     formData.append("data_file", dataFile);
     formData.append("chunk_size", String(Math.floor(rowsPerTask)));
+    formData.append("replication_factor", String(Math.floor(replicationFactor)));
+    formData.append("max_verification_attempts", String(Math.floor(maxVerificationAttempts)));
 
     try {
       const response = await fetch(`${API_BASE_URL}/submit`, {
@@ -63,7 +76,9 @@ export default function SubmitProject() {
       setMessage(`Project submitted successfully! Job ID: ${result.job_id}`);
     } catch (err) {
       console.error(err);
-      setMessage("Failed to submit project.");
+      setMessage(
+        `Failed to submit project. Please make sure the backend is running at ${API_BASE_URL} and try again.`,
+      );
     }
   };
 
@@ -92,8 +107,12 @@ export default function SubmitProject() {
 
     try {
       const response = await fetch(`${API_BASE_URL}/results/${jobId}`);
-      const result = await response.json();
-      setJobResults(result.results);
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setJobResults({ error: result.error || `Failed to fetch results (${response.status})` });
+        return;
+      }
+      setJobResults(result.results ?? result);
     } catch (err) {
       console.error(err);
       setJobResults({ error: "Failed to fetch results" });
@@ -209,6 +228,40 @@ export default function SubmitProject() {
               step={1}
               value={rowsPerTask}
               onChange={(e) => setRowsPerTask(e.target.value === "" ? 0 : Number(e.target.value))}
+              style={inputStyle}
+            />
+          </div>
+
+          <div>
+            <label className="text-white/80 text-sm font-medium">Replication factor</label>
+            <p className="text-white/60 text-sm mt-1.5 mb-0">
+              Each task will be run on this many independent workers to enable result verification. Default is{" "}
+              <strong className="text-white/80">2</strong>.
+            </p>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              step={1}
+              value={replicationFactor}
+              onChange={(e) => setReplicationFactor(e.target.value === "" ? 0 : Number(e.target.value))}
+              style={inputStyle}
+            />
+          </div>
+
+          <div>
+            <label className="text-white/80 text-sm font-medium">Max verification attempts</label>
+            <p className="text-white/60 text-sm mt-1.5 mb-0">
+              If replicas disagree, tasks can be retried up to this many times before being marked as failed. Default is{" "}
+              <strong className="text-white/80">1</strong>.
+            </p>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              step={1}
+              value={maxVerificationAttempts}
+              onChange={(e) => setMaxVerificationAttempts(e.target.value === "" ? 0 : Number(e.target.value))}
               style={inputStyle}
             />
           </div>

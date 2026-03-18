@@ -115,17 +115,29 @@ def submit_job():
     if ext not in ("csv", "json"):
         return jsonify({"error": "Dataset must be CSV or JSON"}), 400
 
+    try:
+        chunk_size = int(request.form.get("chunk_size", 1000))
+    except (TypeError, ValueError):
+        chunk_size = 1000
+
     # ✨ CALL THE CORRECT API FUNCTION
-    job_id = api.submit_uploaded_project(
+    out = api.submit_uploaded_project(
         code_path=py_path,
         dataset_path=data_path,
         file_type=ext,
-        func_name="main"  # optional
+        func_name="main",
+        title=title,
+        description=description or "",
+        chunk_size=chunk_size,
     )
+    job_id, run_id, project_id, total_tasks = out
 
     return jsonify({
         "message": "Job submitted successfully",
-        "job_id": job_id
+        "job_id": job_id,
+        "run_id": run_id,
+        "project_id": project_id,
+        "total_tasks": total_tasks,
     }), 200
 
 @app.route("/status/<int:job_id>", methods=["GET"])
@@ -150,13 +162,18 @@ def get_results(job_id):
     Purpose: Return results once computation is complete.
     Output: {"job_id": ..., "results": ...}
     """
-    results = api.get_results(job_id)
-
-    # Step 2: Return response
-    return jsonify({
-        "job_id": job_id,
-        "results": results
-    }), 200
+    try:
+        results = api.get_results(job_id)
+        return jsonify({
+            "job_id": job_id,
+            "results": results
+        }), 200
+    except Exception as e:
+        logging.exception("get_results failed")
+        return jsonify({
+            "error": str(e),
+            "job_id": job_id
+        }), 500
 
 
 @app.route("/api/signup", methods=["POST", "OPTIONS"])
