@@ -624,7 +624,8 @@ def connect_worker():
 
     Request body:
     {
-        "user_id": "user-123",
+        "user_id": "user-123",          // optional if email is provided
+        "email": "user@example.com",    // optional if user_id is provided
         "worker_name": "MyLaptop",
         "head_node_ip": "192.168.1.100"
     }
@@ -633,6 +634,8 @@ def connect_worker():
     {
         "worker_id": "worker-abc123",
         "status": "connected",
+        "user_id": "user-123",
+        "email": "user@example.com",
         "ray_node_id": "ray-node-xyz",
         "message": "Worker connected successfully"
     }
@@ -643,20 +646,35 @@ def connect_worker():
             return jsonify({"error": "Missing request body"}), 400
 
         user_id = data.get("user_id")
+        email = data.get("email")
         worker_name = data.get("worker_name")
         head_node_ip = data.get("head_node_ip")
 
         # Validate required fields
-        if not user_id or not worker_name or not head_node_ip:
+        if (not user_id and not email) or not worker_name or not head_node_ip:
             return jsonify({
-                "error": "Missing required fields: user_id, worker_name, and head_node_ip are required"
+                "error": "Missing required fields: provide user_id or email, plus worker_name and head_node_ip"
             }), 400
 
-        # Validate user exists and has 'volunteer' role
-        user = get_user_by_id(user_id)
-        if not user:
-            return jsonify({"error": f"User {user_id} not found"}), 404
+        # Resolve user by user_id or email
+        user = None
+        if user_id:
+            user = get_user_by_id(user_id)
+            if not user:
+                return jsonify({"error": f"User {user_id} not found"}), 404
+        else:
+            user = get_user_by_email(email)
+            if not user:
+                return jsonify({"error": f"User with email {email} not found"}), 404
+            user_id = user.user_id
 
+        # If both identifiers are provided, ensure they refer to the same user
+        if email and user and user.email != email:
+            return jsonify({
+                "error": "Provided user_id and email do not match the same user"
+            }), 400
+
+        # Validate user has 'volunteer' role
         if not user_has_role(user_id, "volunteer"):
             return jsonify({
                 "error": f"User {user_id} does not have 'volunteer' role. Current role: {user.role}"
@@ -721,6 +739,8 @@ def connect_worker():
             return jsonify({
                 "worker_id": worker_id,
                 "status": "connected",
+                "user_id": user_id,
+                "email": user.email,
                 "ray_node_id": ray_node_id,
                 "ray_worker_id": ray_worker_id,
                 "ip_address": ip_address,

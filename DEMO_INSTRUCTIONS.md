@@ -176,11 +176,9 @@ The system expects **users in the database** with appropriate roles. You can cre
 Recommended demo users:
 
 - Researcher:
-  - `user_id`: `demo-researcher`
   - `email`: `researcher-demo@example.com`
   - `role`: `researcher`
 - Volunteer:
-  - `user_id`: `demo-volunteer`
   - `email`: `volunteer-demo@example.com`
   - `role`: `volunteer`
 
@@ -220,20 +218,39 @@ If the Signup page is wired:
 1. Start the frontend dev server (see section 6).
 2. Open `http://localhost:5173/signup`.
 3. Create:
-   - `Demo Researcher` (user_id `demo-researcher`, email `researcher-demo@example.com`, role `researcher`)
-   - `Demo Volunteer` (user_id `demo-volunteer`, email `volunteer-demo@example.com`, role `volunteer`)
+   - `Demo Researcher` (email `researcher-demo@example.com`, role `researcher`)
+   - `Demo Volunteer` (email `volunteer-demo@example.com`, role `volunteer`)
 
 For backend‑first testing, the curl option is simpler and more reliable.
 
 #### 3.4.4 Register the Worker
 
-Now that `demo-volunteer` exists, register the Ray worker as a Constellation worker:
+Now that the volunteer account exists, register the Ray worker as a Constellation worker:
+
+You can identify the volunteer in either way:
+
+- `email` (easiest for manual testing), or
+- `user_id` (the internal ID returned by `/api/signup` or `/api/login`).
+
+Both are supported by `POST /api/workers/connect`.
 
 ```bash
+# Option A: use email
 curl -X POST http://127.0.0.1:5001/api/workers/connect \
   -H "Content-Type: application/json" \
   -d '{
-    "user_id": "demo-volunteer",
+    "email": "volunteer-demo@example.com",
+    "worker_name": "one-laptop-worker",
+    "head_node_ip": "127.0.0.1"
+  }'
+```
+
+```bash
+# Option B: use user_id returned by signup/login
+curl -X POST http://127.0.0.1:5001/api/workers/connect \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "user-...from-signup-or-login...",
     "worker_name": "one-laptop-worker",
     "head_node_ip": "127.0.0.1"
   }'
@@ -245,6 +262,8 @@ Expected JSON:
 {
   "worker_id": "worker-...",
   "status": "connected",
+  "user_id": "user-...",
+  "email": "volunteer-demo@example.com",
   "ray_node_id": "...",
   "message": "Worker connected successfully"
 }
@@ -256,7 +275,7 @@ You can verify:
 curl http://127.0.0.1:5001/api/workers
 ```
 
-Look for `worker_name: "one-laptop-worker"` and `user_id: "demo-volunteer"`.
+Look for `worker_name: "one-laptop-worker"` and an attached volunteer `user_id` (look up that user via `email: "volunteer-demo@example.com"`).
 
 #### 3.4.5 Submit the Small Test Project
 
@@ -392,10 +411,11 @@ RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=1 ray start --address=192.168.1.10:6379
 **Terminal B2 – Register worker against Machine A’s backend:**
 
 ```bash
+# Either identifier works (email or user_id)
 curl -X POST http://192.168.1.10:5001/api/workers/connect \
   -H "Content-Type: application/json" \
   -d '{
-    "user_id": "demo-volunteer",
+    "email": "volunteer-demo@example.com",
     "worker_name": "volunteer-laptop-1",
     "head_node_ip": "192.168.1.10"
   }'
@@ -461,13 +481,15 @@ Open:
 If Signup page is available:
 
 1. Go to `http://localhost:5173/signup`.
-2. Create `demo-researcher` and `demo-volunteer` as described in section 3.4.3.
+2. Create researcher/volunteer accounts as described in section 3.4.3 (emails `researcher-demo@example.com` and `volunteer-demo@example.com`).
 
 Otherwise, use curl as in section 3.4.2.
 
 ### 6.4 Register Worker (Backend)
 
 Worker registration is still backend/API‑only:
+
+`/api/workers/connect` accepts either `email` or `user_id` for the volunteer identity.
 
 ```bash
 cd /path/to/constellation
@@ -476,7 +498,7 @@ source env/bin/activate
 curl -X POST http://127.0.0.1:5001/api/workers/connect \
   -H "Content-Type: application/json" \
   -d '{
-    "user_id": "demo-volunteer",
+    "email": "volunteer-demo@example.com",
     "worker_name": "one-laptop-worker",
     "head_node_ip": "127.0.0.1"
   }'
@@ -542,7 +564,7 @@ Volunteers:
 1. Run Ray worker:
    - `ray start --address=192.168.1.10:6379`
 2. Register via API:
-   - `POST http://192.168.1.10:5001/api/workers/connect` with `user_id`, `worker_name`, and `head_node_ip` (`192.168.1.10`).
+   - `POST http://192.168.1.10:5001/api/workers/connect` with `email` (or `user_id`), `worker_name`, and `head_node_ip` (`192.168.1.10`).
 
 From the researcher UI and backend APIs, you should see:
 
@@ -574,7 +596,7 @@ For a successful small demo (`test-square-demo`):
 - **Workers Endpoint (`/api/workers`):**
   - At least one entry with:
     - `worker_name: "one-laptop-worker"`
-    - `user_id: "demo-volunteer"`
+    - `user_id` set (matching the volunteer account for `volunteer-demo@example.com`)
     - `status: "online"`
 
 Once this is working, you can scale up to larger datasets and heavier compute functions, and/or add more workers on the LAN to show real speedups. 
