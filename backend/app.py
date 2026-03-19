@@ -197,6 +197,13 @@ def get_results(job_id):
             "job_id": job_id,
             "results": results
         }), 200
+    except ValueError as e:
+        # e.g. verification disputed — verified outputs withheld
+        logging.warning("get_results: %s", e)
+        return jsonify({
+            "error": str(e),
+            "job_id": job_id
+        }), 409
     except Exception as e:
         logging.exception("get_results failed")
         return jsonify({
@@ -651,33 +658,33 @@ def get_researcher_projects(researcher_id):
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/signup", methods=["POST"])
-def signup():
-    """
-    Endpoint: POST /api/signup
-    Purpose: Register a new user (researcher and/or volunteer).
-    Request body: { "full_name", "email", "user_id", "role" } (role: researcher, volunteer, or researcher,volunteer)
-    """
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"error": "Missing request body"}), 400
-        full_name = data.get("full_name") or data.get("name")
-        email = data.get("email")
-        user_id = data.get("user_id")
-        role = data.get("role", "volunteer")
-        if not all([full_name, email, user_id]):
-            return jsonify({"error": "Missing required fields: full_name, email, and user_id"}), 400
-        valid_roles = ("researcher", "volunteer", "researcher,volunteer")
-        if role not in valid_roles:
-            return jsonify({"error": f"role must be one of: {valid_roles}"}), 400
-        user, err = create_user(user_id=user_id, email=email, name=full_name, role=role)
-        if err:
-            return jsonify({"error": err}), 409
-        return jsonify({"user_id": user.user_id, "message": "User registered successfully"}), 201
-    except Exception as e:
-        logging.error(f"[ERROR] Signup: {e}")
-        return jsonify({"error": str(e)}), 500
+# @app.route("/api/signup", methods=["POST"])
+# def signup():
+#     """
+#     Endpoint: POST /api/signup
+#     Purpose: Register a new user (researcher and/or volunteer).
+#     Request body: { "full_name", "email", "user_id", "role" } (role: researcher, volunteer, or researcher,volunteer)
+#     """
+#     try:
+#         data = request.get_json()
+#         if not data:
+#             return jsonify({"error": "Missing request body"}), 400
+#         full_name = data.get("full_name") or data.get("name")
+#         email = data.get("email")
+#         user_id = data.get("user_id")
+#         role = data.get("role", "volunteer")
+#         if not all([full_name, email, user_id]):
+#             return jsonify({"error": "Missing required fields: full_name, email, and user_id"}), 400
+#         valid_roles = ("researcher", "volunteer", "researcher,volunteer")
+#         if role not in valid_roles:
+#             return jsonify({"error": f"role must be one of: {valid_roles}"}), 400
+#         user, err = create_user(user_id=user_id, email=email, name=full_name, role=role)
+#         if err:
+#             return jsonify({"error": err}), 409
+#         return jsonify({"user_id": user.user_id, "message": "User registered successfully"}), 201
+#     except Exception as e:
+#         logging.error(f"[ERROR] Signup: {e}")
+#         return jsonify({"error": str(e)}), 500
 
 
 # -------------------------------------------------
@@ -749,35 +756,36 @@ def _worker_to_dict(w):
     }
 
 
-@app.route("/api/projects", methods=["GET"])
-def list_projects():
-    """GET /api/projects - list projects (optional ?researcher_id=)."""
-    researcher_id = request.args.get("researcher_id")
-    projects = get_all_projects(researcher_id=researcher_id)
-    return jsonify({"projects": [_project_to_dict(p) for p in projects]}), 200
+# @app.route("/api/projects", methods=["GET"])
+# def list_projects():
+#     """GET /api/projects - list projects (optional ?researcher_id=)."""
+#     researcher_id = request.args.get("researcher_id")
+#     projects = get_all_projects(researcher_id=researcher_id)
+#     return jsonify({"projects": [_project_to_dict(p) for p in projects]}), 200
 
 
-@app.route("/api/projects/<project_id>", methods=["GET"])
-def get_project_route(project_id):
-    """GET /api/projects/<project_id> - get one project."""
-    p = get_project(project_id)
-    if not p:
-        return jsonify({"error": "Project not found"}), 404
-    return jsonify(_project_to_dict(p)), 200
+# @app.route("/api/projects/<project_id>", methods=["GET"])
+# def get_project_route(project_id):
+#     """GET /api/projects/<project_id> - get one project."""
+#     p = get_project(project_id)
+#     if not p:
+#         return jsonify({"error": "Project not found"}), 404
+#     return jsonify(_project_to_dict(p)), 200
 
 
-@app.route("/api/projects/<project_id>/runs", methods=["GET"])
-def list_runs_for_project(project_id):
-    """GET /api/projects/<project_id>/runs - list runs for a project."""
-    if not get_project(project_id):
-        return jsonify({"error": "Project not found"}), 404
-    runs = get_runs_for_project(project_id)
-    connected = get_connected_worker_count()
-    return jsonify({"runs": [_run_to_dict(r, worker_count=connected) for r in runs]}), 200
+# @app.route("/api/projects/<project_id>/runs", methods=["GET"])
+# def list_runs_for_project(project_id):
+#     """GET /api/projects/<project_id>/runs - list runs for a project."""
+#     if not get_project(project_id):
+#         return jsonify({"error": "Project not found"}), 404
+#     runs = get_runs_for_project(project_id)
+#     connected = get_connected_worker_count()
+#     return jsonify({"runs": [_run_to_dict(r, worker_count=connected) for r in runs]}), 200
 
 
-@app.route("/api/runs/<run_id>", methods=["GET"])
-@app.route("/api/runs/<run_id>/status", methods=["GET"])
+# Duplicate route block (kept earlier in file). Disabled to avoid Flask collisions.
+# @app.route("/api/runs/<run_id>", methods=["GET"])
+# @app.route("/api/runs/<run_id>/status", methods=["GET"])
 def get_run_status_route(run_id):
     """GET /api/runs/<run_id> or /api/runs/<run_id>/status - run status with connected workers and task progress."""
     r = get_run(run_id)
@@ -792,7 +800,7 @@ def get_run_status_route(run_id):
     return jsonify(_run_to_dict(r, worker_count=worker_count, completed_tasks_override=completed_override)), 200
 
 
-@app.route("/api/runs/<run_id>/tasks", methods=["GET"])
+# @app.route("/api/runs/<run_id>/tasks", methods=["GET"])
 def list_tasks_for_run(run_id):
     """GET /api/runs/<run_id>/tasks - list tasks for a run."""
     if not get_run(run_id):
@@ -801,20 +809,25 @@ def list_tasks_for_run(run_id):
     return jsonify({"tasks": [_task_to_dict(t) for t in tasks]}), 200
 
 
-@app.route("/api/workers", methods=["GET"])
+# @app.route("/api/workers", methods=["GET"])
 def list_workers():
     """GET /api/workers - list all workers."""
     workers = get_all_workers()
     return jsonify({"workers": [_worker_to_dict(w) for w in workers]}), 200
 
 
-@app.route("/api/runs/<run_id>/results/download", methods=["GET"])
+# @app.route("/api/runs/<run_id>/results/download", methods=["GET"])
 def download_run_results(run_id):
     """GET /api/runs/<run_id>/results/download - download aggregated results as JSON file."""
     r = get_run(run_id)
     if not r:
         return jsonify({"error": "Run not found"}), 404
-    results = get_task_results_for_run(run_id)
+    try:
+        results = get_task_results_for_run(run_id)
+    except ValueError as e:
+        msg = str(e)
+        code = 404 if msg == "Run not found" else 409
+        return jsonify({"error": msg}), code
     payload = {
         "run_id": run_id,
         "project_id": r.project_id,
@@ -830,7 +843,7 @@ def download_run_results(run_id):
     return resp
 
 
-@app.route("/api/workers/register", methods=["POST"])
+# @app.route("/api/workers/register", methods=["POST"])
 def register_worker_endpoint():
     """
     Endpoint: POST /api/workers/register
@@ -928,33 +941,33 @@ def register_worker_endpoint():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/signup", methods=["POST"])
-def signup():
-    """
-    Endpoint: POST /api/signup
-    Purpose: Register a new user (researcher and/or volunteer).
-    Request body: { "full_name", "email", "user_id", "role" } (role: researcher, volunteer, or researcher,volunteer)
-    """
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"error": "Missing request body"}), 400
-        full_name = data.get("full_name") or data.get("name")
-        email = data.get("email")
-        user_id = data.get("user_id")
-        role = data.get("role", "volunteer")
-        if not all([full_name, email, user_id]):
-            return jsonify({"error": "Missing required fields: full_name, email, and user_id"}), 400
-        valid_roles = ("researcher", "volunteer", "researcher,volunteer")
-        if role not in valid_roles:
-            return jsonify({"error": f"role must be one of: {valid_roles}"}), 400
-        user, err = create_user(user_id=user_id, email=email, name=full_name, role=role)
-        if err:
-            return jsonify({"error": err}), 409
-        return jsonify({"user_id": user.user_id, "message": "User registered successfully"}), 201
-    except Exception as e:
-        logging.error(f"[ERROR] Signup: {e}")
-        return jsonify({"error": str(e)}), 500
+# @app.route("/api/signup", methods=["POST"])
+# def signup():
+#     """
+#     Endpoint: POST /api/signup
+#     Purpose: Register a new user (researcher and/or volunteer).
+#     Request body: { "full_name", "email", "user_id", "role" } (role: researcher, volunteer, or researcher,volunteer)
+#     """
+#     try:
+#         data = request.get_json()
+#         if not data:
+#             return jsonify({"error": "Missing request body"}), 400
+#         full_name = data.get("full_name") or data.get("name")
+#         email = data.get("email")
+#         user_id = data.get("user_id")
+#         role = data.get("role", "volunteer")
+#         if not all([full_name, email, user_id]):
+#             return jsonify({"error": "Missing required fields: full_name, email, and user_id"}), 400
+#         valid_roles = ("researcher", "volunteer", "researcher,volunteer")
+#         if role not in valid_roles:
+#             return jsonify({"error": f"role must be one of: {valid_roles}"}), 400
+#         user, err = create_user(user_id=user_id, email=email, name=full_name, role=role)
+#         if err:
+#             return jsonify({"error": err}), 409
+#         return jsonify({"user_id": user.user_id, "message": "User registered successfully"}), 201
+#     except Exception as e:
+#         logging.error(f"[ERROR] Signup: {e}")
+#         return jsonify({"error": str(e)}), 500
 
 
 # -------------------------------------------------
@@ -1026,31 +1039,31 @@ def _worker_to_dict(w):
     }
 
 
-@app.route("/api/projects", methods=["GET"])
-def list_projects():
-    """GET /api/projects - list projects (optional ?researcher_id=)."""
-    researcher_id = request.args.get("researcher_id")
-    projects = get_all_projects(researcher_id=researcher_id)
-    return jsonify({"projects": [_project_to_dict(p) for p in projects]}), 200
+# @app.route("/api/projects", methods=["GET"])
+# def list_projects():
+#     """GET /api/projects - list projects (optional ?researcher_id=)."""
+#     researcher_id = request.args.get("researcher_id")
+#     projects = get_all_projects(researcher_id=researcher_id)
+#     return jsonify({"projects": [_project_to_dict(p) for p in projects]}), 200
 
 
-@app.route("/api/projects/<project_id>", methods=["GET"])
-def get_project_route(project_id):
-    """GET /api/projects/<project_id> - get one project."""
-    p = get_project(project_id)
-    if not p:
-        return jsonify({"error": "Project not found"}), 404
-    return jsonify(_project_to_dict(p)), 200
+# @app.route("/api/projects/<project_id>", methods=["GET"])
+# def get_project_route(project_id):
+#     """GET /api/projects/<project_id> - get one project."""
+#     p = get_project(project_id)
+#     if not p:
+#         return jsonify({"error": "Project not found"}), 404
+#     return jsonify(_project_to_dict(p)), 200
 
 
-@app.route("/api/projects/<project_id>/runs", methods=["GET"])
-def list_runs_for_project(project_id):
-    """GET /api/projects/<project_id>/runs - list runs for a project."""
-    if not get_project(project_id):
-        return jsonify({"error": "Project not found"}), 404
-    runs = get_runs_for_project(project_id)
-    connected = get_connected_worker_count()
-    return jsonify({"runs": [_run_to_dict(r, worker_count=connected) for r in runs]}), 200
+# @app.route("/api/projects/<project_id>/runs", methods=["GET"])
+# def list_runs_for_project(project_id):
+#     """GET /api/projects/<project_id>/runs - list runs for a project."""
+#     if not get_project(project_id):
+#         return jsonify({"error": "Project not found"}), 404
+#     runs = get_runs_for_project(project_id)
+#     connected = get_connected_worker_count()
+#     return jsonify({"runs": [_run_to_dict(r, worker_count=connected) for r in runs]}), 200
 
 
 @app.route("/api/runs/<run_id>", methods=["GET"])
@@ -1091,7 +1104,12 @@ def download_run_results(run_id):
     r = get_run(run_id)
     if not r:
         return jsonify({"error": "Run not found"}), 404
-    results = get_task_results_for_run(run_id)
+    try:
+        results = get_task_results_for_run(run_id)
+    except ValueError as e:
+        msg = str(e)
+        code = 404 if msg == "Run not found" else 409
+        return jsonify({"error": msg}), code
     payload = {
         "run_id": run_id,
         "project_id": r.project_id,

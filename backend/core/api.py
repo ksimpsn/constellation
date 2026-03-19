@@ -33,8 +33,11 @@ from backend.core.database import (
     create_run, get_run, update_run,
     create_task, get_pending_tasks, assign_task, update_task,
     create_task_result,
-    register_worker, update_worker_heartbeat, get_available_workers
+    register_worker, update_worker_heartbeat, get_available_workers,
+    fetch_final_task_results_with_index,
+    link_aws_project_contributor,
 )
+from backend.core.database_aws import update_aws_project_chunks
 
 class ConstellationAPI:
     """
@@ -310,6 +313,7 @@ class ConstellationAPI:
             chunk_size=chunk_size,
             replication_factor=replication_factor,
             max_verification_attempts=max_verification_attempts,
+            num_chunks=len(chunks),
         )
         
         # Copy files to project directory, named by project_id (same hash as folder / results_<run_id>.json)
@@ -551,26 +555,31 @@ class ConstellationAPI:
                     raise Exception("Run not found")
                 _project_id = run_row.project_id
                 _total_tasks = run_row.total_tasks
-            
-            # Check if results already in TaskResult table (join Task to order by task_index; never touch tr.task to avoid DetachedInstanceError)
-            with get_session() as session:
-                from backend.core.database import TaskResult
-                task_results = (
-                    session.query(TaskResult)
-                    .join(Task, TaskResult.task_id == Task.task_id)
-                    .filter(TaskResult.run_id == run_id)
-                    .order_by(Task.task_index)
-                    .all()
+                _run_status = run_row.status
+
+            if _run_status == "disputed":
+                raise ValueError(
+                    "Run verification disputed; verified results are not available"
                 )
+
+            # Check if verified final results are cached (one TaskResult per task: max attempt_id)
+            with get_session() as session:
+                final_rows = fetch_final_task_results_with_index(session, run_id)
+                task_results = [tr for tr, _ in final_rows]
                 if task_results and len(task_results) == _total_tasks:
+                    update_aws_project_chunks(
+                        _project_id,
+                        chunks_completed=len(task_results),
+                        total_chunks=_total_tasks,
+                    )
                     results = []
-                    for tr in task_results:
+                    for tr, _ in final_rows:
                         results.append({
                             "task_id": tr.task_id,
                             "result": tr.result_data,
                             "runtime_seconds": tr.runtime_seconds
                         })
-                    logging.info(f"[ConstellationAPI] Returning cached results for run {run_id}")
+                    logging.info(f"[ConstellationAPI] Returning cached verified results for run {run_id}")
                     return results
 
             # Fetch from Ray futures (may be empty after server restart)
@@ -578,26 +587,57 @@ class ConstellationAPI:
             if not futures:
                 # Server may have restarted; try returning cached results from DB again (join to order, no tr.task access)
                 with get_session() as session:
-                    from backend.core.database import TaskResult
-                    task_results = (
-                        session.query(TaskResult)
-                        .join(Task, TaskResult.task_id == Task.task_id)
-                        .filter(TaskResult.run_id == run_id)
-                        .order_by(Task.task_index)
-                        .all()
-                    )
+                    final_rows = fetch_final_task_results_with_index(session, run_id)
+                    task_results = [tr for tr, _ in final_rows]
                     if task_results and len(task_results) == _total_tasks:
+                        update_aws_project_chunks(
+                            _project_id,
+                            chunks_completed=len(task_results),
+                            total_chunks=_total_tasks,
+                        )
                         results = []
-                        for tr in task_results:
+                        for tr, _ in final_rows:
                             results.append({
                                 "task_id": tr.task_id,
                                 "result": tr.result_data,
                                 "runtime_seconds": tr.runtime_seconds
                             })
-                        logging.info(f"[ConstellationAPI] Returning cached results for run {run_id} (no futures)")
+                        logging.info(f"[ConstellationAPI] Returning cached verified results for run {run_id} (no futures)")
                         return results
-                logging.error(f"[ConstellationAPI] No futures for run {run_id}; cannot fetch results")
-                raise Exception("No futures available to fetch results for this run")
+
+                    # If we have partial persisted final results, return them instead of 500.
+                    if task_results:
+                        update_aws_project_chunks(
+                            _project_id,
+                            chunks_completed=len(task_results),
+                            total_chunks=_total_tasks,
+                        )
+                        partial_results = []
+                        for tr, _ in final_rows:
+                            partial_results.append({
+                                "task_id": tr.task_id,
+                                "result": tr.result_data,
+                                "runtime_seconds": tr.runtime_seconds
+                            })
+                        logging.warning(
+                            f"[ConstellationAPI] Returning partial cached results for run {run_id}: "
+                            f"{len(partial_results)}/{_total_tasks} tasks"
+                        )
+                        return partial_results
+
+                # No futures and no persisted results yet. Treat as in-progress to avoid hard failure after restart.
+                run_status = get_run(run_id).status if get_run(run_id) else "pending"
+                if run_status in ["pending", "running", "submitted"]:
+                    logging.warning(
+                        f"[ConstellationAPI] No futures/results available yet for run {run_id}; "
+                        f"status={run_status}. Returning empty result set."
+                    )
+                    return []
+
+                logging.error(
+                    f"[ConstellationAPI] Run {run_id} has no futures and no persisted results (status={run_status})"
+                )
+                raise Exception("Results are unavailable for this run")
 
             logging.info(f"[ConstellationAPI] Blocking until Ray returns results for {len(futures)} tasks")
             ray_results = self.server.get_results(futures)
@@ -642,6 +682,8 @@ class ConstellationAPI:
                             # Find worker by ray_node_id
                             worker = session.query(Worker).filter_by(ray_node_id=node_id).first()
                             worker_id = worker.worker_id if worker else "worker-unknown"
+                            if worker and getattr(worker, "user_id", None):
+                                link_aws_project_contributor(_project_id, worker.user_id)
                         else:
                             worker_id = "worker-unknown"
                         
@@ -675,6 +717,11 @@ class ConstellationAPI:
                     session.commit()
 
             logging.info(f"[ConstellationAPI] Results retrieved for run {run_id}: {len(results)} results ({completed_count} completed, {failed_count} failed)")
+            update_aws_project_chunks(
+                _project_id,
+                chunks_completed=completed_count + failed_count,
+                total_chunks=_total_tasks,
+            )
             update_run(run_id, status="completed", completed_at=datetime.utcnow())
             update_job(job_id, results=results, status="complete")
             # Write aggregated results to project folder for persistence (use _project_id; project may be detached)
@@ -705,8 +752,15 @@ class ConstellationAPI:
 
         futures = self.futures.get(job_id, [])
         if not futures:
+            current_status = legacy_job.status or "submitted"
+            if current_status in ["submitted", "running"]:
+                logging.warning(
+                    f"[ConstellationAPI] No futures/results available yet for job {job_id}; "
+                    f"status={current_status}. Returning empty result set."
+                )
+                return []
             logging.error(f"[ConstellationAPI] No futures for job {job_id}; cannot fetch results")
-            raise Exception("No futures available to fetch results for this job")
+            raise Exception("Results are unavailable for this job")
 
         results = self.server.get_results(futures)
         update_job(job_id, results=results, status="complete")
@@ -724,7 +778,7 @@ class ConstellationAPI:
     
     def _persist_verification_results(self, run_id, project_id, execution):
         """
-        Store both verification attempts into TaskResult table.
+        Store verification attempts into TaskResult and synchronize Task/Run progress.
         """
 
         verification_status = execution["verification_status"]
@@ -734,10 +788,14 @@ class ConstellationAPI:
             for attempt_id, attempt_results in enumerate(attempts, start=1):
                 for ray_result in attempt_results:
                     task_id = ray_result.get("task_id")
+                    if not task_id:
+                        continue
 
                     node_id = ray_result.get("node_id")
                     worker = session.query(Worker).filter_by(ray_node_id=node_id).first()
                     worker_id = worker.worker_id if worker else "worker-unknown"
+                    if worker and getattr(worker, "user_id", None):
+                        link_aws_project_contributor(project_id, worker.user_id)
 
                     tr = TaskResult(
                         task_id=task_id,
@@ -752,6 +810,30 @@ class ConstellationAPI:
                         completed_at=datetime.utcnow()
                     )
                     session.add(tr)
+
+                    # Keep task lifecycle fields in sync even before /results is called.
+                    task = session.query(Task).filter_by(task_id=task_id).first()
+                    if task:
+                        now = datetime.utcnow()
+                        if worker_id != "worker-unknown":
+                            task.assigned_worker_id = worker_id
+                            if task.assigned_at is None:
+                                task.assigned_at = now
+                        if task.started_at is None:
+                            task.started_at = now
+                        task.status = "failed" if ray_result.get("error") else "completed"
+                        task.error_message = ray_result.get("error") if ray_result.get("error") else None
+                        task.completed_at = now
+                        task.updated_at = now
+
+            # Synchronize run counters from task table.
+            completed_count = session.query(Task).filter_by(run_id=run_id, status="completed").count()
+            failed_count = session.query(Task).filter_by(run_id=run_id, status="failed").count()
+            run_row = session.query(Run).filter_by(run_id=run_id).first()
+            if run_row:
+                run_row.completed_tasks = completed_count
+                run_row.failed_tasks = failed_count
+                run_row.updated_at = datetime.utcnow()
 
             session.commit()
 

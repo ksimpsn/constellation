@@ -346,16 +346,36 @@ def get_pending_tasks(run_id: str, limit: int = None) -> list:
 
 
 def assign_task(task_id: str, worker_id: str) -> bool:
-    """Assign a task to a worker."""
+    """
+    Assign a task to a worker (SQLite scheduler path).
+
+    Note: Uploaded projects are executed via Ray (.remote tasks); Ray's scheduler
+    places work on cluster nodes. That path does not call assign_task().
+    Contributor tracking for Ray runs uses link_aws_project_contributor when results persist.
+    """
     with SessionLocal() as session:
         task = session.query(Task).filter_by(task_id=task_id).first()
         if not task:
             return False
+        worker = session.query(Worker).filter_by(worker_id=worker_id).first()
+        run = session.query(Run).filter_by(run_id=task.run_id).first()
         task.assigned_worker_id = worker_id
         task.status = "assigned"
         task.assigned_at = datetime.utcnow()
         task.updated_at = datetime.utcnow()
         session.commit()
+
+        # Track contributor membership in AWS project_users when possible.
+        if worker and worker.user_id and run and run.project_id:
+            try:
+                from backend.core.database_aws import is_aws_db_configured, add_aws_project_user
+
+                if is_aws_db_configured():
+                    add_aws_project_user(int(run.project_id), worker.user_id)
+            except Exception:
+                # Do not fail assignment if AWS linkage is unavailable.
+                pass
+
         return True
 
 
@@ -530,16 +550,54 @@ def get_all_workers() -> list:
         return session.query(Worker).order_by(Worker.last_heartbeat.desc()).all()
 
 
-def get_task_results_for_run(run_id: str) -> list:
-    """Get all task results for a run, ordered by task_index (for download). Returns list of dicts."""
-    with SessionLocal() as session:
-        rows = (
-            session.query(TaskResult, Task.task_index)
-            .join(Task, TaskResult.task_id == Task.task_id)
-            .filter(TaskResult.run_id == run_id)
-            .order_by(Task.task_index)
-            .all()
+def fetch_final_task_results_with_index(session, run_id: str):
+    """
+    One row per task: the post-verification merged result for that task, i.e. the TaskResult
+    row with max(attempt_id) for each task_id (replication attempts share the same task_id).
+
+    Returns list of (TaskResult, task_index) ordered by task_index.
+    """
+    from sqlalchemy import func
+
+    subq = (
+        session.query(
+            TaskResult.task_id.label("tid"),
+            func.max(TaskResult.attempt_id).label("max_attempt"),
         )
+        .filter(TaskResult.run_id == run_id)
+        .group_by(TaskResult.task_id)
+        .subquery()
+    )
+    return (
+        session.query(TaskResult, Task.task_index)
+        .join(
+            subq,
+            (TaskResult.task_id == subq.c.tid)
+            & (TaskResult.attempt_id == subq.c.max_attempt),
+        )
+        .filter(TaskResult.run_id == run_id)
+        .join(Task, TaskResult.task_id == Task.task_id)
+        .order_by(Task.task_index)
+        .all()
+    )
+
+
+def get_task_results_for_run(run_id: str) -> list:
+    """
+    Verified final results only (for API download): one dict per task using the merged
+    verification attempt (max attempt_id per task). Raw replication attempts are omitted.
+
+    Raises:
+        ValueError: run not found, or run.status == 'disputed' (verified outputs withheld).
+    """
+    r = get_run(run_id)
+    if not r:
+        raise ValueError("Run not found")
+    if r.status == "disputed":
+        raise ValueError("Run verification disputed; verified results are not available")
+
+    with SessionLocal() as session:
+        rows = fetch_final_task_results_with_index(session, run_id)
         return [
             {
                 "task_id": tr.task_id,
@@ -547,6 +605,8 @@ def get_task_results_for_run(run_id: str) -> list:
                 "result_data": tr.result_data,
                 "runtime_seconds": tr.runtime_seconds,
                 "completed_at": tr.completed_at.isoformat() if tr.completed_at else None,
+                "verification_status": tr.verification_status,
+                "attempt_id": tr.attempt_id,
             }
             for tr, idx in rows
         ]
@@ -606,7 +666,7 @@ def create_user(user_id: str, email: str, name: str, role: str = "volunteer", me
 def create_project(researcher_id: str, title: str, description: str,
                    code_path: str, dataset_path: str, dataset_type: str,
                    func_name: str = "main", chunk_size: int = 1000,
-                   replication_factor: int = 2, max_verification_attempts: int = 2):
+                   replication_factor: int = 2, max_verification_attempts: int = 2, num_chunks: int = 0):
     """
     Create a new project. When AWS_DATABASE_URL is set, creates in RDS and uploads code/dataset to S3.
     Returns a project-like object (with project_id, code_s3_path, dataset_s3_path, etc.).
@@ -626,6 +686,7 @@ def create_project(researcher_id: str, title: str, description: str,
             max_verification_attempts=max_verification_attempts,
             s3_upload_fn=s3.upload_file,
             bucket_name=BUCKET_NAME,
+            num_chunks=num_chunks,
         )
     raise RuntimeError("AWS database not configured. Set AWS_DATABASE_URL to create projects.")
 
@@ -751,6 +812,25 @@ def get_top_contributors(limit: int = 10) -> list:
                 name = u.name
         out.append({"name": name or str(user_id or "Unknown"), "projects_contributed": projects_contributed})
     return out
+
+
+def link_aws_project_contributor(project_id, volunteer_user_id: str) -> None:
+    """
+    Idempotent: add volunteer username to AWS project_users when they ran work on a project.
+
+    Ray never calls assign_task(); use this when saving TaskResult / verification rows
+    once we know worker.user_id (requires workers to register via /api/workers/register).
+    """
+    if not volunteer_user_id:
+        return
+    try:
+        from backend.core.database_aws import is_aws_db_configured, add_aws_project_user
+
+        if not is_aws_db_configured():
+            return
+        add_aws_project_user(int(project_id), volunteer_user_id)
+    except Exception:
+        pass
 
 
 def add_project_user(project_id: int, username: str) -> None:
