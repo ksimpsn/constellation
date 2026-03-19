@@ -320,6 +320,7 @@ def create_aws_project(
     max_verification_attempts: int = 2,
     s3_upload_fn=None,
     bucket_name: str = None,
+    num_chunks: int = 0,
 ) -> SimpleNamespace:
     """
     Create project in RDS and optionally upload code/dataset to S3.
@@ -334,7 +335,7 @@ def create_aws_project(
             name=title,
             description=description,
             dataset_type=dataset_type,
-            total_chunks=0,
+            total_chunks=num_chunks,
             chunks_completed=0,
             replication_factor=replication_factor,
             max_attempts=max_verification_attempts,
@@ -369,3 +370,41 @@ def create_aws_project(
         replication_factor=replication_factor,
         max_verification_attempts=max_verification_attempts,
     )
+
+
+def update_aws_project_chunks(project_id, chunks_completed: int = None, total_chunks: int = None) -> bool:
+    """
+    Update AWS projects.total_chunks / chunks_completed for progress tracking.
+    When chunks_completed >= total_chunks (and total_chunks > 0), sets status to 'completed'.
+
+    Returns True when the project row is found and updated.
+    """
+    if not is_aws_db_configured():
+        return False
+
+    try:
+        pid = int(project_id)
+    except (TypeError, ValueError):
+        return False
+
+    with get_aws_session() as session:
+        p = session.query(AWSProject).filter_by(project_id=pid).first()
+        if not p:
+            return False
+
+        if total_chunks is not None:
+            p.total_chunks = max(0, int(total_chunks))
+
+        if chunks_completed is not None:
+            completed = max(0, int(chunks_completed))
+            if p.total_chunks is not None:
+                completed = min(completed, p.total_chunks)
+            p.chunks_completed = completed
+
+        # Mark project complete when all chunks have finished processing.
+        tc = p.total_chunks
+        cc = p.chunks_completed or 0
+        if tc is not None and tc > 0 and cc >= tc:
+            p.status = "completed"
+
+        return True

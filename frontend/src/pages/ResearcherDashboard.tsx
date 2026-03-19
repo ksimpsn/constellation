@@ -20,12 +20,12 @@ interface ResearchProject {
   averageTaskTime?: number; // Average task completion time in seconds
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5001";
 const BACKEND_PORT = (() => {
   try {
-    return new URL(API_BASE_URL).port || "5000";
+    return new URL(API_BASE_URL).port || "5001";
   } catch {
-    return "5000";
+    return "5001";
   }
 })();
 
