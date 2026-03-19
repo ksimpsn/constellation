@@ -263,17 +263,16 @@ def signup():
         if existing_user:
             return jsonify({
                 "error": f"User with email {email} already exists",
-                "user_id": existing_user.user_id,
-                "role": existing_user.role
+                "user_id": getattr(existing_user, "user_id", None),
+                "role": getattr(existing_user, "role", role),
             }), 409
 
-        # Create user
-        user = create_user(
-            email=email,
-            name=name,
-            role=role,
-            metadata={"signup_reasons": reasons} if reasons else None
-        )
+        user_id = (request.get_json() or {}).get("user_id") or email.split("@")[0].replace(".", "_")
+        user, err = create_user(user_id=user_id, email=email, name=name, role=role)
+        if err:
+            return jsonify({"error": err}), 409
+        if not user:
+            return jsonify({"error": "AWS database not configured. Set AWS_DATABASE_URL to create users."}), 503
 
         logging.info(f"[INFO] Created new user: {user.user_id} ({role})")
 
@@ -381,13 +380,14 @@ def get_debug_researcher_id():
         researcher = get_user_by_email(researcher_email)
 
         if not researcher:
-            # Create debug researcher if it doesn't exist (same as create_debug_user.py)
-            researcher = create_user(
+            researcher, err = create_user(
+                user_id="debug-researcher",
                 email=researcher_email,
                 name="Debug Researcher",
                 role="researcher",
-                metadata={"debug": True}
             )
+            if err:
+                return jsonify({"error": err}), 409
             logging.info(f"[INFO] Created debug researcher: {researcher.user_id}")
 
         return jsonify({
@@ -446,12 +446,14 @@ def get_debug_users():
         volunteer_email = "debug-volunteer@constellation.test"
         volunteer = get_user_by_email(volunteer_email)
         if not volunteer:
-            volunteer = create_user(
+            volunteer, err = create_user(
+                user_id="debug-volunteer",
                 email=volunteer_email,
                 name="Debug Volunteer",
                 role="volunteer",
-                metadata={"debug": True}
             )
+            if err:
+                return jsonify({"error": err}), 409
         debug_users["volunteer"] = {
             "user_id": volunteer.user_id,
             "email": volunteer.email,
@@ -463,12 +465,14 @@ def get_debug_users():
         researcher_email = "debug-researcher@constellation.test"
         researcher = get_user_by_email(researcher_email)
         if not researcher:
-            researcher = create_user(
+            researcher, err = create_user(
+                user_id="debug-researcher",
                 email=researcher_email,
                 name="Debug Researcher",
                 role="researcher",
-                metadata={"debug": True}
             )
+            if err:
+                return jsonify({"error": err}), 409
         debug_users["researcher"] = {
             "user_id": researcher.user_id,
             "email": researcher.email,
@@ -480,12 +484,14 @@ def get_debug_users():
         both_email = "debug-both@constellation.test"
         both_user = get_user_by_email(both_email)
         if not both_user:
-            both_user = create_user(
+            both_user, err = create_user(
+                user_id="debug-both",
                 email=both_email,
                 name="Debug Both",
                 role="researcher,volunteer",
-                metadata={"debug": True}
             )
+            if err:
+                return jsonify({"error": err}), 409
         debug_users["both"] = {
             "user_id": both_user.user_id,
             "email": both_user.email,
