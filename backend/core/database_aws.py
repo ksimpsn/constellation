@@ -111,6 +111,25 @@ class AWSProjectUser(AWSBase):
     joined_at = Column(DateTime, default=datetime.utcnow)
 
 
+def add_aws_project_user(project_id: int, username: str) -> None:
+    """Record volunteer username joined project (project_users). Idempotent."""
+    if not is_aws_db_configured():
+        raise RuntimeError("AWS database not configured. Set AWS_DATABASE_URL.")
+    with get_aws_session() as session:
+        existing = session.query(AWSProjectUser).filter_by(project_id=project_id, username=username).first()
+        if not existing:
+            session.add(AWSProjectUser(project_id=project_id, username=username))
+
+
+def get_aws_project_users(project_id: int) -> list:
+    """Usernames (volunteers) linked to a project."""
+    if not is_aws_db_configured():
+        return []
+    with get_aws_session() as session:
+        rows = session.query(AWSProjectUser.username).filter_by(project_id=project_id).all()
+        return [row[0] for row in rows]
+
+
 # =============================================================================
 # Session and helpers (do not create tables; they already exist in RDS)
 # =============================================================================
@@ -136,37 +155,46 @@ def get_aws_user_by_id(user_id: str) -> Optional[SimpleNamespace]:
     if not is_aws_db_configured():
         return None
     with get_aws_session() as session:
-        in_researchers = session.query(AWSResearcher).filter_by(username=user_id).first() is not None
+        r = session.query(AWSResearcher).filter_by(username=user_id).first()
         u = session.query(AWSUser).filter_by(username=user_id).first()
-        if not in_researchers and not u:
+        if not r and not u:
             return None
         roles = []
-        if in_researchers:
+        if r:
             roles.append("researcher")
         if u:
-            roles.append(getattr(u, "role", None) or "volunteer")
+            roles.append("volunteer")
         role = ",".join(roles) if roles else "volunteer"
         name = user_id
         email = None
         if u:
             name = getattr(u, "name", None) or user_id
             email = getattr(u, "email", None)
+        if r and (name == user_id or email is None):
+            name = getattr(r, "name", None) or name
+            if email is None:
+                email = getattr(r, "email", None)
         return SimpleNamespace(user_id=user_id, role=role, name=name, email=email)
 
 
 def get_aws_user_by_email(email: str) -> Optional[SimpleNamespace]:
+    """Look up by email in users and researchers; return unified user object."""
     if not is_aws_db_configured():
         return None
     with get_aws_session() as session:
         u = session.query(AWSUser).filter_by(email=email).first()
-        if not u:
+        r = session.query(AWSResearcher).filter_by(email=email).first()
+        if not u and not r:
             return None
-        return SimpleNamespace(
-            user_id=u.username,
-            role=getattr(u, "role", None) or "volunteer",
-            name=getattr(u, "name", None) or u.username,
-            email=u.email,
-        )
+        user_id = (u or r).username
+        roles = []
+        if r:
+            roles.append("researcher")
+        if u:
+            roles.append("volunteer")
+        role = ",".join(roles) if roles else "volunteer"
+        name = getattr(u or r, "name", None) or user_id
+        return SimpleNamespace(user_id=user_id, role=role, name=name, email=email)
 
 
 def user_has_aws_role(user_id: str, role: str) -> bool:
@@ -196,8 +224,11 @@ def get_all_aws_projects(researcher_id: str = None, limit: int = None) -> list:
                 code_s3_path=p.code_s3_path,
                 dataset_s3_path=p.dataset_s3_path,
                 dataset_type=p.dataset_type or "csv",
-                replication_factor=2,
-                max_verification_attempts=2,
+                replication_factor=getattr(p, "replication_factor", None) or 2,
+                max_verification_attempts=getattr(p, "max_attempts", None) or 2,
+                created_at=getattr(p, "date_created", None),
+                updated_at=None,
+                status=getattr(p, "status", None) or "pending",
             )
             for p in rows
         ]
@@ -223,8 +254,11 @@ def get_aws_project(project_id) -> Optional[SimpleNamespace]:
             code_s3_path=p.code_s3_path,
             dataset_s3_path=p.dataset_s3_path,
             dataset_type=p.dataset_type or "csv",
-            replication_factor=2,
-            max_verification_attempts=2,
+            replication_factor=getattr(p, "replication_factor", None) or 2,
+            max_verification_attempts=getattr(p, "max_attempts", None) or 2,
+            created_at=getattr(p, "date_created", None),
+            updated_at=None,
+            status=getattr(p, "status", None) or "pending",
         )
 
 
@@ -235,21 +269,41 @@ def create_aws_user(
     role: str = "volunteer",
     hashed_password: str = "CHANGE_ME",
 ) -> SimpleNamespace:
+    """
+    Create in RDS: 'volunteer' -> users; 'researcher' -> researchers;
+    'researcher,volunteer' -> both tables.
+    """
     if not is_aws_db_configured():
         raise RuntimeError("AWS database not configured. Set AWS_DATABASE_URL.")
+    roles = [x.strip() for x in role.split(",") if x.strip()]
     with get_aws_session() as session:
         if session.query(AWSUser).filter_by(username=user_id).first():
             raise ValueError("user_id already exists")
-        if email and session.query(AWSUser).filter_by(email=email).first():
-            raise ValueError("email already exists")
-        u = AWSUser(
-            username=user_id,
-            hashed_password=hashed_password,
-            email=email or None,
-            name=name or user_id,
-            role=role,
-        )
-        session.add(u)
+        if session.query(AWSResearcher).filter_by(username=user_id).first():
+            raise ValueError("user_id already exists")
+        if email:
+            if session.query(AWSUser).filter_by(email=email).first():
+                raise ValueError("email already exists")
+            if session.query(AWSResearcher).filter_by(email=email).first():
+                raise ValueError("email already exists")
+        if "volunteer" in roles:
+            session.add(
+                AWSUser(
+                    username=user_id,
+                    hashed_password=hashed_password,
+                    email=email or "",
+                    name=name or user_id,
+                )
+            )
+        if "researcher" in roles:
+            session.add(
+                AWSResearcher(
+                    username=user_id,
+                    hashed_password=hashed_password,
+                    email=email or "",
+                    name=name or user_id,
+                )
+            )
     return SimpleNamespace(user_id=user_id, role=role, name=name or user_id, email=email)
 
 
@@ -282,6 +336,8 @@ def create_aws_project(
             dataset_type=dataset_type,
             total_chunks=0,
             chunks_completed=0,
+            replication_factor=replication_factor,
+            max_attempts=max_verification_attempts,
         )
         session.add(p)
         session.flush()

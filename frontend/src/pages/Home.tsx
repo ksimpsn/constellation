@@ -1,12 +1,13 @@
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { BigDipperBackground } from "../components/BigDipperBackground";
 import FlowNav from "../components/FlowNav";
+import { getStoredRole, setStoredRole } from "../api/config";
 
 const isElectron = typeof window !== "undefined" && Boolean((window as unknown as { isElectron?: boolean }).isElectron);
 
 export default function Home() {
   const [role, setRole] = useState<"researcher" | "volunteer" | null>(null);
-  const navigate = useNavigate();
 
   useEffect(() => {
     setRole(getStoredRole());
@@ -15,6 +16,9 @@ export default function Home() {
   const chooseRole = (r: "researcher" | "volunteer") => {
     setStoredRole(r);
     setRole(r);
+  };
+  const downloadDesktopApp = () => {
+    window.open("https://github.com/constellation/releases", "_blank");
   };
   const startLocalComputeNode = () => {
     // later: IPC call into Electron / Node to start worker, etc.
