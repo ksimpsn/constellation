@@ -99,6 +99,7 @@ class AWSProject(AWSBase):
     code_s3_path = Column(String(1000), nullable=True)
     dataset_s3_path = Column(String(1000), nullable=True)
     dataset_type = Column(String(10), nullable=True)
+    status = Column(String(20), nullable=True, default="pending")
     
 
 class AWSProjectUser(AWSBase):

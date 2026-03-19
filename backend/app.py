@@ -249,14 +249,22 @@ def signup():
 # -------------------------------------------------
 
 def _project_to_dict(p):
+    # AWS project objects are returned as SimpleNamespace and may not contain
+    # SQLite-specific fields like `status`, `created_at`, or `updated_at`.
+    created_at = getattr(p, "created_at", None) or getattr(p, "date_created", None)
+    updated_at = getattr(p, "updated_at", None)
+    status = getattr(p, "status", None)
+    if not status:
+        status = "pending"
+
     return {
-        "project_id": p.project_id,
-        "researcher_id": p.researcher_id,
-        "title": p.title,
-        "description": p.description or "",
-        "status": p.status,
-        "created_at": p.created_at.isoformat() if p.created_at else None,
-        "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+        "project_id": getattr(p, "project_id", None),
+        "researcher_id": getattr(p, "researcher_id", None),
+        "title": getattr(p, "title", None) or getattr(p, "name", None),
+        "description": getattr(p, "description", None) or "",
+        "status": status,
+        "created_at": created_at.isoformat() if created_at else None,
+        "updated_at": updated_at.isoformat() if updated_at else None,
     }
 
 
