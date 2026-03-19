@@ -9,64 +9,44 @@ The system is built on **Ray**, enabling scalable task distribution, progress tr
 ### Backend Setup
 
 1. **Navigate to the project directory:**
+   ```bash
    cd constellation
-2. **Create and activate a virtual environment:**
-    python3 -m venv env
-    source env/bin/activate  # On Windows: env\Scripts\activate
+   ```
+
+2. **Create and activate a virtual environment (recommended):**
+   ```bash
+   python3 -m venv env
+   source env/bin/activate  # On Windows: env\Scripts\activate
+   ```
+
 3. **Install Python dependencies:**
-    python3 -m pip install -r requirements.txt
+   ```bash
+   # Option 1: Install from requirements.txt (recommended)
+   pip install -r requirements.txt
+
+   # Option 2: Install individually
+   pip install flask flask-cors ray sqlalchemy dill
+   ```
+
 4. **Initialize the database:**
-    ```bash
-    python3 -c "from backend.core.database import init_db; init_db()"
-    ```
-    If you already have a `projects` table and are upgrading, add verification columns:
-    ```sql
-    ALTER TABLE projects ADD COLUMN replication_factor INTEGER NOT NULL DEFAULT 2;
-    ALTER TABLE projects ADD COLUMN max_verification_attempts INTEGER NOT NULL DEFAULT 2;
-    ```
-
-4a. **Optional – AWS RDS for users and projects:**  
-    If you use an AWS RDS (or any Postgres) database for users, researchers, projects, and project_users, set `AWS_DATABASE_URL` **before** starting Flask. Either:
-
-    - **Same terminal:** export in the same shell where you start the server:
-      ```bash
-      export AWS_DATABASE_URL="postgresql://user:password@host:5432/dbname"
-      ./scripts/start-flask-with-ray.sh
-      ```
-    - **Or use a `.env` file** in the project root (no quotes around the value):
-      ```
-      AWS_DATABASE_URL=postgresql://user:password@host:5432/dbname
-      ```
-      Then run `./scripts/start-flask-with-ray.sh`; it will load `.env` automatically.
-
-    When set, the app uses **RDS** for: `users`, `researchers`, `projects`, `project_users`.  
-    **SQLite** (local `constellation.db`) is still used for: runs, tasks, workers, task_results, worker_heartbeats, and legacy jobs.  
-    If `AWS_DATABASE_URL` is not set, user/project operations (signup, project creation, project list) are disabled unless you add a local implementation.
-
-5. **Run the Flask backend server:**
-
-   **Option B (recommended on macOS/Windows):** Start the Ray head first, then Flask. Use two terminals:
-
-   **Terminal 1 – start Ray head:**
    ```bash
-   ./scripts/start-ray-head.sh
+   python3 -c "from backend.core.database import init_db; init_db()"
    ```
-   (On macOS/Windows this sets `RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=1` so the cluster accepts workers.)
 
-   **Terminal 2 – start Flask (connects to existing Ray head):**
+5. **Create debug users and test data (optional, for testing):**
    ```bash
-   ./scripts/start-flask-with-ray.sh
+   python3 backend/create_debug_user.py
+   python3 backend/test/add_sample_project.py
    ```
-   Or manually: `export RAY_ADDRESS=127.0.0.1:6379 && python3 -m flask --app backend.app run --host 0.0.0.0 --port 5001`
 
-   **Single-command option:** If you prefer one terminal and no `RAY_ADDRESS` set, run:
+6. **Run the Flask backend server:**
    ```bash
-   unset RAY_ADDRESS
-   python3 -m flask --app backend.app run --reload --host 0.0.0.0 --port 5001
+   python3 -m flask --app backend.app run --host 0.0.0.0 --port 5000
    ```
-   The backend will start a Ray head automatically when needed (may require Ray to be on PATH).
 
-   The backend API will be available at `http://localhost:5001`
+   The backend API will be available at `http://localhost:5000`
+
+   **Note:** Keep this terminal running! The server must stay running for the frontend to work.
 
 ### Frontend Setup
 
@@ -74,7 +54,7 @@ The system is built on **Ray**, enabling scalable task distribution, progress tr
    cd frontend
 2. **Install Node.js dependencies:**
    npm install
-3. **Run the development server:**   
+3. **Run the development server:**
    npm run dev:web
       The frontend will be available at `http://localhost:5173`
 
@@ -107,7 +87,7 @@ Constellation supports distributed computing across multiple machines on the sam
    ```bash
    # Start Flask server
    python3 -m flask --app backend.app run --host 0.0.0.0 --port 5000
-   
+
    # Start Ray head node
    curl -X POST http://localhost:5000/api/cluster/start-head \
      -H "Content-Type: application/json" \

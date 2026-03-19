@@ -312,12 +312,14 @@ class ConstellationAPI:
             max_verification_attempts=max_verification_attempts,
         )
         
-        # # Copy files to project directory
-        # os.makedirs(f"uploads/{project.project_id}", exist_ok=True)
-        # stored_code_path = f"uploads/{project.project_id}/project.py"
-        # stored_dataset_path = f"uploads/{project.project_id}/dataset.{file_type}"
-        # shutil.copyfile(code_path, stored_code_path)
-        # shutil.copyfile(dataset_path, stored_dataset_path)
+        # Copy files to project directory, named by project_id (same hash as folder / results_<run_id>.json)
+        proj_dir = f"projects/{project.project_id}"
+        os.makedirs(proj_dir, exist_ok=True)
+        pid = project.project_id
+        stored_code_path = f"{proj_dir}/{pid}.py"
+        stored_dataset_path = f"{proj_dir}/{pid}.{file_type}"
+        shutil.copyfile(code_path, stored_code_path)
+        shutil.copyfile(dataset_path, stored_dataset_path)
         
         # # Update project with stored paths
         # project.code_s3_path = stored_code_path
@@ -390,12 +392,7 @@ class ConstellationAPI:
 
         logging.info(f"[INFO] Submitted uploaded project: project_id={project.project_id}, run_id={run.run_id}, job_id={legacy_job_id}, chunks={len(chunks)}")
 
-        return {
-            "run_id": run.run_id,
-            "project_id": project.project_id,
-            "job_id": legacy_job_id,
-            "total_tasks": len(chunks),
-        }
+        return (legacy_job_id, run.run_id, project.project_id, len(chunks))
 
     def submit_project(self, data):
         """
@@ -546,20 +543,28 @@ class ConstellationAPI:
         
         # Use new Run table if we have run_id
         if run_id:
-            run = get_run(run_id)
-            if not run:
-                logging.error(f"[ConstellationAPI] Run {run_id} not found")
-                raise Exception("Run not found")
+            # Load run attributes inside a session to avoid DetachedInstanceError when using run.project_id / run.total_tasks later
+            with get_session() as session:
+                run_row = session.query(Run).filter_by(run_id=run_id).first()
+                if not run_row:
+                    logging.error(f"[ConstellationAPI] Run {run_id} not found")
+                    raise Exception("Run not found")
+                _project_id = run_row.project_id
+                _total_tasks = run_row.total_tasks
             
-            # Check if results already in TaskResult table
+            # Check if results already in TaskResult table (join Task to order by task_index; never touch tr.task to avoid DetachedInstanceError)
             with get_session() as session:
                 from backend.core.database import TaskResult
-                task_results = session.query(TaskResult).filter_by(run_id=run_id).all()
-                if task_results and len(task_results) == run.total_tasks:
-                    # All results already stored
+                task_results = (
+                    session.query(TaskResult)
+                    .join(Task, TaskResult.task_id == Task.task_id)
+                    .filter(TaskResult.run_id == run_id)
+                    .order_by(Task.task_index)
+                    .all()
+                )
+                if task_results and len(task_results) == _total_tasks:
                     results = []
-                    # Sort by task_index to maintain order
-                    for tr in sorted(task_results, key=lambda x: x.task.task_index if x.task else 0):
+                    for tr in task_results:
                         results.append({
                             "task_id": tr.task_id,
                             "result": tr.result_data,
@@ -568,17 +573,36 @@ class ConstellationAPI:
                     logging.info(f"[ConstellationAPI] Returning cached results for run {run_id}")
                     return results
 
-            # Fetch from Ray futures
+            # Fetch from Ray futures (may be empty after server restart)
             futures = self.futures.get(run_id, [])
             if not futures:
+                # Server may have restarted; try returning cached results from DB again (join to order, no tr.task access)
+                with get_session() as session:
+                    from backend.core.database import TaskResult
+                    task_results = (
+                        session.query(TaskResult)
+                        .join(Task, TaskResult.task_id == Task.task_id)
+                        .filter(TaskResult.run_id == run_id)
+                        .order_by(Task.task_index)
+                        .all()
+                    )
+                    if task_results and len(task_results) == _total_tasks:
+                        results = []
+                        for tr in task_results:
+                            results.append({
+                                "task_id": tr.task_id,
+                                "result": tr.result_data,
+                                "runtime_seconds": tr.runtime_seconds
+                            })
+                        logging.info(f"[ConstellationAPI] Returning cached results for run {run_id} (no futures)")
+                        return results
                 logging.error(f"[ConstellationAPI] No futures for run {run_id}; cannot fetch results")
                 raise Exception("No futures available to fetch results for this run")
 
             logging.info(f"[ConstellationAPI] Blocking until Ray returns results for {len(futures)} tasks")
             ray_results = self.server.get_results(futures)
 
-            # Store results in TaskResult table
-            project = get_project(run.project_id)
+            # Store results in TaskResult table (use _project_id only; do not load Project to avoid DetachedInstanceError)
             results = []
             completed_count = 0
             failed_count = 0
@@ -592,6 +616,8 @@ class ConstellationAPI:
                         task = session.query(Task).filter_by(run_id=run_id, task_index=task_id).first()
                     
                     if task:
+                        # Capture task_id while session is active to avoid DetachedInstanceError (task.run can lazy-load Run)
+                        task_id_val = task.task_id
                         result_data = ray_result.get("results", ray_result)
                         runtime = ray_result.get("runtime_seconds")
                         
@@ -619,13 +645,13 @@ class ConstellationAPI:
                         else:
                             worker_id = "worker-unknown"
                         
-                        # Create or update TaskResult (within current session)
-                        tr = session.query(TaskResult).filter_by(task_id=task.task_id).first()
+                        # Create or update TaskResult (within current session); use _project_id (project is detached)
+                        tr = session.query(TaskResult).filter_by(task_id=task_id_val).first()
                         if not tr:
                             tr = TaskResult(
-                                task_id=task.task_id,
+                                task_id=task_id_val,
                                 run_id=run_id,
-                                project_id=project.project_id,
+                                project_id=_project_id,
                                 worker_id=worker_id,  # Now correctly mapped from Ray node_id
                                 result_data=result_data,
                                 runtime_seconds=runtime,
@@ -634,22 +660,37 @@ class ConstellationAPI:
                             session.add(tr)
                         
                         results.append({
-                            "task_id": task.task_id,
+                            "task_id": task_id_val,
                             "result": result_data,
                             "runtime_seconds": runtime
                         })
                 
-                # Update run with completed/failed task counts
-                run = session.query(Run).filter_by(run_id=run_id).first()
-                if run:
-                    run.completed_tasks = completed_count
-                    run.failed_tasks = failed_count
-                    run.updated_at = datetime.utcnow()
+                # Update run with completed/failed task counts; capture project_id while session is active
+                run_row = session.query(Run).filter_by(run_id=run_id).first()
+                project_id = run_row.project_id if run_row else None
+                if run_row:
+                    run_row.completed_tasks = completed_count
+                    run_row.failed_tasks = failed_count
+                    run_row.updated_at = datetime.utcnow()
                     session.commit()
 
             logging.info(f"[ConstellationAPI] Results retrieved for run {run_id}: {len(results)} results ({completed_count} completed, {failed_count} failed)")
             update_run(run_id, status="completed", completed_at=datetime.utcnow())
             update_job(job_id, results=results, status="complete")
+            # Write aggregated results to project folder for persistence (use _project_id; project may be detached)
+            if project_id is None:
+                project_id = _project_id
+            if project_id:
+                projects_dir = f"projects/{project_id}"
+                if os.path.isdir(projects_dir):
+                    out_path = os.path.join(projects_dir, f"results_{run_id}.json")
+                    try:
+                        payload = {"run_id": run_id, "project_id": project_id, "total_tasks": len(results), "results": results}
+                        with open(out_path, "w") as f:
+                            json.dump(payload, f, indent=2, default=str)
+                        logging.info(f"[ConstellationAPI] Wrote results to {out_path}")
+                    except Exception as e:
+                        logging.warning(f"[ConstellationAPI] Could not write results to {out_path}: {e}")
             return results
         
         # Fallback to legacy Job table

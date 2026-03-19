@@ -1,154 +1,96 @@
-import GradientBackground from "../components/GradientBackground";
+import { useState } from 'react';
+import { Link } from 'react-router-dom';
+import ConstellationStarfieldBackground from '../components/ConstellationStarfieldBackground';
+import FlowNav from '../components/FlowNav';
+import { sections, accentBorder } from '../data/whySections';
 
 export default function Why() {
+  const [openId, setOpenId] = useState<string | null>(null);
+
   return (
-    <GradientBackground>
-      <div style={{ marginTop: "auto", textAlign: "center", alignSelf: "center" }}>
-        <a href="/" style={{ fontSize: "18px", color: "black" }}>
-          Home ↑
-        </a>
-      </div>
-      <h1>Why Constellation?</h1>
+    <ConstellationStarfieldBackground>
+      <FlowNav />
+      <div className="relative z-10 flex flex-col items-center min-h-screen px-4 sm:px-6 py-16 sm:py-24">
+        <div className="max-w-4xl mx-auto w-full">
+          <header className="text-center mb-14 sm:mb-16">
+            <p className="text-sm uppercase tracking-[0.2em] text-white/50 mb-4">The vision</p>
+            <h1 className="text-4xl sm:text-5xl font-semibold text-white/95 leading-tight tracking-tight">
+              Why Constellation?
+            </h1>
+            <div className="w-20 h-0.5 bg-gradient-to-r from-violet-400/70 via-white/50 to-emerald-400/70 mx-auto mt-6 rounded-full opacity-90" />
+            <p className="text-lg sm:text-xl text-white/70 mt-8 max-w-2xl mx-auto leading-relaxed">
+              The world's biggest supercomputer already exists. It's scattered across billions of pockets and desks. We're turning it on.
+            </p>
+          </header>
 
-      <div style={section}>Distributed computing is a model where many individual devices—laptops, desktops, and even phones—work together to solve large computational problems. Platforms like BOINC and Folding@home have shown how powerful this approach can be, enabling major breakthroughs in areas like protein folding and disease research. But these systems rely almost entirely on volunteer altruism, which limits participation and makes it difficult to maintain long-term, large-scale engagement outside of moments of global crisis.
+          <div className="space-y-1">
+            {sections.map((section) => {
+              const isOpen = openId === section.title;
+              return (
+                <article
+                  key={section.title}
+                  className={`
+                    rounded-xl border border-white/10 overflow-hidden
+                    transition-colors duration-200
+                    ${isOpen ? 'bg-white/[0.08] border-white/20' : 'bg-white/[0.04] hover:bg-white/[0.06]'}
+                    border-l-4 ${accentBorder[section.accent]}
+                  `}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setOpenId(isOpen ? null : section.title)}
+                    className="w-full flex items-center gap-4 sm:gap-5 p-5 sm:p-6 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-white/30 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0f]"
+                    aria-expanded={isOpen}
+                    aria-controls={`why-${section.title.replace(/\s+/g, '-')}`}
+                    id={`why-heading-${section.title.replace(/\s+/g, '-')}`}
+                  >
+                    <span
+                      className="flex-shrink-0 w-9 h-9 rounded-lg bg-white/15 flex items-center justify-center text-base text-white"
+                      aria-hidden
+                    >
+                      {section.icon}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <h2 className="text-lg sm:text-xl font-semibold text-white">
+                        {section.title}
+                      </h2>
+                    </div>
+                    <span
+                      className={`flex-shrink-0 w-8 h-8 rounded-lg bg-white/15 flex items-center justify-center text-white transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+                      aria-hidden
+                    >
+                      ▼
+                    </span>
+                  </button>
+                  <div
+                    id={`why-${section.title.replace(/\s+/g, '-')}`}
+                    role="region"
+                    aria-labelledby={`why-heading-${section.title.replace(/\s+/g, '-')}`}
+                    className={`grid transition-[grid-template-rows] duration-300 ease-out ${isOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
+                  >
+                    <div className="overflow-hidden">
+                      <div className="pl-[4.25rem] sm:pl-[4.5rem] pr-5 sm:pr-6 pb-5 sm:pb-6 text-[15px] sm:text-base text-white/70 leading-relaxed space-y-0">
+                        {section.body}
+                      </div>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
 
-Constellation builds on the strengths of these volunteer-driven platforms while addressing their core limitation: sustainability. By introducing a meaningful incentive structure, Constellation motivates broader and more consistent participation, transforming distributed computing from a niche volunteer effort into a scalable, dependable computing network.
+          <div className="mt-12 sm:mt-14 pt-2 text-center">
+            <Link
+              to="/security"
+              className="inline-flex items-center gap-3 px-6 py-3.5 rounded-xl bg-white/15 border border-white/30 text-white hover:bg-white/25 hover:border-white/40 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] group"
+            >
+              <span className="font-semibold">Privacy &amp; Security</span>
+              <span className="text-white/90 group-hover:translate-y-0.5 transition-transform" aria-hidden>↓</span>
+            </Link>
+            <p className="text-sm text-white/60 mt-3">How we keep you and your device safe</p>
+          </div>
+        </div>
       </div>
-
-      <div style={{ marginTop: "auto", textAlign: "center", alignSelf: "center" }}>
-        <a href="/security" style={{ fontSize: "18px", color: "black" }}>
-          Privacy and Security Concerns ↓
-        </a>
-      </div>
-    </GradientBackground>
+    </ConstellationStarfieldBackground>
   );
-}
-
-const section: React.CSSProperties= {
-  height: "350px",
-  background: "transparent",
-  borderRadius: "8px",
-  marginTop: "20px",
-  display: "flex",
-  justifyContent: "center",
-  alignItems: "center",
-  color: "black",
-  fontSize: "20px",
-  overflowY: "auto",
-  overflowX: "hidden",
-};
-
-
-
-// CSS Animations (we'll add these to a style tag or CSS file)
-const styles = `
-@keyframes twinkle {
-  0%, 100% { opacity: 0.3; transform: scale(0.8); }
-  50% { opacity: 1; transform: scale(1.2); }
-}
-
-@keyframes float {
-  0%, 100% { transform: translateY(0px) rotate(0deg); }
-  25% { transform: translateY(-10px) rotate(90deg); }
-  50% { transform: translateY(-5px) rotate(180deg); }
-  75% { transform: translateY(-15px) rotate(270deg); }
-}
-
-@keyframes fadeInScale {
-  0% { opacity: 0; transform: scale(0.5); }
-  100% { opacity: 1; transform: scale(1); }
-}
-
-@keyframes aiGlow {
-  0%, 100% { transform: translate(-50%, -50%) scale(0.8); opacity: 0.6; }
-  50% { transform: translate(-50%, -50%) scale(1.2); opacity: 1; }
-}
-
-@keyframes aiPulse {
-  0%, 100% { transform: translate(-50%, -50%) scale(0.9); box-shadow: 0 0 15px #FFD700, 0 0 30px #FFD700; }
-  50% { transform: translate(-50%, -50%) scale(1.1); box-shadow: 0 0 35px #FFD700, 0 0 70px #FFD700; }
-}
-
-@keyframes titleFloat {
-  0%, 100% { transform: translateY(0px); }
-  50% { transform: translateY(-10px); }
-}
-
-@keyframes constellationGlow {
-  0%, 100% { filter: drop-shadow(0 0 10px rgba(255, 215, 0, 0.3)); }
-  50% { filter: drop-shadow(0 0 30px rgba(255, 215, 0, 0.8)); }
-}
-
-@keyframes floatOrb1 {
-  0%, 100% { transform: translateY(0px) translateX(0px); }
-  25% { transform: translateY(-20px) translateX(15px); }
-  50% { transform: translateY(-10px) translateX(30px); }
-  75% { transform: translateY(-30px) translateX(15px); }
-}
-
-@keyframes floatOrb2 {
-  0%, 100% { transform: translateY(0px) translateX(0px); }
-  33% { transform: translateY(-25px) translateX(-20px); }
-  66% { transform: translateY(-15px) translateX(-40px); }
-}
-
-@keyframes floatOrb3 {
-  0%, 100% { transform: translateY(0px) translateX(0px); }
-  20% { transform: translateY(-15px) translateX(25px); }
-  40% { transform: translateY(-30px) translateX(10px); }
-  60% { transform: translateY(-20px) translateX(35px); }
-  80% { transform: translateY(-35px) translateX(20px); }
-}
-
-@keyframes cardFadeIn {
-  0% { opacity: 0; transform: translateY(50px) scale(0.9); }
-  100% { opacity: 1; transform: translateY(0px) scale(1); }
-}
-
-@keyframes iconBounce {
-  0%, 100% { transform: translateY(0px); }
-  50% { transform: translateY(-5px); }
-}
-
-@keyframes fadeInOut {
-  0%, 100% { opacity: 0.2; }
-  50% { opacity: 0.6; }
-}
-
-.text-card:hover {
-  background: rgba(255, 255, 255, 0.25) !important;
-  backdrop-filter: blur(15px) !important;
-  border: 1px solid rgba(255, 255, 255, 0.4) !important;
-  transform: translateY(-5px);
-  box-shadow: 0 10px 30px rgba(255, 255, 255, 0.1);
-}
-
-.nav-link:hover {
-  transform: scale(1.1);
-  transition: transform 0.2s ease;
-}
-
-.feature-card:hover {
-  transform: translateY(-10px) scale(1.02);
-  box-shadow: 0 20px 40px rgba(255, 255, 255, 0.15);
-}
-
-.primary-button:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 25px rgba(255, 215, 0, 0.4);
-}
-
-.secondary-button:hover {
-  transform: translateY(-2px);
-  background: rgba(255, 255, 255, 0.3);
-  border-color: rgba(255, 255, 255, 0.5);
-}
-`;
-
-// Inject styles
-if (typeof document !== 'undefined') {
-  const styleSheet = document.createElement("style");
-  styleSheet.type = "text/css";
-  styleSheet.innerText = styles;
-  document.head.appendChild(styleSheet);
 }

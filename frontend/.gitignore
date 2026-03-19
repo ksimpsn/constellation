@@ -33,3 +33,12 @@ public/downloads/*.AppImage
 # Electron Builder files
 dist/builder-debug.yml
 dist/builder-effective-config.yaml
+
+release/
+dist/
+*.dmg
+*.exe
+*.AppImage
+*.blockmap
+*.app
+

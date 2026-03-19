@@ -10,6 +10,9 @@ cd "$(dirname "$0")/.."
 export RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=1
 export RAY_NODE_IP=127.0.0.1
 
+# Clear any leftover Ray session (avoids "Session name ... does not match persisted value")
+ray stop 2>/dev/null || true
+
 cleanup() {
     echo ""
     echo "Stopping Ray head..."
