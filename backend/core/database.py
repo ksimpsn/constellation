@@ -296,6 +296,64 @@ def delete_job(job_id):
 # Helper Functions (SQLite: Run, Task, TaskResult, Worker, Job)
 # ============================================================================
 
+def create_user(email: str, name: str, role: str = "volunteer", metadata: dict = None) -> User:
+    """Create a new user."""
+    with SessionLocal() as session:
+        user = User(email=email, name=name, role=role, user_metadata=metadata or {})
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+        return user
+
+
+def get_user_by_email(email: str) -> User:
+    """Get user by email."""
+    with SessionLocal() as session:
+        return session.query(User).filter_by(email=email).first()
+
+
+def get_user_by_id(user_id: str) -> User:
+    """Get user by ID."""
+    with SessionLocal() as session:
+        return session.query(User).filter_by(user_id=user_id).first()
+
+
+def user_has_role(user_id: str, role: str) -> bool:
+    """Check if user has a specific role."""
+    user = get_user_by_id(user_id)
+    if not user:
+        return False
+    # Role can be 'researcher', 'volunteer', or 'researcher,volunteer'
+    return role in user.role.split(',')
+
+
+def create_project(researcher_id: str, title: str, description: str,
+                   code_path: str, dataset_path: str, dataset_type: str,
+                   func_name: str = "main", chunk_size: int = 1000) -> Project:
+    """Create a new project."""
+    with SessionLocal() as session:
+        project = Project(
+            researcher_id=researcher_id,
+            title=title,
+            description=description,
+            code_s3_path=code_path,  # Will be S3 path later
+            dataset_s3_path=dataset_path,  # Will be S3 path later
+            dataset_type=dataset_type,
+            func_name=func_name,
+            chunk_size=chunk_size
+        )
+        session.add(project)
+        session.commit()
+        session.refresh(project)
+        return project
+
+
+def get_project(project_id: str) -> Project:
+    """Get project by ID."""
+    with SessionLocal() as session:
+        return session.query(Project).filter_by(project_id=project_id).first()
+
+
 def create_run(project_id: str, total_tasks: int = 0) -> Run:
     """Create a new run."""
     with SessionLocal() as session:
@@ -441,14 +499,14 @@ def update_worker_heartbeat(worker_id: str, cpu_availability: float = None,
         worker = session.query(Worker).filter_by(worker_id=worker_id).first()
         if not worker:
             return None
-        
+
         worker.last_heartbeat = datetime.utcnow()
         worker.updated_at = datetime.utcnow()
         # Update worker's current CPU availability (current snapshot)
         if cpu_availability is not None:
             worker.cpu_availability = cpu_availability
         # Note: cpu_load_avg is only stored in WorkerHeartbeat, not Worker
-        
+
         # Update status based on activity
         if active_task_count > 0:
             worker.status = "busy"
@@ -456,7 +514,7 @@ def update_worker_heartbeat(worker_id: str, cpu_availability: float = None,
             worker.status = "idle"
         else:
             worker.status = "online"
-        
+
         # Create heartbeat record (time-series data)
         heartbeat = WorkerHeartbeat(
             worker_id=worker_id,
@@ -466,7 +524,7 @@ def update_worker_heartbeat(worker_id: str, cpu_availability: float = None,
             active_task_count=active_task_count
         )
         session.add(heartbeat)
-        
+
         session.commit()
         session.refresh(worker)
         return worker
@@ -654,6 +712,152 @@ def create_project(researcher_id: str, title: str, description: str,
             bucket_name=BUCKET_NAME,
         )
     raise RuntimeError("AWS database not configured. Set AWS_DATABASE_URL to create projects.")
+
+
+def get_researcher_projects_with_stats(researcher_id: str) -> list:
+    """
+    Get all projects for a researcher with aggregated statistics.
+    Returns a list of dictionaries with project data and computed statistics.
+    """
+    with SessionLocal() as session:
+        from sqlalchemy import func, distinct, case
+        from sqlalchemy.orm import joinedload
+
+        # Get all projects for this researcher
+        projects = session.query(Project).filter_by(
+            researcher_id=researcher_id,
+            status="active"  # Only show active projects
+        ).order_by(Project.created_at.desc()).all()
+
+        result = []
+
+        for project in projects:
+            # Get all runs for this project
+            runs = session.query(Run).filter_by(project_id=project.project_id).all()
+
+            # Aggregate task statistics across all runs
+            total_tasks = 0
+            completed_tasks = 0
+            failed_tasks = 0
+            total_runs = len(runs)
+
+            # Get all tasks for this project (through runs)
+            all_tasks = session.query(Task).join(Run).filter(
+                Run.project_id == project.project_id
+            ).all()
+
+            for task in all_tasks:
+                total_tasks += 1
+                if task.status == "completed":
+                    completed_tasks += 1
+                elif task.status == "failed":
+                    failed_tasks += 1
+
+            # Calculate progress percentage
+            progress = int((completed_tasks / total_tasks * 100)) if total_tasks > 0 else 0
+
+            # Get unique contributors (workers who completed tasks for this project)
+            # Contributors are identified by unique worker_ids who have completed tasks
+            # Use TaskResult for completed tasks (more reliable)
+            completed_task_workers = session.query(distinct(TaskResult.worker_id)).filter(
+                TaskResult.project_id == project.project_id,
+                TaskResult.worker_id.isnot(None)
+            ).all()
+            total_contributors = len([w[0] for w in completed_task_workers if w[0]])
+
+            # Get active contributors (workers currently working on tasks)
+            # These are workers with tasks in "assigned" or "running" status
+            active_task_workers = session.query(distinct(Task.assigned_worker_id)).join(Run).filter(
+                Run.project_id == project.project_id,
+                Task.status.in_(["assigned", "running"]),
+                Task.assigned_worker_id.isnot(None)
+            ).all()
+            active_contributors = len([w[0] for w in active_task_workers if w[0]])
+
+            # Get completed contributors (for completed projects)
+            completed_contributors = total_contributors if progress >= 100 else None
+
+            # Calculate average task time from TaskResults
+            avg_task_time = session.query(func.avg(TaskResult.runtime_seconds)).filter(
+                TaskResult.project_id == project.project_id,
+                TaskResult.runtime_seconds.isnot(None)
+            ).scalar()
+
+            # Get result URL from the most recent completed run
+            result_url = None
+            completed_runs = [r for r in runs if r.status == "completed" and r.results_s3_path]
+            if completed_runs:
+                latest_completed = max(completed_runs, key=lambda r: r.completed_at if r.completed_at else datetime.min)
+                result_url = latest_completed.results_s3_path
+
+            # Get most recent updated_at from runs
+            latest_updated = project.updated_at
+            for run in runs:
+                if run.updated_at and run.updated_at > latest_updated:
+                    latest_updated = run.updated_at
+
+            result.append({
+                "id": project.project_id,
+                "title": project.title,
+                "description": project.description or "",
+                "progress": progress,
+                "resultUrl": result_url,
+                "totalContributors": total_contributors,
+                "activeContributors": active_contributors,
+                "completedContributors": completed_contributors,
+                "totalTasks": total_tasks,
+                "completedTasks": completed_tasks,
+                "failedTasks": failed_tasks,
+                "createdAt": project.created_at.isoformat() if project.created_at else None,
+                "updatedAt": latest_updated.isoformat() if latest_updated else None,
+                "totalRuns": total_runs,
+                "averageTaskTime": round(avg_task_time, 1) if avg_task_time else None
+            })
+
+        return result
+
+
+def get_top_contributors(limit: int = 10) -> list:
+    """
+    Get top contributors ranked by number of projects they've contributed to.
+    Only includes workers that have completed at least one task and have associated users.
+
+    Returns a list of dictionaries with contributor data:
+    [
+        {
+            "name": "John Doe",
+            "projects_contributed": 5
+        },
+        ...
+    ]
+    """
+    with SessionLocal() as session:
+        from sqlalchemy import func, distinct
+
+        # Get workers with their associated users, ranked by number of distinct projects contributed to
+        # Only count completed tasks (from TaskResult table)
+        contributors = session.query(
+            User.name,
+            func.count(distinct(TaskResult.project_id)).label('projects_contributed')
+        ).join(
+            Worker, User.user_id == Worker.user_id
+        ).join(
+            TaskResult, Worker.worker_id == TaskResult.worker_id
+        ).group_by(
+            User.user_id, User.name
+        ).order_by(
+            func.count(distinct(TaskResult.project_id)).desc()
+        ).limit(limit).all()
+
+        # Format the results
+        result = []
+        for contributor in contributors:
+            result.append({
+                "name": contributor.name,
+                "projects_contributed": contributor.projects_contributed
+            })
+
+        return result
 
 
 # Simple test connection function
