@@ -39,7 +39,6 @@ cd /path/to/constellation
 python3 -m venv env
 source env/bin/activate
 python3 -m pip install -r requirements.txt
-python3 -m pip install boto3
 ```
 
 Initialize the database (SQLite local file `constellation.db`):
