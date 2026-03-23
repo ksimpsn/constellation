@@ -8,7 +8,10 @@ set -e
 cd "$(dirname "$0")/.."
 
 export RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=1
-export RAY_NODE_IP=127.0.0.1
+
+# On EC2, the public IP is NAT'd and not bound to any local interface.
+# Always bind to the private IP detected from the network interface.
+NODE_IP=$(hostname -I | awk '{print $1}')
 
 # Clear any leftover Ray session (avoids "Session name ... does not match persisted value")
 ray stop 2>/dev/null || true
@@ -22,11 +25,13 @@ cleanup() {
 }
 trap cleanup SIGINT SIGTERM
 
-echo "Starting Ray head at 127.0.0.1:6379 (RAY_NODE_IP=127.0.0.1)."
+echo "Starting Ray head at ${NODE_IP}:6379."
 echo "In another terminal:"
 echo "  1. Start Flask: ./scripts/start-flask-with-ray.sh"
-echo "  2. Connect a worker: RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=1 ray start --address=127.0.0.1:6379"
+echo "  2. Connect a worker: RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=1 ray start --address=${NODE_IP}:6379"
 echo "Press Ctrl+C to stop the head."
 echo ""
 
-exec ray start --head --port=6379 --node-ip-address=127.0.0.1 --block
+exec ray start --head --port=6379 --node-ip-address="${NODE_IP}" \
+  --min-worker-port=20000 --max-worker-port=20020 \
+  --block

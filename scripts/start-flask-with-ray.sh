@@ -5,6 +5,8 @@
 set -e
 cd "$(dirname "$0")/.."
 
-echo "Connecting to Ray at 127.0.0.1:6379 (start ./scripts/start-ray-head.sh first if you haven't)."
-export RAY_ADDRESS=127.0.0.1:6379
+NODE_IP=$(hostname -I | awk '{print $1}')
+
+echo "Connecting to Ray at ${NODE_IP}:6379 (start ./scripts/start-ray-head.sh first if you haven't)."
+export RAY_ADDRESS=${NODE_IP}:6379
 exec python3 -m flask --app backend.app run --host 0.0.0.0 --port 5001 "$@"
