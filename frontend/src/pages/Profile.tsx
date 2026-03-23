@@ -1,11 +1,41 @@
 import { useNavigate, Link } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import ConstellationStarfieldBackground from '../components/ConstellationStarfieldBackground';
 import FlowNav from '../components/FlowNav';
+import { apiFetch } from '../api/session';
 
 export default function Profile() {
   const navigate = useNavigate();
+  const [me, setMe] = useState<{ name: string; email: string; user_id: string; role: string } | null>(null);
 
-  const handleLogout = () => {
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await apiFetch('/api/me');
+        if (res.status === 401) {
+          navigate('/login');
+          return;
+        }
+        if (!res.ok) return;
+        const data = await res.json();
+        setMe({
+          name: data.name,
+          email: data.email,
+          user_id: data.user_id,
+          role: String(data.role || ''),
+        });
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, [navigate]);
+
+  const handleLogout = async () => {
+    try {
+      await apiFetch('/api/logout', { method: 'POST' });
+    } catch {
+      /* ignore */
+    }
     navigate('/');
   };
 
@@ -33,10 +63,14 @@ export default function Profile() {
                   <path d="M5 19c0-3.2 3-6 7-6s7 2.8 7 6" />
                 </svg>
               </div>
-              <h2 className="text-xl sm:text-2xl font-semibold text-white mb-1">John Doe</h2>
-              <p className="text-white/60 text-sm font-medium">@johndoe</p>
-              <span className="inline-flex items-center gap-1.5 mt-3 px-3 py-1.5 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-200 text-xs font-medium">
-                Volunteer
+          <h2 className="text-xl sm:text-2xl font-semibold text-white mb-1">{me?.name ?? '…'}</h2>
+          <p className="text-white/60 text-sm font-medium">{me?.email ?? ''}</p>
+          <span className="inline-flex items-center gap-1.5 mt-3 px-3 py-1.5 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-200 text-xs font-medium">
+                {me?.role?.includes('researcher') && me?.role?.includes('volunteer')
+                  ? 'Researcher & volunteer'
+                  : me?.role?.includes('researcher')
+                    ? 'Researcher'
+                    : 'Volunteer'}
               </span>
             </div>
             {/* Quick links */}
@@ -95,10 +129,10 @@ export default function Profile() {
               </h3>
               <dl className="space-y-0">
                 {[
-                  { term: 'Name', value: 'John Doe' },
-                  { term: 'Username', value: '@johndoe' },
-                  { term: 'Account type', value: 'Volunteer' },
-                  { term: 'Member since', value: 'January 2024' },
+                  { term: 'Name', value: me?.name ?? '—' },
+                  { term: 'Email', value: me?.email ?? '—' },
+                  { term: 'User ID', value: me?.user_id ?? '—' },
+                  { term: 'Account type', value: me?.role?.includes('researcher') ? 'Researcher' : 'Volunteer' },
                 ].map(({ term, value }) => (
                   <div
                     key={term}

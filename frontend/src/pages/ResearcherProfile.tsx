@@ -2,8 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import ConstellationStarfieldBackground from '../components/ConstellationStarfieldBackground';
 import FlowNav from '../components/FlowNav';
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5001";
+import { apiFetch } from '../api/session';
 
 interface ResearcherStats {
   totalProjects: number;
@@ -20,21 +19,31 @@ export default function ResearcherProfile() {
   });
   const [loading, setLoading] = useState(true);
   const [researcherId, setResearcherId] = useState<string | null>(null);
+  const [me, setMe] = useState<{ name: string; email: string; user_id: string } | null>(null);
 
   useEffect(() => {
     const fetchResearcherId = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/researcher/debug-id`);
-        if (response.ok) {
-          const data = await response.json();
-          setResearcherId(data.researcher_id);
+        const response = await apiFetch('/api/me');
+        if (response.status === 401) {
+          navigate('/login');
+          return;
         }
+        if (!response.ok) return;
+        const data = await response.json();
+        const role = String(data.role || '');
+        if (!role.includes('researcher')) {
+          navigate('/profile');
+          return;
+        }
+        setResearcherId(data.user_id);
+        setMe({ name: data.name, email: data.email, user_id: data.user_id });
       } catch (err) {
-        console.error("Error fetching researcher ID:", err);
+        console.error("Error fetching session:", err);
       }
     };
     fetchResearcherId();
-  }, []);
+  }, [navigate]);
 
   useEffect(() => {
     if (!researcherId) return;
@@ -42,7 +51,7 @@ export default function ResearcherProfile() {
     const fetchStats = async () => {
       try {
         setLoading(true);
-        const response = await fetch(`${API_BASE_URL}/api/researcher/${researcherId}/stats`);
+        const response = await apiFetch(`/api/researcher/${researcherId}/stats`);
         if (response.ok) {
           const data = await response.json();
           setStats({
@@ -51,7 +60,7 @@ export default function ResearcherProfile() {
             totalContributors: data.totalContributors || 0,
           });
         } else {
-          const projectsResponse = await fetch(`${API_BASE_URL}/api/researcher/${researcherId}/projects`);
+          const projectsResponse = await apiFetch(`/api/researcher/${researcherId}/projects`);
           if (projectsResponse.ok) {
             const projectsData = await projectsResponse.json();
             const projects = projectsData.projects || [];
@@ -72,7 +81,12 @@ export default function ResearcherProfile() {
     fetchStats();
   }, [researcherId]);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await apiFetch('/api/logout', { method: 'POST' });
+    } catch {
+      /* ignore */
+    }
     navigate('/');
   };
 
@@ -93,8 +107,8 @@ export default function ResearcherProfile() {
                 <path d="M5 19c0-3.2 3-6 7-6s7 2.8 7 6" />
               </svg>
             </div>
-            <h2 className="text-2xl font-bold text-white/90 m-0">Dr. Jane Researcher</h2>
-            <p className="text-lg text-white/70 m-0">@researcher</p>
+            <h2 className="text-2xl font-bold text-white/90 m-0">{me?.name ?? '…'}</h2>
+            <p className="text-lg text-white/70 m-0">{me?.email ?? ''}</p>
           </div>
 
           <div className="flex-1 flex flex-col gap-6 w-full">
@@ -102,11 +116,15 @@ export default function ResearcherProfile() {
               <h3 className="text-xl font-bold text-white/90 m-0 mb-5">Account Information</h3>
               <div className="flex justify-between items-center py-2.5 border-b border-white/10">
                 <span className="text-white/70 font-medium">Name</span>
-                <span className="text-white/90">Dr. Jane Researcher</span>
+                <span className="text-white/90">{me?.name ?? '—'}</span>
               </div>
               <div className="flex justify-between items-center py-2.5 border-b border-white/10">
-                <span className="text-white/70 font-medium">Username</span>
-                <span className="text-white/90">@researcher</span>
+                <span className="text-white/70 font-medium">User ID</span>
+                <span className="text-white/90">{me?.user_id ?? '—'}</span>
+              </div>
+              <div className="flex justify-between items-center py-2.5 border-b border-white/10">
+                <span className="text-white/70 font-medium">Email</span>
+                <span className="text-white/90">{me?.email ?? '—'}</span>
               </div>
               <div className="flex justify-between items-center py-2.5 border-b border-white/10">
                 <span className="text-white/70 font-medium">Account Type</span>

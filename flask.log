@@ -1,0 +1,99 @@
+INFO:botocore.credentials:Found credentials in environment variables.
+2026-03-22 21:58:29,065	INFO worker.py:1821 -- Connecting to existing Ray cluster at address: 10.103.133.75:6379...
+2026-03-22 21:58:29,095	INFO worker.py:2007 -- Connected to Ray cluster.
+INFO:root:[INFO] No existing Ray cluster found, starting new head node...
+ERROR:root:[ERROR] Failed to start Ray head node via command line:
+ERROR:root:[ERROR] Return code: 1
+ERROR:root:[ERROR] stdout: Usage stats collection is enabled. To disable this, add `--disable-usage-stats` to the command that starts the cluster, or run the following command: `ray disable-usage-stats` before starting the cluster. See https://docs.ray.io/en/master/cluster/usage-stats.html for more details.
+
+Local node IP: 10.103.133.75
+
+ERROR:root:[ERROR] stderr: Traceback (most recent call last):
+  File "C:\Users\Zora\AppData\Local\Programs\Python\Python310\lib\runpy.py", line 196, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "C:\Users\Zora\AppData\Local\Programs\Python\Python310\lib\runpy.py", line 86, in _run_code
+    exec(code, run_globals)
+  File "C:\Users\Zora\Documents\senior_design\constellation\.venv310\Scripts\ray.exe\__main__.py", line 7, in <module>
+  File "C:\Users\Zora\Documents\senior_design\constellation\.venv310\lib\site-packages\ray\scripts\scripts.py", line 2758, in main
+    return cli()
+  File "C:\Users\Zora\Documents\senior_design\constellation\.venv310\lib\site-packages\click\core.py", line 1485, in __call__
+    return self.main(*args, **kwargs)
+  File "C:\Users\Zora\Documents\senior_design\constellation\.venv310\lib\site-packages\click\core.py", line 1406, in main
+    rv = self.invoke(ctx)
+  File "C:\Users\Zora\Documents\senior_design\constellation\.venv310\lib\site-packages\click\core.py", line 1873, in invoke
+    return _process_result(sub_ctx.command.invoke(sub_ctx))
+  File "C:\Users\Zora\Documents\senior_design\constellation\.venv310\lib\site-packages\click\core.py", line 1269, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "C:\Users\Zora\Documents\senior_design\constellation\.venv310\lib\site-packages\click\core.py", line 824, in invoke
+    return callback(*args, **kwargs)
+  File "C:\Users\Zora\Documents\senior_design\constellation\.venv310\lib\site-packages\ray\autoscaler\_private\cli_logger.py", line 823, in wrapper
+    return f(*args, **kwargs)
+  File "C:\Users\Zora\Documents\senior_design\constellation\.venv310\lib\site-packages\ray\scripts\scripts.py", line 936, in start
+    raise ConnectionError(
+ConnectionError: Ray is trying to start at 10.103.133.75:6379, but is already running at 10.103.133.75:6379. Please specify a different port using the `--port` flag of `ray start` command.
+
+INFO:root:[INFO] Trying alternative: starting Ray head without explicit IP binding...
+WARNING:root:[WARNING] Alternative method also failed: Command '['ray', 'start', '--head', '--port=6379']' returned non-zero exit status 1.
+INFO:root:[INFO] Falling back to local Ray cluster (single-node mode, no remote connections)
+2026-03-22 21:58:31,072	INFO worker.py:1821 -- Connecting to existing Ray cluster at address: 10.103.133.75:6379...
+2026-03-22 21:58:31,086	INFO worker.py:2007 -- Connected to Ray cluster.
+Traceback (most recent call last):
+  File "C:\Users\Zora\AppData\Local\Programs\Python\Python310\lib\runpy.py", line 196, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "C:\Users\Zora\AppData\Local\Programs\Python\Python310\lib\runpy.py", line 86, in _run_code
+    exec(code, run_globals)
+  File "C:\Users\Zora\Documents\senior_design\constellation\.venv310\lib\site-packages\flask\__main__.py", line 3, in <module>
+    main()
+  File "C:\Users\Zora\Documents\senior_design\constellation\.venv310\lib\site-packages\flask\cli.py", line 1131, in main
+    cli.main()
+  File "C:\Users\Zora\Documents\senior_design\constellation\.venv310\lib\site-packages\click\core.py", line 1406, in main
+    rv = self.invoke(ctx)
+  File "C:\Users\Zora\Documents\senior_design\constellation\.venv310\lib\site-packages\click\core.py", line 1873, in invoke
+    return _process_result(sub_ctx.command.invoke(sub_ctx))
+  File "C:\Users\Zora\Documents\senior_design\constellation\.venv310\lib\site-packages\click\core.py", line 1269, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "C:\Users\Zora\Documents\senior_design\constellation\.venv310\lib\site-packages\click\core.py", line 824, in invoke
+    return callback(*args, **kwargs)
+  File "C:\Users\Zora\Documents\senior_design\constellation\.venv310\lib\site-packages\click\decorators.py", line 93, in new_func
+    return ctx.invoke(f, obj, *args, **kwargs)
+  File "C:\Users\Zora\Documents\senior_design\constellation\.venv310\lib\site-packages\click\core.py", line 824, in invoke
+    return callback(*args, **kwargs)
+  File "C:\Users\Zora\Documents\senior_design\constellation\.venv310\lib\site-packages\flask\cli.py", line 979, in run_command
+    raise e from None
+  File "C:\Users\Zora\Documents\senior_design\constellation\.venv310\lib\site-packages\flask\cli.py", line 963, in run_command
+    app: WSGIApplication = info.load_app()  # pyright: ignore
+  File "C:\Users\Zora\Documents\senior_design\constellation\.venv310\lib\site-packages\flask\cli.py", line 349, in load_app
+    app = locate_app(import_name, name)
+  File "C:\Users\Zora\Documents\senior_design\constellation\.venv310\lib\site-packages\flask\cli.py", line 245, in locate_app
+    __import__(module_name)
+  File "C:\Users\Zora\Documents\senior_design\constellation\backend\app.py", line 71, in <module>
+    api = get_api()
+  File "C:\Users\Zora\Documents\senior_design\constellation\backend\app.py", line 68, in get_api
+    _api_instance = ConstellationAPI()
+  File "C:\Users\Zora\Documents\senior_design\constellation\backend\core\api.py", line 50, in __init__
+    self.server.start_cluster()
+  File "C:\Users\Zora\Documents\senior_design\constellation\backend\core\server.py", line 94, in start_cluster
+    self.context = ray.init()
+  File "C:\Users\Zora\Documents\senior_design\constellation\.venv310\lib\site-packages\ray\_private\client_mode_hook.py", line 104, in wrapper
+    return func(*args, **kwargs)
+  File "C:\Users\Zora\Documents\senior_design\constellation\.venv310\lib\site-packages\ray\_private\worker.py", line 2009, in init
+    connect(
+  File "C:\Users\Zora\Documents\senior_design\constellation\.venv310\lib\site-packages\ray\_private\worker.py", line 1147, in wrapper
+    return func(*args, **kwargs)
+  File "C:\Users\Zora\Documents\senior_design\constellation\.venv310\lib\site-packages\ray\_private\worker.py", line 2544, in connect
+    raise e
+  File "C:\Users\Zora\Documents\senior_design\constellation\.venv310\lib\site-packages\ray\_private\worker.py", line 2541, in connect
+    node.check_version_info()
+  File "C:\Users\Zora\Documents\senior_design\constellation\.venv310\lib\site-packages\ray\_private\node.py", line 444, in check_version_info
+    ray._private.utils.check_version_info(
+  File "C:\Users\Zora\Documents\senior_design\constellation\.venv310\lib\site-packages\ray\_private\utils.py", line 1284, in check_version_info
+    raise RuntimeError(error_message)
+RuntimeError: Version mismatch: The cluster was started with:
+    Ray: 2.52.1
+    Python: 3.10.9
+This process on node 10.103.133.75 was started with:
+    Ray: 2.53.0
+    Python: 3.10.9
+
+Database initialized and tables created.
+[AWS DB] Failed to connect: No module named 'psycopg2'

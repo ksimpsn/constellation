@@ -2,12 +2,13 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import ConstellationStarfieldBackground from '../components/ConstellationStarfieldBackground';
 import FlowNav from '../components/FlowNav';
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5001";
+import { apiFetch } from '../api/session';
 
 const Signup: React.FC = () => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [role, setRole] = useState('');
   const [reasons, setReasons] = useState<string[]>([]);
   const [message, setMessage] = useState('');
@@ -35,13 +36,24 @@ const Signup: React.FC = () => {
     setLoading(true);
     setMessage('');
 
+    if (password.length < 8) {
+      setMessage('Error: Password must be at least 8 characters');
+      setLoading(false);
+      return;
+    }
+    if (password !== confirmPassword) {
+      setMessage('Error: Passwords do not match');
+      setLoading(false);
+      return;
+    }
+
     try {
-      const response = await fetch(`${API_BASE_URL}/api/signup`, {
+      const response = await apiFetch('/api/signup', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ name, email, role, reasons }),
+        body: JSON.stringify({ name, email, role, reasons, password }),
       });
 
       if (!response.ok) {
@@ -61,7 +73,8 @@ const Signup: React.FC = () => {
       setMessage('Signup successful! Redirecting...');
       // Redirect based on role
       setTimeout(() => {
-        if (data.role === 'researcher') {
+        const r = String(data.role || '');
+        if (r.includes('researcher')) {
           navigate('/researcher-profile');
         } else {
           navigate('/profile');
@@ -71,7 +84,7 @@ const Signup: React.FC = () => {
       console.error('Signup error:', error);
       // Check if it's a network error (backend not running)
       if (error.message?.includes('Failed to fetch') || error.name === 'TypeError') {
-        setMessage(`Cannot connect to server. Please make sure the backend is running on ${API_BASE_URL}`);
+        setMessage(`Cannot connect to server. Please make sure the backend is running on ${import.meta.env.VITE_API_URL || 'http://localhost:5001'}`);
       } else {
         setMessage(`Signup failed: ${error.message || 'Please try again'}`);
       }
@@ -117,8 +130,37 @@ const Signup: React.FC = () => {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
+              autoComplete="email"
               style={inputStyle}
               placeholder="you@example.com"
+            />
+          </div>
+          <div className="mb-5">
+            <label htmlFor="password" className="text-white/80 text-sm font-medium">Password</label>
+            <input
+              type="password"
+              id="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              minLength={8}
+              autoComplete="new-password"
+              style={inputStyle}
+              placeholder="At least 8 characters"
+            />
+          </div>
+          <div className="mb-5">
+            <label htmlFor="confirmPassword" className="text-white/80 text-sm font-medium">Confirm password</label>
+            <input
+              type="password"
+              id="confirmPassword"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+              minLength={8}
+              autoComplete="new-password"
+              style={inputStyle}
+              placeholder="Re-enter password"
             />
           </div>
           <div className="mb-5">

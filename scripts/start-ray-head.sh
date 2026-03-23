@@ -9,9 +9,15 @@ cd "$(dirname "$0")/.."
 
 export RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=1
 
-# On EC2, the public IP is NAT'd and not bound to any local interface.
-# Always bind to the private IP detected from the network interface.
-NODE_IP=$(hostname -I | awk '{print $1}')
+# Ray bind address: RAY_NODE_IP overrides. On Linux EC2, prefer first LAN IP from hostname -I.
+# On Windows (Git Bash) / macOS, hostname -I is missing or wrong — use 127.0.0.1 for local dev.
+if [ -n "${RAY_NODE_IP:-}" ]; then
+  NODE_IP="$RAY_NODE_IP"
+elif [ "$(uname -s 2>/dev/null)" = "Linux" ] && ip=$(hostname -I 2>/dev/null | awk '{print $1}') && [ -n "$ip" ]; then
+  NODE_IP="$ip"
+else
+  NODE_IP="127.0.0.1"
+fi
 
 # Clear any leftover Ray session (avoids "Session name ... does not match persisted value")
 ray stop 2>/dev/null || true

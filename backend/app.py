@@ -10,7 +10,15 @@ Later, it will connect to:
   backend/core/api.py → ConstellationAPI → Cluster (Ray)
 """
 
-from flask import Flask, request, jsonify, Response
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Load constellation/.env before any os.environ reads (CORS_ORIGINS, secrets, etc.)
+_constellation_root = Path(__file__).resolve().parents[1]
+load_dotenv(_constellation_root / ".env")
+
+from flask import Flask, request, jsonify, Response, session
 from backend.core.api import ConstellationAPI
 from backend.core.database import (
     init_db,
@@ -18,24 +26,41 @@ from backend.core.database import (
     get_project, get_run, get_all_projects, get_runs_for_project, get_tasks_for_run,
     get_all_workers, get_task_results_for_run,
 )
-from backend.core.database_aws import init_aws_db
+from backend.core.database_aws import init_aws_db, verify_password_for_email
 from backend.core.server import Cluster
 import os
 import uuid
 import logging
 import ray
 import socket
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask_cors import CORS
 
 app = Flask(__name__)
-# CORS configuration - allow all origins for development
-# This fixes "failed to fetch" errors by allowing cross-origin requests
-CORS(app,
-     origins="*",  # Allow all origins in development
-     methods=["GET", "POST", "OPTIONS", "PUT", "DELETE"],
-     allow_headers=["Content-Type", "Authorization"],
-     supports_credentials=False)
+
+# Session cookies (login). Set FLASK_SECRET_KEY in production.
+app.config["SECRET_KEY"] = os.environ.get("FLASK_SECRET_KEY", "dev-only-change-me-set-FLASK_SECRET_KEY")
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = os.environ.get("FLASK_SESSION_SECURE", "").lower() in ("1", "true", "yes")
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=7)
+
+# CORS: credentials require explicit origins (not "*"). Override with CORS_ORIGINS in .env (comma-separated).
+_default_cors = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174"
+_cors_origins = [o.strip() for o in (os.environ.get("CORS_ORIGINS") or _default_cors).split(",") if o.strip()]
+if not _cors_origins:
+    _cors_origins = [o.strip() for o in _default_cors.split(",") if o.strip()]
+
+CORS(
+    app,
+    origins=_cors_origins,
+    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
+    supports_credentials=True,
+)
+
+# Default password for auto-created debug users (dummy data only)
+DEBUG_USER_PASSWORD = os.environ.get("DEBUG_USER_PASSWORD", "debug")
 
 # Ensure SQLite tables exist (runs, tasks, workers, task_results, jobs)
 init_db()
@@ -52,6 +77,27 @@ def get_api():
     return _api_instance
 
 api = get_api()
+
+
+def _session_user_id():
+    return session.get("user_id")
+
+
+def _json_auth_required():
+    """Return None if logged in, or (response, status) if not."""
+    if not _session_user_id():
+        return jsonify({"error": "Authentication required"}), 401
+    return None
+
+
+def _json_for_same_user_or_403(user_id: str):
+    """Ensure session user matches ``user_id`` (e.g. researcher_id in URL)."""
+    err = _json_auth_required()
+    if err is not None:
+        return err
+    if _session_user_id() != user_id:
+        return jsonify({"error": "Forbidden"}), 403
+    return None
 
 
 def get_connected_worker_count():
@@ -86,14 +132,6 @@ def home():
         }
     }), 200
 
-@app.route("/submit", methods=["OPTIONS"])
-def submit_options():
-    """Handle preflight OPTIONS request explicitly"""
-    response = jsonify({})
-    response.headers.add("Access-Control-Allow-Origin", "*")
-    response.headers.add("Access-Control-Allow-Headers", "Content-Type")
-    response.headers.add("Access-Control-Allow-Methods", "POST, OPTIONS")
-    return response, 200
 
 @app.route("/submit", methods=["POST"])
 def submit_job():
@@ -212,7 +250,7 @@ def get_results(job_id):
         }), 500
 
 
-@app.route("/api/signup", methods=["POST", "OPTIONS"])
+@app.route("/api/signup", methods=["POST"])
 def signup():
     """
     Endpoint: POST /api/signup
@@ -222,6 +260,7 @@ def signup():
     {
         "name": "John Doe",
         "email": "john@example.com",
+        "password": "at least 8 characters",
         "role": "volunteer" or "researcher",
         "reasons": ["reason1", "reason2"]  # optional
     }
@@ -233,9 +272,6 @@ def signup():
         "message": "User created successfully"
     }
     """
-    if request.method == "OPTIONS":
-        return "", 200
-
     try:
         data = request.get_json()
         if not data:
@@ -244,13 +280,17 @@ def signup():
         name = data.get("name")
         email = data.get("email")
         role = data.get("role")
+        password = data.get("password")
         reasons = data.get("reasons", [])
 
         # Validate required fields
-        if not name or not email or not role:
+        if not name or not email or not role or not password:
             return jsonify({
-                "error": "Missing required fields: name, email, and role are required"
+                "error": "Missing required fields: name, email, role, and password are required"
             }), 400
+
+        if len(str(password)) < 8:
+            return jsonify({"error": "Password must be at least 8 characters"}), 400
 
         # Validate role
         if role not in ["volunteer", "researcher", "contributor"]:
@@ -275,13 +315,19 @@ def signup():
             }), 409
 
         user_id = (request.get_json() or {}).get("user_id") or email.split("@")[0].replace(".", "_")
-        user, err = create_user(user_id=user_id, email=email, name=name, role=role)
+        user, err = create_user(user_id=user_id, email=email, name=name, role=role, password=password)
         if err:
+            # Same message from create_user early-return or create_aws_user RuntimeError
+            if "AWS database not configured" in err:
+                return jsonify({"error": err}), 503
             return jsonify({"error": err}), 409
         if not user:
             return jsonify({"error": "AWS database not configured. Set AWS_DATABASE_URL to create users."}), 503
 
         logging.info(f"[INFO] Created new user: {user.user_id} ({role})")
+
+        session["user_id"] = user.user_id
+        session.permanent = True
 
         return jsonify({
             "success": True,
@@ -298,7 +344,7 @@ def signup():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/login", methods=["POST", "OPTIONS"])
+@app.route("/api/login", methods=["POST"])
 def login():
     """
     Endpoint: POST /api/login
@@ -306,8 +352,11 @@ def login():
 
     Request body:
     {
-        "email": "user@example.com"
+        "email": "user@example.com",
+        "password": "plaintext"
     }
+
+    Sets a signed session cookie on success.
 
     Response:
     {
@@ -318,30 +367,35 @@ def login():
         "role": "volunteer" or "researcher"
     }
     """
-    if request.method == "OPTIONS":
-        return "", 200
-
     try:
         data = request.get_json()
         if not data:
             return jsonify({"error": "Missing request body"}), 400
 
         email = data.get("email")
+        password = data.get("password")
 
-        if not email:
-            return jsonify({"error": "Email is required"}), 400
+        if not email or not password:
+            return jsonify({"error": "Email and password are required"}), 400
 
         # Initialize database if needed
         init_db()
 
-        # Find user by email
         user = get_user_by_email(email)
         if not user:
             return jsonify({
-                "error": "User not found. Please sign up first."
-            }), 404
+                "error": "Invalid email or password."
+            }), 401
+
+        if not verify_password_for_email(email, password):
+            return jsonify({
+                "error": "Invalid email or password."
+            }), 401
 
         logging.info(f"[INFO] User logged in: {user.user_id} ({user.role})")
+
+        session["user_id"] = user.user_id
+        session.permanent = True
 
         return jsonify({
             "success": True,
@@ -358,7 +412,33 @@ def login():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/researcher/debug-id", methods=["GET", "OPTIONS"])
+@app.route("/api/logout", methods=["POST"])
+def logout():
+    """Clear session cookie."""
+    session.clear()
+    return jsonify({"success": True}), 200
+
+
+@app.route("/api/me", methods=["GET"])
+def me():
+    """Return the logged-in user from the session (requires cookie)."""
+    init_db()
+    uid = _session_user_id()
+    if not uid:
+        return jsonify({"error": "Authentication required"}), 401
+    user = get_user_by_id(uid)
+    if not user:
+        session.clear()
+        return jsonify({"error": "User not found"}), 401
+    return jsonify({
+        "user_id": user.user_id,
+        "email": user.email,
+        "name": user.name,
+        "role": user.role,
+    }), 200
+
+
+@app.route("/api/researcher/debug-id", methods=["GET"])
 def get_debug_researcher_id():
     """
     Endpoint: GET /api/researcher/debug-id
@@ -392,6 +472,7 @@ def get_debug_researcher_id():
                 email=researcher_email,
                 name="Debug Researcher",
                 role="researcher",
+                password=DEBUG_USER_PASSWORD,
             )
             if err:
                 return jsonify({"error": err}), 409
@@ -458,6 +539,7 @@ def get_debug_users():
                 email=volunteer_email,
                 name="Debug Volunteer",
                 role="volunteer",
+                password=DEBUG_USER_PASSWORD,
             )
             if err:
                 return jsonify({"error": err}), 409
@@ -477,6 +559,7 @@ def get_debug_users():
                 email=researcher_email,
                 name="Debug Researcher",
                 role="researcher",
+                password=DEBUG_USER_PASSWORD,
             )
             if err:
                 return jsonify({"error": err}), 409
@@ -496,6 +579,7 @@ def get_debug_users():
                 email=both_email,
                 name="Debug Both",
                 role="researcher,volunteer",
+                password=DEBUG_USER_PASSWORD,
             )
             if err:
                 return jsonify({"error": err}), 409
@@ -515,7 +599,7 @@ def get_debug_users():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/researcher/<researcher_id>/stats", methods=["GET", "OPTIONS"])
+@app.route("/api/researcher/<researcher_id>/stats", methods=["GET"])
 def get_researcher_stats(researcher_id):
     """
     Endpoint: GET /api/researcher/<researcher_id>/stats
@@ -529,9 +613,18 @@ def get_researcher_stats(researcher_id):
     }
     """
     try:
-        from backend.core.database import get_user_by_id, user_has_role, get_session
-        from backend.core.database import Project, Run, TaskResult
-        from sqlalchemy import func, distinct
+        deny = _json_for_same_user_or_403(researcher_id)
+        if deny is not None:
+            return deny
+
+        from backend.core.database import (
+            get_user_by_id,
+            user_has_role,
+            get_session,
+            get_researcher_projects_with_stats,
+            TaskResult,
+        )
+        from sqlalchemy import distinct
 
         # Validate user exists
         user = get_user_by_id(researcher_id)
@@ -544,56 +637,27 @@ def get_researcher_stats(researcher_id):
                 "error": f"User {researcher_id} does not have 'researcher' role"
             }), 403
 
-        with get_session() as session:
-            from backend.core.database import Task
+        # Projects live in AWS RDS; per-project stats come from get_researcher_projects_with_stats
+        projects = get_researcher_projects_with_stats(researcher_id)
+        total_projects = len(projects)
+        completed_projects = sum(1 for p in projects if (p.get("progress") or 0) >= 100)
 
-            # Get all projects for this researcher
-            projects = session.query(Project).filter_by(
-                researcher_id=researcher_id,
-                status="active"
-            ).all()
-
-            total_projects = len(projects)
-            completed_projects = 0
-
-            # Get unique contributors across all projects
-            all_contributors = set()
-
-            for project in projects:
-                # Check if project is completed (all tasks done)
-                runs = session.query(Run).filter_by(project_id=project.project_id).all()
-                total_tasks = 0
-                completed_tasks = 0
-
-                tasks = session.query(Task).join(Run).filter(
-                    Run.project_id == project.project_id
+        project_ids = [p["id"] for p in projects if p.get("id")]
+        if not project_ids:
+            total_contributors = 0
+        else:
+            with get_session() as session:
+                rows = session.query(distinct(TaskResult.worker_id)).filter(
+                    TaskResult.project_id.in_(project_ids),
+                    TaskResult.worker_id.isnot(None),
                 ).all()
+                total_contributors = len({w[0] for w in rows if w[0]})
 
-                for task in tasks:
-                    total_tasks += 1
-                    if task.status == "completed":
-                        completed_tasks += 1
-
-                if total_tasks > 0 and completed_tasks >= total_tasks:
-                    completed_projects += 1
-
-                # Get contributors for this project
-                contributors = session.query(distinct(TaskResult.worker_id)).filter(
-                    TaskResult.project_id == project.project_id,
-                    TaskResult.worker_id.isnot(None)
-                ).all()
-
-                for contrib in contributors:
-                    if contrib[0]:
-                        all_contributors.add(contrib[0])
-
-            total_contributors = len(all_contributors)
-
-            return jsonify({
-                "totalProjects": total_projects,
-                "completedProjects": completed_projects,
-                "totalContributors": total_contributors
-            }), 200
+        return jsonify({
+            "totalProjects": total_projects,
+            "completedProjects": completed_projects,
+            "totalContributors": total_contributors,
+        }), 200
 
     except Exception as e:
         logging.error(f"[ERROR] Error in get_researcher_stats endpoint: {e}")
@@ -602,7 +666,7 @@ def get_researcher_stats(researcher_id):
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/researcher/<researcher_id>/projects", methods=["GET", "OPTIONS"])
+@app.route("/api/researcher/<researcher_id>/projects", methods=["GET"])
 def get_researcher_projects(researcher_id):
     """
     Endpoint: GET /api/researcher/<researcher_id>/projects
@@ -633,6 +697,10 @@ def get_researcher_projects(researcher_id):
     }
     """
     try:
+        deny = _json_for_same_user_or_403(researcher_id)
+        if deny is not None:
+            return deny
+
         # Validate user exists
         user = get_user_by_id(researcher_id)
         if not user:
@@ -653,289 +721,6 @@ def get_researcher_projects(researcher_id):
 
     except Exception as e:
         logging.error(f"[ERROR] Error in get_researcher_projects endpoint: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
-
-
-# @app.route("/api/signup", methods=["POST"])
-# def signup():
-#     """
-#     Endpoint: POST /api/signup
-#     Purpose: Register a new user (researcher and/or volunteer).
-#     Request body: { "full_name", "email", "user_id", "role" } (role: researcher, volunteer, or researcher,volunteer)
-#     """
-#     try:
-#         data = request.get_json()
-#         if not data:
-#             return jsonify({"error": "Missing request body"}), 400
-#         full_name = data.get("full_name") or data.get("name")
-#         email = data.get("email")
-#         user_id = data.get("user_id")
-#         role = data.get("role", "volunteer")
-#         if not all([full_name, email, user_id]):
-#             return jsonify({"error": "Missing required fields: full_name, email, and user_id"}), 400
-#         valid_roles = ("researcher", "volunteer", "researcher,volunteer")
-#         if role not in valid_roles:
-#             return jsonify({"error": f"role must be one of: {valid_roles}"}), 400
-#         user, err = create_user(user_id=user_id, email=email, name=full_name, role=role)
-#         if err:
-#             return jsonify({"error": err}), 409
-#         return jsonify({"user_id": user.user_id, "message": "User registered successfully"}), 201
-#     except Exception as e:
-#         logging.error(f"[ERROR] Signup: {e}")
-#         return jsonify({"error": str(e)}), 500
-
-
-# -------------------------------------------------
-# Dashboard and stats API (Phase 1.2)
-# -------------------------------------------------
-
-def _project_to_dict(p):
-    # AWS project objects are returned as SimpleNamespace and may not contain
-    # SQLite-specific fields like `status`, `created_at`, or `updated_at`.
-    created_at = getattr(p, "created_at", None) or getattr(p, "date_created", None)
-    updated_at = getattr(p, "updated_at", None)
-    status = getattr(p, "status", None)
-    if not status:
-        status = "pending"
-
-    return {
-        "project_id": getattr(p, "project_id", None),
-        "researcher_id": getattr(p, "researcher_id", None),
-        "title": getattr(p, "title", None) or getattr(p, "name", None),
-        "description": getattr(p, "description", None) or "",
-        "status": status,
-        "created_at": created_at.isoformat() if created_at else None,
-        "updated_at": updated_at.isoformat() if updated_at else None,
-    }
-
-
-def _run_to_dict(r, worker_count=None, completed_tasks_override=None):
-    d = {
-        "run_id": r.run_id,
-        "project_id": r.project_id,
-        "status": r.status,
-        "total_tasks": r.total_tasks,
-        "completed_tasks": completed_tasks_override if completed_tasks_override is not None else r.completed_tasks,
-        "failed_tasks": r.failed_tasks,
-        "started_at": r.started_at.isoformat() if r.started_at else None,
-        "completed_at": r.completed_at.isoformat() if r.completed_at else None,
-        "created_at": r.created_at.isoformat() if r.created_at else None,
-    }
-    if worker_count is not None:
-        d["worker_count"] = worker_count
-    return d
-
-
-def _task_to_dict(t):
-    return {
-        "task_id": t.task_id,
-        "run_id": t.run_id,
-        "task_index": t.task_index,
-        "status": t.status,
-        "assigned_worker_id": t.assigned_worker_id,
-        "assigned_at": t.assigned_at.isoformat() if t.assigned_at else None,
-        "started_at": t.started_at.isoformat() if t.started_at else None,
-        "completed_at": t.completed_at.isoformat() if t.completed_at else None,
-        "error_message": t.error_message,
-    }
-
-
-def _worker_to_dict(w):
-    return {
-        "worker_id": w.worker_id,
-        "user_id": w.user_id,
-        "worker_name": w.worker_name,
-        "ip_address": w.ip_address,
-        "status": w.status,
-        "cpu_cores": w.cpu_cores,
-        "last_heartbeat": w.last_heartbeat.isoformat() if w.last_heartbeat else None,
-        "tasks_completed": w.tasks_completed,
-        "tasks_failed": w.tasks_failed,
-    }
-
-
-# @app.route("/api/projects", methods=["GET"])
-# def list_projects():
-#     """GET /api/projects - list projects (optional ?researcher_id=)."""
-#     researcher_id = request.args.get("researcher_id")
-#     projects = get_all_projects(researcher_id=researcher_id)
-#     return jsonify({"projects": [_project_to_dict(p) for p in projects]}), 200
-
-
-# @app.route("/api/projects/<project_id>", methods=["GET"])
-# def get_project_route(project_id):
-#     """GET /api/projects/<project_id> - get one project."""
-#     p = get_project(project_id)
-#     if not p:
-#         return jsonify({"error": "Project not found"}), 404
-#     return jsonify(_project_to_dict(p)), 200
-
-
-# @app.route("/api/projects/<project_id>/runs", methods=["GET"])
-# def list_runs_for_project(project_id):
-#     """GET /api/projects/<project_id>/runs - list runs for a project."""
-#     if not get_project(project_id):
-#         return jsonify({"error": "Project not found"}), 404
-#     runs = get_runs_for_project(project_id)
-#     connected = get_connected_worker_count()
-#     return jsonify({"runs": [_run_to_dict(r, worker_count=connected) for r in runs]}), 200
-
-
-# Duplicate route block (kept earlier in file). Disabled to avoid Flask collisions.
-# @app.route("/api/runs/<run_id>", methods=["GET"])
-# @app.route("/api/runs/<run_id>/status", methods=["GET"])
-def get_run_status_route(run_id):
-    """GET /api/runs/<run_id> or /api/runs/<run_id>/status - run status with connected workers and task progress."""
-    r = get_run(run_id)
-    if not r:
-        return jsonify({"error": "Run not found"}), 404
-    worker_count = get_connected_worker_count()
-    completed_override = None
-    if r.status in ("running", "pending"):
-        progress = api.get_run_progress(run_id)
-        if progress is not None:
-            completed_override = progress[0]
-    return jsonify(_run_to_dict(r, worker_count=worker_count, completed_tasks_override=completed_override)), 200
-
-
-# @app.route("/api/runs/<run_id>/tasks", methods=["GET"])
-def list_tasks_for_run(run_id):
-    """GET /api/runs/<run_id>/tasks - list tasks for a run."""
-    if not get_run(run_id):
-        return jsonify({"error": "Run not found"}), 404
-    tasks = get_tasks_for_run(run_id)
-    return jsonify({"tasks": [_task_to_dict(t) for t in tasks]}), 200
-
-
-# @app.route("/api/workers", methods=["GET"])
-def list_workers():
-    """GET /api/workers - list all workers."""
-    workers = get_all_workers()
-    return jsonify({"workers": [_worker_to_dict(w) for w in workers]}), 200
-
-
-# @app.route("/api/runs/<run_id>/results/download", methods=["GET"])
-def download_run_results(run_id):
-    """GET /api/runs/<run_id>/results/download - download aggregated results as JSON file."""
-    r = get_run(run_id)
-    if not r:
-        return jsonify({"error": "Run not found"}), 404
-    try:
-        results = get_task_results_for_run(run_id)
-    except ValueError as e:
-        msg = str(e)
-        code = 404 if msg == "Run not found" else 409
-        return jsonify({"error": msg}), code
-    payload = {
-        "run_id": run_id,
-        "project_id": r.project_id,
-        "total_tasks": r.total_tasks,
-        "completed_tasks": r.completed_tasks,
-        "failed_tasks": r.failed_tasks,
-        "results": results,
-    }
-    import json as json_module
-    body = json_module.dumps(payload, indent=2)
-    resp = Response(body, mimetype="application/json")
-    resp.headers["Content-Disposition"] = f'attachment; filename="results_{run_id}.json"'
-    return resp
-
-
-# @app.route("/api/workers/register", methods=["POST"])
-def register_worker_endpoint():
-    """
-    Endpoint: POST /api/workers/register
-    Purpose: Register a volunteer's machine as a worker after they have run
-             'RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=1 ray start --address=<head_ip>:6379'
-             on their machine (required on macOS/Windows; optional on Linux).
-    Request body: { "user_id", "worker_name" }
-    Does NOT call ray.init; matches request.remote_addr to Ray node NodeManagerAddress.
-    """
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"error": "Missing request body"}), 400
-        user_id = data.get("user_id")
-        worker_name = data.get("worker_name")
-        if not user_id or not worker_name:
-            return jsonify({"error": "Missing required fields: user_id, worker_name"}), 400
-        user = get_user_by_id(user_id)
-        if not user:
-            return jsonify({"error": f"User {user_id} not found"}), 404
-        if not user_has_role(user_id, "volunteer"):
-            return jsonify({"error": f"User {user_id} does not have 'volunteer' role"}), 403
-        if not ray.is_initialized():
-            return jsonify({"error": "Ray cluster not running; start head node first"}), 503
-        client_ip = request.remote_addr
-        nodes = ray.nodes()
-        # When request is from 127.0.0.1, also match workers that report the host's LAN IP (same machine).
-        head_addr = None
-        for node in nodes:
-            if not node.get("Alive", False):
-                continue
-            res = node.get("Resources") or {}
-            if res.get("node:__internal_head__"):
-                head_addr = node.get("NodeManagerAddress") or ""
-                break
-        matching_node = None
-        for node in nodes:
-            if not node.get("Alive", False):
-                continue
-            res = node.get("Resources") or {}
-            if res.get("node:__internal_head__"):
-                continue  # never register the head as a worker
-            node_addr = node.get("NodeManagerAddress") or ""
-            if node_addr == client_ip or (client_ip == "127.0.0.1" and node_addr in ("127.0.0.1", "localhost")):
-                matching_node = node
-                break
-            if client_ip == "127.0.0.1" and head_addr and node_addr == head_addr:
-                matching_node = node
-                break
-        if not matching_node:
-            return jsonify({
-                "error": "No Ray worker found for your IP. Run 'RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=1 ray start --address=<head_ip>:6379' on this machine first (required on macOS/Windows).",
-                "your_ip": client_ip
-            }), 400
-        node_id = matching_node.get("NodeID")
-        resources = matching_node.get("Resources", {})
-        cpu_cores = int(resources.get("CPU", 0)) if resources.get("CPU") else None
-        memory_gb = (resources.get("memory", 0) / (1024**3)) if resources.get("memory") else None
-        with get_session() as session:
-            from backend.core.database import Worker
-            existing = session.query(Worker).filter_by(ray_node_id=node_id).first()
-            if existing:
-                existing.worker_name = worker_name
-                existing.user_id = user_id
-                existing.ip_address = client_ip
-                existing.cpu_cores = cpu_cores
-                existing.memory_gb = memory_gb
-                existing.last_heartbeat = datetime.utcnow()
-                existing.status = "online"
-                session.commit()
-                session.refresh(existing)
-                worker = existing
-                worker_id = existing.worker_id
-            else:
-                worker_id = f"worker-{uuid.uuid4()}"
-                worker = register_worker(
-                    worker_id=worker_id,
-                    worker_name=worker_name,
-                    user_id=user_id,
-                    ip_address=client_ip,
-                    cpu_cores=cpu_cores,
-                    memory_gb=memory_gb,
-                    ray_node_id=node_id
-                )
-        return jsonify({
-            "worker_id": worker_id,
-            "status": "registered",
-            "ray_node_id": node_id,
-            "message": "Worker registered successfully"
-        }), 200
-    except Exception as e:
-        logging.error(f"[ERROR] register_worker: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500

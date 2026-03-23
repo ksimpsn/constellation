@@ -1,6 +1,9 @@
 import ConstellationStarfieldBackground from "../components/ConstellationStarfieldBackground";
 import FlowNav from "../components/FlowNav";
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { apiFetch } from "../api/session";
+import { getApiUrl } from "../api/config";
 
 interface ResearchProject {
   id: string; // Changed from number to string (project_id)
@@ -20,53 +23,57 @@ interface ResearchProject {
   averageTaskTime?: number; // Average task completion time in seconds
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5001";
-const BACKEND_PORT = (() => {
-  try {
-    return new URL(API_BASE_URL).port || "5001";
-  } catch {
-    return "5001";
-  }
-})();
-
 export default function ResearcherDashboard() {
+  const navigate = useNavigate();
+  const apiBase = getApiUrl();
+  const BACKEND_PORT = (() => {
+    try {
+      return new URL(apiBase).port || "5001";
+    } catch {
+      return "5001";
+    }
+  })();
+
   const [expanded, setExpanded] = useState<string | null>(null);
   const [projects, setProjects] = useState<ResearchProject[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [researcherId, setResearcherId] = useState<string | null>(null);
 
-  // First, fetch the debug researcher ID
+  // Logged-in researcher from session cookie
   useEffect(() => {
     const fetchResearcherId = async () => {
       try {
-        console.log(`[ResearcherDashboard] Fetching researcher ID from: ${API_BASE_URL}/api/researcher/debug-id`);
-        const response = await fetch(`${API_BASE_URL}/api/researcher/debug-id`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        });
+        const response = await apiFetch("/api/me", { method: "GET" });
 
-        console.log(`[ResearcherDashboard] Response status: ${response.status}`);
+        if (response.status === 401) {
+          setError("Please log in as a researcher to view this page.");
+          setLoading(false);
+          navigate("/login");
+          return;
+        }
 
         if (!response.ok) {
           const errorText = await response.text();
-          console.error(`[ResearcherDashboard] Error response: ${errorText}`);
           throw new Error(`Backend returned ${response.status}: ${errorText || response.statusText}`);
         }
 
         const data = await response.json();
-        console.log(`[ResearcherDashboard] Got researcher ID: ${data.researcher_id}`);
-        setResearcherId(data.researcher_id);
+        const role = String(data.role || "");
+        if (!role.includes("researcher")) {
+          setError("This page is only available to researcher accounts.");
+          setLoading(false);
+          navigate("/profile");
+          return;
+        }
+        setResearcherId(data.user_id);
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : "Failed to load researcher ID";
-        console.error("[ResearcherDashboard] Error fetching researcher ID:", err);
+        const errorMessage = err instanceof Error ? err.message : "Failed to load session";
+        console.error("[ResearcherDashboard] Error fetching /api/me:", err);
 
-        // Provide more helpful error message
         let userMessage = errorMessage;
-        if (errorMessage.includes('Failed to fetch') || errorMessage.includes('NetworkError')) {
-          userMessage = `Cannot connect to backend at ${API_BASE_URL}. Make sure the backend is running:\n\npython3 -m flask --app backend.app run --host 0.0.0.0 --port ${BACKEND_PORT}`;
+        if (errorMessage.includes("Failed to fetch") || errorMessage.includes("NetworkError")) {
+          userMessage = `Cannot connect to backend at ${apiBase}. Make sure the backend is running:\n\npython3 -m flask --app backend.app run --host 0.0.0.0 --port ${BACKEND_PORT}`;
         }
 
         setError(userMessage);
@@ -75,7 +82,7 @@ export default function ResearcherDashboard() {
     };
 
     fetchResearcherId();
-  }, []);
+  }, [navigate, apiBase]);
 
   // Then, fetch projects once we have the researcher ID
   useEffect(() => {
@@ -85,7 +92,7 @@ export default function ResearcherDashboard() {
       try {
         setLoading(true);
         setError(null);
-        const response = await fetch(`${API_BASE_URL}/api/researcher/${researcherId}/projects`);
+        const response = await apiFetch(`/api/researcher/${researcherId}/projects`);
 
         if (!response.ok) {
           throw new Error(`Failed to fetch projects: ${response.statusText}`);
@@ -136,9 +143,9 @@ export default function ResearcherDashboard() {
             <div className="mt-4 text-xs text-red-300/90">
               <strong>Troubleshooting:</strong>
               <br />1. Check if backend is running: <code className="text-white/80">python3 -m flask --app backend.app run --host 0.0.0.0 --port {BACKEND_PORT}</code>
-              <br />2. Test API: <code className="text-white/80">curl {API_BASE_URL}/</code>
+              <br />2. Test API: <code className="text-white/80">curl {apiBase}/</code>
               <br />3. Check browser console (F12) for more details
-              <br />4. Verify API URL: {API_BASE_URL}
+              <br />4. Verify API URL: {apiBase}
             </div>
           </div>
         )}

@@ -6,7 +6,7 @@ Constellation Database Models (SQLite for runs, tasks, workers, results).
 - SQLite (this module): runs, tasks, workers, task_results, worker_heartbeats, jobs
 """
 
-from sqlalchemy import create_engine, Column, Integer, String, Text, Float, DateTime, ForeignKey, Index, UniqueConstraint
+from sqlalchemy import create_engine, Column, Integer, String, Text, Float, DateTime, ForeignKey, Index, UniqueConstraint, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy.dialects.sqlite import JSON
@@ -201,9 +201,51 @@ class WorkerHeartbeat(Base):
 # Database Initialization and Session Management
 # ============================================================================
 
+def _upgrade_sqlite_schema():
+    """Add columns missing from older constellation.db files (create_all does not alter tables)."""
+    if engine.dialect.name != "sqlite":
+        return
+    with engine.begin() as conn:
+        try:
+            rows = conn.execute(text("PRAGMA table_info(runs)")).fetchall()
+        except Exception:
+            return
+        names = {r[1] for r in rows}
+        if not names:
+            return
+        alters = [
+            ("verification_status", "VARCHAR(50)"),
+            ("verification_attempts", "INTEGER NOT NULL DEFAULT 0"),
+            ("verification_hash_attempt1", "VARCHAR(128)"),
+            ("verification_hash_attempt2", "VARCHAR(128)"),
+            ("verification_completed_at", "DATETIME"),
+        ]
+        for col, typ in alters:
+            if col not in names:
+                conn.execute(text(f"ALTER TABLE runs ADD COLUMN {col} {typ}"))
+
+        # task_results: verification columns added after initial schema
+        try:
+            tr_rows = conn.execute(text("PRAGMA table_info(task_results)")).fetchall()
+        except Exception:
+            tr_rows = []
+        tr_names = {r[1] for r in tr_rows}
+        if tr_names:
+            tr_alters = [
+                ("attempt_id", "INTEGER NOT NULL DEFAULT 0"),
+                ("result_hash", "VARCHAR(128)"),
+                ("verification_status", "VARCHAR(50)"),
+                ("verification_attempt", "INTEGER NOT NULL DEFAULT 1"),
+            ]
+            for col, typ in tr_alters:
+                if col not in tr_names:
+                    conn.execute(text(f"ALTER TABLE task_results ADD COLUMN {col} {typ}"))
+
+
 def init_db():
     """Create all tables in the database."""
     Base.metadata.create_all(bind=engine)
+    _upgrade_sqlite_schema()
     print("Database initialized and tables created.")
 
 
@@ -648,18 +690,38 @@ def get_project(project_id: str):
     return None
 
 
-def create_user(user_id: str, email: str, name: str, role: str = "volunteer", metadata: dict = None):
+def create_user(
+    user_id: str,
+    email: str,
+    name: str,
+    role: str = "volunteer",
+    metadata: dict = None,
+    password: str = None,
+):
     """
     Create a new user. Requires AWS_DATABASE_URL.
+    If ``password`` is provided, it is hashed and stored; otherwise a random unusable hash is stored
+    (account cannot log in until a password is set by recreating the user or a future reset flow).
     Returns (user_like, None) on success, or (None, error_message) if user_id/email exists.
     """
-    from backend.core.database_aws import is_aws_db_configured, create_aws_user
+    from backend.core.database_aws import is_aws_db_configured, create_aws_user, hash_password
     if not is_aws_db_configured():
         return None, "AWS database not configured. Set AWS_DATABASE_URL to create users."
     try:
-        u = create_aws_user(user_id=user_id, email=email, name=name, role=role)
+        # Explicit guard: signup uses non-empty strings; None means "no password" (random unusable hash).
+        # Reject empty/whitespace so we never call hash_password with a meaningless value.
+        if password is not None:
+            if not isinstance(password, str):
+                return None, "Password must be a string."
+            pw_clean = password.strip()
+            if not pw_clean:
+                return None, "Password cannot be empty."
+            hp = hash_password(pw_clean)
+        else:
+            hp = None
+        u = create_aws_user(user_id=user_id, email=email, name=name, role=role, hashed_password=hp)
         return u, None
-    except ValueError as e:
+    except (ValueError, RuntimeError) as e:
         return None, str(e)
 
 

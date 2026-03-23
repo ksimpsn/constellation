@@ -8,10 +8,13 @@ Runs, tasks, workers, task_results, worker_heartbeats remain in SQLite (database
 """
 
 import os
+import secrets
 from contextlib import contextmanager
 from datetime import datetime
 from types import SimpleNamespace
 from typing import Optional
+
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from sqlalchemy import (
     Column,
@@ -24,7 +27,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-
+from dotenv import load_dotenv
+load_dotenv()
 _AWS_DATABASE_URL = os.environ.get("AWS_DATABASE_URL")
 if _AWS_DATABASE_URL and _AWS_DATABASE_URL.startswith("postgres://"):
     _AWS_DATABASE_URL = _AWS_DATABASE_URL.replace("postgres://", "postgresql://", 1)
@@ -177,6 +181,29 @@ def get_aws_user_by_id(user_id: str) -> Optional[SimpleNamespace]:
         return SimpleNamespace(user_id=user_id, role=role, name=name, email=email)
 
 
+def hash_password(plain: str) -> str:
+    """Hash a plaintext password for storage (werkzeug scrypt)."""
+    return generate_password_hash(plain)
+
+
+def verify_password_for_email(email: str, password: str) -> bool:
+    """
+    Return True if password matches any stored row for this email (users and/or researchers).
+    """
+    if not is_aws_db_configured() or not email or password is None:
+        return False
+    with get_aws_session() as session:
+        u = session.query(AWSUser).filter_by(email=email).first()
+        r = session.query(AWSResearcher).filter_by(email=email).first()
+        if not u and not r:
+            return False
+        if u and check_password_hash(u.hashed_password, password):
+            return True
+        if r and check_password_hash(r.hashed_password, password):
+            return True
+        return False
+
+
 def get_aws_user_by_email(email: str) -> Optional[SimpleNamespace]:
     """Look up by email in users and researchers; return unified user object."""
     if not is_aws_db_configured():
@@ -267,7 +294,7 @@ def create_aws_user(
     email: str,
     name: str,
     role: str = "volunteer",
-    hashed_password: str = "CHANGE_ME",
+    hashed_password: Optional[str] = None,
 ) -> SimpleNamespace:
     """
     Create in RDS: 'volunteer' -> users; 'researcher' -> researchers;
@@ -275,6 +302,9 @@ def create_aws_user(
     """
     if not is_aws_db_configured():
         raise RuntimeError("AWS database not configured. Set AWS_DATABASE_URL.")
+    if not hashed_password:
+        # Random hash so the account cannot be logged into unless password is set explicitly
+        hashed_password = hash_password(secrets.token_hex(32))
     roles = [x.strip() for x in role.split(",") if x.strip()]
     with get_aws_session() as session:
         if session.query(AWSUser).filter_by(username=user_id).first():

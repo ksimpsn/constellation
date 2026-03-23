@@ -2,11 +2,10 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import ConstellationStarfieldBackground from '../components/ConstellationStarfieldBackground';
 import FlowNav from '../components/FlowNav';
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5001";
+import { apiFetch } from '../api/session';
 
 const Login: React.FC = () => {
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
@@ -18,12 +17,12 @@ const Login: React.FC = () => {
     setMessage('');
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/login`, {
+      const response = await apiFetch('/api/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ email, password }),
       });
 
       if (!response.ok) {
@@ -43,7 +42,8 @@ const Login: React.FC = () => {
       setMessage('Login successful! Redirecting...');
       // Redirect based on role
       setTimeout(() => {
-        if (data.role === 'researcher') {
+        const role = String(data.role || '');
+        if (role.includes('researcher')) {
           navigate('/researcher-profile');
         } else {
           navigate('/profile');
@@ -53,7 +53,7 @@ const Login: React.FC = () => {
       console.error('Login error:', error);
       // Check if it's a network error (backend not running)
       if (error.message?.includes('Failed to fetch') || error.name === 'TypeError') {
-        setMessage(`Cannot connect to server. Please make sure the backend is running on ${API_BASE_URL}`);
+        setMessage(`Cannot connect to server. Please make sure the backend is running on ${import.meta.env.VITE_API_URL || 'http://localhost:5001'}`);
       } else {
         setMessage(`Login failed: ${error.message || 'Please try again'}`);
       }
@@ -80,15 +80,16 @@ const Login: React.FC = () => {
         <h1 className="text-4xl md:text-5xl font-bold text-white/90 mb-8">Log In to Constellation</h1>
         <form onSubmit={handleSubmit} className="w-full max-w-[600px] p-8 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
           <div className="mb-5">
-            <label htmlFor="username" className="text-white/80 text-sm font-medium">Username</label>
+            <label htmlFor="email" className="text-white/80 text-sm font-medium">Email</label>
             <input
-              type="text"
-              id="username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              type="email"
+              id="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               required
+              autoComplete="email"
               style={inputStyle}
-              placeholder="Enter your username"
+              placeholder="you@example.com"
             />
           </div>
           <div className="mb-5">
@@ -99,6 +100,7 @@ const Login: React.FC = () => {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
+              autoComplete="current-password"
               style={inputStyle}
               placeholder="Enter your password"
             />
