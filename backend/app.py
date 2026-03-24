@@ -146,6 +146,14 @@ def submit_job():
         chunk_size = int(request.form.get("chunk_size", 1000))
     except (TypeError, ValueError):
         chunk_size = 1000
+    try:
+        replication_factor = int(request.form.get("replication_factor", 2))
+    except (TypeError, ValueError):
+        replication_factor = 2
+    try:
+        max_verification_attempts = int(request.form.get("max_verification_attempts", 2))
+    except (TypeError, ValueError):
+        max_verification_attempts = 2
 
     # ✨ CALL THE CORRECT API FUNCTION
     out = api.submit_uploaded_project(
@@ -184,6 +192,22 @@ def get_status(job_id):
     }), 200
 
 
+@app.route("/progress/<int:job_id>", methods=["GET"])
+def get_progress(job_id):
+    """
+    Endpoint: GET /progress/<job_id>
+    Purpose: Return live progress details for a specific job/run.
+    """
+    try:
+        progress = api.get_progress(job_id)
+        return jsonify(progress), 200
+    except Exception as e:
+        return jsonify({
+            "error": str(e),
+            "job_id": job_id
+        }), 404
+
+
 @app.route("/results/<int:job_id>", methods=["GET"])
 def get_results(job_id):
     """
@@ -205,9 +229,16 @@ def get_results(job_id):
             "job_id": job_id
         }), 409
     except Exception as e:
+        message = str(e)
+        if "not ready yet" in message or "queued" in message:
+            return jsonify({
+                "job_id": job_id,
+                "status": "processing",
+                "message": message
+            }), 202
         logging.exception("get_results failed")
         return jsonify({
-            "error": str(e),
+            "error": message,
             "job_id": job_id
         }), 500
 
@@ -1342,6 +1373,9 @@ def connect_worker():
             )
 
             logging.info(f"[INFO] Registered worker {worker_id} for user {user_id}")
+            dispatched_runs = api.try_dispatch_queued_runs()
+            if dispatched_runs:
+                logging.info(f"[INFO] Dispatched {dispatched_runs} queued run(s) after worker connect")
 
             return jsonify({
                 "worker_id": worker_id,
@@ -1351,6 +1385,7 @@ def connect_worker():
                 "ray_node_id": ray_node_id,
                 "ray_worker_id": ray_worker_id,
                 "ip_address": ip_address,
+                "queued_runs_dispatched": dispatched_runs,
                 "message": "Worker connected successfully"
             }), 200
 

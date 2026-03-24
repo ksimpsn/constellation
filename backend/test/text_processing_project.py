@@ -239,6 +239,6 @@ def main(row: Dict[str, Any]) -> Dict[str, Any]:
         "bigram_count": len(bigrams),
         "top_bigrams": dict(bigram_freq.most_common(5)),
         "complexity_score": complexity_score,
-        "processing_time": total_processing_time,
+        # "processing_time": total_processing_time,
         "computation_intensive": True
     }

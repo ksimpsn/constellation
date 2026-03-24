@@ -9,9 +9,10 @@ cd "$(dirname "$0")/.."
 
 export RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=1
 
-# On EC2, the public IP is NAT'd and not bound to any local interface.
-# Always bind to the private IP detected from the network interface.
-NODE_IP=$(hostname -I | awk '{print $1}')
+# # On EC2, the public IP is NAT'd and not bound to any local interface.
+# # Always bind to the private IP detected from the network interface.
+# NODE_IP=$(hostname -I | awk '{print $1}')
+NODE_IP="127.0.0.1"
 
 # Clear any leftover Ray session (avoids "Session name ... does not match persisted value")
 ray stop 2>/dev/null || true

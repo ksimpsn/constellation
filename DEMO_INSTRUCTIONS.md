@@ -322,12 +322,21 @@ curl "http://127.0.0.1:5001/api/runs/$RUN_ID/tasks"
 # Legacy job status endpoint (for backward compatibility)
 curl "http://127.0.0.1:5001/status/$JOB_ID"
 
+# Verification progress endpoint (chunk-level)
+curl "http://127.0.0.1:5001/verification/$JOB_ID"
+
 # Legacy job results endpoint
 curl "http://127.0.0.1:5001/results/$JOB_ID"
 
 # Download aggregated results as a JSON file
 curl -OJ "http://127.0.0.1:5001/api/runs/$RUN_ID/results/download"
 ```
+
+`/verification/$JOB_ID` includes fields such as:
+
+- `replication_factor`, `max_verification_attempts`
+- `total_chunks`, `verified_chunks`, `pending_chunks`, `retrying_chunks`, `failed_chunks`
+- `chunk_statuses` (per chunk: state and attempts observed)
 
 For the small test project (10 rows, 1 task), you should see:
 

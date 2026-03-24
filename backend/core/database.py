@@ -6,7 +6,7 @@ Constellation Database Models (SQLite for runs, tasks, workers, results).
 - SQLite (this module): runs, tasks, workers, task_results, worker_heartbeats, jobs
 """
 
-from sqlalchemy import create_engine, Column, Integer, String, Text, Float, DateTime, ForeignKey, Index, UniqueConstraint
+from sqlalchemy import create_engine, Column, Integer, String, Text, Float, DateTime, ForeignKey, Index, UniqueConstraint, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy.dialects.sqlite import JSON
@@ -72,6 +72,7 @@ class Task(Base):
     task_id = Column(String, primary_key=True, default=lambda: f"task-{uuid.uuid4()}")
     run_id = Column(String, ForeignKey("runs.run_id"), nullable=False, index=True)
     task_index = Column(Integer, nullable=False)  # Chunk index within run (0-based)
+    replica_index = Column(Integer, nullable=False, default=0)  # Replica number for this chunk (0-based)
     status = Column(String(50), nullable=False, default="pending", index=True)  # 'pending', 'assigned', 'running', 'completed', 'failed', 'cancelled'
     assigned_worker_id = Column(String, ForeignKey("workers.worker_id"), nullable=True, index=True)
     assigned_at = Column(DateTime, nullable=True)
@@ -79,6 +80,8 @@ class Task(Base):
     completed_at = Column(DateTime, nullable=True)
     retry_count = Column(Integer, nullable=False, default=0)
     error_message = Column(Text, nullable=True)
+    raw_result_data = Column(JSON, nullable=True)  # Latest raw worker output (pre-verification)
+    raw_runtime_seconds = Column(Float, nullable=True)  # Latest raw task runtime from worker payload
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -91,6 +94,7 @@ class Task(Base):
     __table_args__ = (
         Index('idx_task_run_status', 'run_id', 'status'),
         Index('idx_task_worker_status', 'assigned_worker_id', 'status'),
+        Index('idx_task_run_chunk_replica', 'run_id', 'task_index', 'replica_index'),
     )
 
     def __repr__(self):
@@ -118,7 +122,6 @@ class Worker(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     assigned_tasks = relationship("Task", back_populates="assigned_worker")
-    task_results = relationship("TaskResult", back_populates="worker")
     heartbeats = relationship("WorkerHeartbeat", back_populates="worker", cascade="all, delete-orphan")
 
     # Indexes
@@ -146,7 +149,6 @@ class TaskResult(Base):
     task_id = Column(String, ForeignKey("tasks.task_id"), nullable=False, index=True)
     run_id = Column(String, nullable=False, index=True)  # Denormalized for analytics
     project_id = Column(String, nullable=False, index=True)  # Denormalized for analytics
-    worker_id = Column(String, ForeignKey("workers.worker_id"), nullable=False, index=True)
     result_data = Column(JSON, nullable=False)  # JSON result payload
     runtime_seconds = Column(Float, nullable=True)
     memory_used_mb = Column(Float, nullable=True)
@@ -161,7 +163,6 @@ class TaskResult(Base):
 
     # Relationships
     task = relationship("Task", back_populates="result")
-    worker = relationship("Worker", back_populates="task_results")
 
     # Index for time-based queries
     __table_args__ = (
@@ -202,9 +203,51 @@ class WorkerHeartbeat(Base):
 # ============================================================================
 
 def init_db():
-    """Create all tables in the database."""
+    """Create all tables and apply lightweight SQLite schema migrations."""
     Base.metadata.create_all(bind=engine)
+    _apply_sqlite_migrations()
     print("Database initialized and tables created.")
+
+
+def _apply_sqlite_migrations():
+    """
+    Best-effort additive migrations for existing local SQLite files.
+    We only add missing columns; no destructive operations.
+    """
+    table_column_defs = {
+        "runs": [
+            "verification_status TEXT",
+            "verification_attempts INTEGER NOT NULL DEFAULT 0",
+            "verification_hash_attempt1 TEXT",
+            "verification_hash_attempt2 TEXT",
+            "verification_completed_at DATETIME",
+        ],
+        "tasks": [
+            "raw_result_data JSON",
+            "raw_runtime_seconds FLOAT",
+        ],
+        "task_results": [
+            "attempt_id INTEGER NOT NULL DEFAULT 0",
+            "result_hash TEXT",
+            "verification_status TEXT",
+            "verification_attempt INTEGER NOT NULL DEFAULT 1",
+        ],
+    }
+
+    with engine.begin() as conn:
+        for table_name, column_defs in table_column_defs.items():
+            existing_cols = {
+                row[1]
+                for row in conn.execute(text(f"PRAGMA table_info({table_name})")).fetchall()
+            }
+            if not existing_cols:
+                continue
+
+            for column_def in column_defs:
+                col_name = column_def.split()[0]
+                if col_name in existing_cols:
+                    continue
+                conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_def}"))
 
 
 @contextmanager
@@ -326,10 +369,10 @@ def update_run(run_id: str, **kwargs) -> bool:
         return True
 
 
-def create_task(run_id: str, task_index: int) -> Task:
+def create_task(run_id: str, task_index: int, replica_index: int = 0) -> Task:
     """Create a new task."""
     with SessionLocal() as session:
-        task = Task(run_id=run_id, task_index=task_index)
+        task = Task(run_id=run_id, task_index=task_index, replica_index=replica_index)
         session.add(task)
         session.commit()
         session.refresh(task)
@@ -436,6 +479,8 @@ def register_worker(worker_id: str, worker_name: str, user_id: str = None,
             worker.memory_gb = memory_gb
             if ray_node_id:
                 worker.ray_node_id = ray_node_id
+            worker.status = "online"
+            worker.last_heartbeat = datetime.utcnow()
             worker.updated_at = datetime.utcnow()
         else:
             # Create new worker
@@ -446,7 +491,9 @@ def register_worker(worker_id: str, worker_name: str, user_id: str = None,
                 ip_address=ip_address,
                 cpu_cores=cpu_cores,
                 memory_gb=memory_gb,
-                ray_node_id=ray_node_id
+                ray_node_id=ray_node_id,
+                status="online",
+                last_heartbeat=datetime.utcnow(),
             )
             session.add(worker)
         session.commit()
@@ -494,16 +541,26 @@ def update_worker_heartbeat(worker_id: str, cpu_availability: float = None,
 
 
 def get_available_workers(limit: int = None) -> list:
-    """Get available workers (idle or online with good CPU availability)."""
+    """Get available volunteer workers (idle or online with good CPU availability)."""
     with SessionLocal() as session:
-        query = session.query(Worker).filter(
-            Worker.status.in_(["idle", "online"]),
-            Worker.cpu_availability > 0.5,
-            Worker.last_heartbeat.isnot(None)
-        ).order_by(Worker.cpu_availability.desc())
+        candidates = (
+            session.query(Worker)
+            .filter(
+                Worker.status.in_(["idle", "online"]),
+                Worker.cpu_availability > 0.5,
+                Worker.last_heartbeat.isnot(None)
+            )
+            .all()
+        )
+
+        volunteer_workers = [
+            worker for worker in candidates
+            if worker.user_id and user_has_role(worker.user_id, "volunteer")
+        ]
+        volunteer_workers.sort(key=lambda w: w.cpu_availability or 0, reverse=True)
         if limit:
-            query = query.limit(limit)
-        return query.all()
+            return volunteer_workers[:limit]
+        return volunteer_workers
 
 
 def _hash_result(result_data):
@@ -722,18 +779,31 @@ def get_researcher_projects_with_stats(researcher_id: str) -> list:
 
             progress = int((completed_tasks / total_tasks * 100)) if total_tasks > 0 else 0
 
-            completed_task_workers = session.query(distinct(TaskResult.worker_id)).filter(
-                TaskResult.project_id == pid,
-                TaskResult.worker_id.isnot(None),
-            ).all()
-            total_contributors = len([w[0] for w in completed_task_workers if w[0]])
+            # Get unique contributors at user level (one user may own multiple workers).
+            completed_task_users = (
+                session.query(distinct(Worker.user_id))
+                .join(TaskResult, Worker.worker_id == TaskResult.worker_id)
+                .filter(
+                    TaskResult.project_id == project.project_id,
+                    Worker.user_id.isnot(None)
+                )
+                .all()
+            )
+            total_contributors = len([u[0] for u in completed_task_users if u[0]])
 
-            active_task_workers = session.query(distinct(Task.assigned_worker_id)).join(Run).filter(
-                Run.project_id == pid,
-                Task.status.in_(["assigned", "running"]),
-                Task.assigned_worker_id.isnot(None),
-            ).all()
-            active_contributors = len([w[0] for w in active_task_workers if w[0]])
+            # Get active contributors at user level.
+            active_task_users = (
+                session.query(distinct(Worker.user_id))
+                .join(Task, Worker.worker_id == Task.assigned_worker_id)
+                .join(Run, Task.run_id == Run.run_id)
+                .filter(
+                    Run.project_id == project.project_id,
+                    Task.status.in_(["assigned", "running"]),
+                    Worker.user_id.isnot(None)
+                )
+                .all()
+            )
+            active_contributors = len([u[0] for u in active_task_users if u[0]])
 
             completed_contributors = total_contributors if progress >= 100 else None
 

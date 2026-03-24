@@ -10,6 +10,7 @@ import warnings
 from backend.core.worker import compute_task, compute_uploaded_task
 import hashlib
 import json
+from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
 
 logging.basicConfig(level=logging.INFO)
 
@@ -183,7 +184,7 @@ class Cluster:
             futures.append(compute_task.remote(payload))
         return futures
 
-    def submit_uploaded_tasks(self, data: list[dict], func_bytes) -> list[ray.ObjectRef]:
+    def submit_uploaded_tasks(self, data: list[dict], func_bytes, target_node_ids: list[str] | None = None) -> list[ray.ObjectRef]:
         """
         Submit chunked data to Ray for computation.
 
@@ -203,7 +204,20 @@ class Cluster:
         for idx, payload in enumerate(data):
             try:
                 print(f"[DEBUG] Creating future {idx}...")
-                future = compute_uploaded_task.remote(payload, func_bytes)
+                target_node_id = None
+                if target_node_ids and idx < len(target_node_ids):
+                    target_node_id = target_node_ids[idx]
+
+                if target_node_id:
+                    # Hard affinity ensures volunteer-only execution.
+                    future = compute_uploaded_task.options(
+                        scheduling_strategy=NodeAffinitySchedulingStrategy(
+                            node_id=target_node_id,
+                            soft=False
+                        )
+                    ).remote(payload, func_bytes)
+                else:
+                    future = compute_uploaded_task.remote(payload, func_bytes)
                 futures.append(future)
                 print(f"[DEBUG] Created future {idx}: {future}")
             except Exception as e:
