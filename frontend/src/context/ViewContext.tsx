@@ -1,5 +1,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { useAuth } from "./AuthContext";
+import { hasResearcherRole } from "../auth/session";
 
 const STORAGE_KEY = "constellation_view";
 
@@ -33,12 +35,26 @@ function isResearcherPath(pathname: string): boolean {
 }
 
 export function ViewProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [view, setViewState] = useState<ViewMode>(() => readStoredView());
 
+  // Logged-in users: researcher menu vs volunteer follows their role
+  useEffect(() => {
+    if (!user) return;
+    const next: ViewMode = hasResearcherRole(user.role) ? "researcher" : "volunteer";
+    setViewState(next);
+    try {
+      localStorage.setItem(STORAGE_KEY, next);
+    } catch {
+      // ignore
+    }
+  }, [user?.user_id, user?.role]);
+
   // Sync view from URL on first load when no stored preference (e.g. direct link to /researcher)
   useEffect(() => {
+    if (user) return;
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) return;
     const fromPath = isResearcherPath(location.pathname) ? "researcher" : "volunteer";
@@ -48,7 +64,7 @@ export function ViewProvider({ children }: { children: ReactNode }) {
     } catch {
       // ignore
     }
-  }, [location.pathname]);
+  }, [location.pathname, user]);
 
   const setView = useCallback(
     (next: ViewMode) => {

@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { AuthProvider } from "./context/AuthContext.tsx";
 import { ViewProvider } from "./context/ViewContext.tsx";
 
 import Home from "./pages/Home.tsx";
@@ -44,9 +45,11 @@ function AppRoutes() {
 function App() {
   return (
     <BrowserRouter>
-      <ViewProvider>
-        <AppRoutes />
-      </ViewProvider>
+      <AuthProvider>
+        <ViewProvider>
+          <AppRoutes />
+        </ViewProvider>
+      </AuthProvider>
     </BrowserRouter>
   );
 }

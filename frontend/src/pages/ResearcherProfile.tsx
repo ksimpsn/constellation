@@ -3,7 +3,9 @@ import { useNavigate, Link } from 'react-router-dom';
 import ConstellationStarfieldBackground from '../components/ConstellationStarfieldBackground';
 import FlowNav from '../components/FlowNav';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+import { API_BASE_URL } from "../api/config";
+import { useAuth } from '../context/AuthContext';
+import { hasResearcherRole } from '../auth/session';
 
 interface ResearcherStats {
   totalProjects: number;
@@ -13,28 +15,24 @@ interface ResearcherStats {
 
 export default function ResearcherProfile() {
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
   const [stats, setStats] = useState<ResearcherStats>({
     totalProjects: 0,
     completedProjects: 0,
     totalContributors: 0,
   });
   const [loading, setLoading] = useState(true);
-  const [researcherId, setResearcherId] = useState<string | null>(null);
+  const researcherId = user?.user_id ?? null;
 
   useEffect(() => {
-    const fetchResearcherId = async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/api/researcher/debug-id`);
-        if (response.ok) {
-          const data = await response.json();
-          setResearcherId(data.researcher_id);
-        }
-      } catch (err) {
-        console.error("Error fetching researcher ID:", err);
-      }
-    };
-    fetchResearcherId();
-  }, []);
+    if (!user) {
+      navigate('/login', { replace: true });
+      return;
+    }
+    if (!hasResearcherRole(user.role)) {
+      navigate('/profile', { replace: true });
+    }
+  }, [user, navigate]);
 
   useEffect(() => {
     if (!researcherId) return;
@@ -54,11 +52,17 @@ export default function ResearcherProfile() {
           const projectsResponse = await fetch(`${API_BASE_URL}/api/researcher/${researcherId}/projects`);
           if (projectsResponse.ok) {
             const projectsData = await projectsResponse.json();
-            const projects = projectsData.projects || [];
+            const projects = (projectsData.projects || []) as Array<{
+              progress?: number;
+              totalContributors?: number;
+            }>;
             setStats({
               totalProjects: projects.length,
-              completedProjects: projects.filter((p: any) => p.progress >= 100).length,
-              totalContributors: projects.reduce((sum: number, p: any) => sum + (p.totalContributors || 0), 0),
+              completedProjects: projects.filter((p) => (p.progress ?? 0) >= 100).length,
+              totalContributors: projects.reduce(
+                (sum, p) => sum + (p.totalContributors ?? 0),
+                0
+              ),
             });
           }
         }
@@ -73,8 +77,18 @@ export default function ResearcherProfile() {
   }, [researcherId]);
 
   const handleLogout = () => {
+    logout();
     navigate('/');
   };
+
+  if (!user) {
+    return (
+      <ConstellationStarfieldBackground>
+        <FlowNav />
+        <div className="relative z-10 pt-28 text-center text-white/70">Loading…</div>
+      </ConstellationStarfieldBackground>
+    );
+  }
 
   return (
     <ConstellationStarfieldBackground>
@@ -93,8 +107,8 @@ export default function ResearcherProfile() {
                 <path d="M5 19c0-3.2 3-6 7-6s7 2.8 7 6" />
               </svg>
             </div>
-            <h2 className="text-2xl font-bold text-white/90 m-0">Dr. Jane Researcher</h2>
-            <p className="text-lg text-white/70 m-0">@researcher</p>
+            <h2 className="text-2xl font-bold text-white/90 m-0">{user?.name ?? 'Researcher'}</h2>
+            <p className="text-lg text-white/70 m-0">{user?.email ?? ''}</p>
           </div>
 
           <div className="flex-1 flex flex-col gap-6 w-full">
@@ -102,19 +116,15 @@ export default function ResearcherProfile() {
               <h3 className="text-xl font-bold text-white/90 m-0 mb-5">Account Information</h3>
               <div className="flex justify-between items-center py-2.5 border-b border-white/10">
                 <span className="text-white/70 font-medium">Name</span>
-                <span className="text-white/90">Dr. Jane Researcher</span>
+                <span className="text-white/90">{user?.name ?? '—'}</span>
               </div>
               <div className="flex justify-between items-center py-2.5 border-b border-white/10">
-                <span className="text-white/70 font-medium">Username</span>
-                <span className="text-white/90">@researcher</span>
+                <span className="text-white/70 font-medium">Email</span>
+                <span className="text-white/90">{user?.email ?? '—'}</span>
               </div>
               <div className="flex justify-between items-center py-2.5 border-b border-white/10">
                 <span className="text-white/70 font-medium">Account Type</span>
-                <span className="text-white/90">Researcher</span>
-              </div>
-              <div className="flex justify-between items-center py-2.5">
-                <span className="text-white/70 font-medium">Member Since</span>
-                <span className="text-white/90">January 2024</span>
+                <span className="text-white/90">{user?.role ?? '—'}</span>
               </div>
             </div>
 

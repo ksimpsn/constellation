@@ -12,7 +12,7 @@ Later, it will connect to:
 
 from flask import Flask, request, jsonify
 from backend.core.api import ConstellationAPI
-from backend.core.database import get_user_by_id, user_has_role, register_worker, get_session, get_researcher_projects_with_stats, create_user, get_user_by_email, init_db
+from backend.core.database import get_user_by_id, user_has_role, register_worker, get_session, get_researcher_projects_with_stats, create_user, get_user_by_email, init_db, list_browse_projects
 from backend.core.server import Cluster
 import os
 import uuid
@@ -57,9 +57,24 @@ def home():
         "endpoints": {
             "debug_researcher": "/api/researcher/debug-id",
             "researcher_projects": "/api/researcher/<researcher_id>/projects",
-            "debug_users": "/api/debug-users"
+            "debug_users": "/api/debug-users",
+            "browse_projects": "/api/projects/browse",
         }
     }), 200
+
+
+@app.route("/api/projects/browse", methods=["GET", "OPTIONS"])
+def browse_projects_list():
+    """Public list of active projects for the Browse Projects page."""
+    try:
+        projects = list_browse_projects()
+        return jsonify({"projects": projects}), 200
+    except Exception as e:
+        logging.error(f"[ERROR] browse_projects_list: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
 
 @app.route("/submit", methods=["OPTIONS"])
 def submit_options():
@@ -536,7 +551,7 @@ def get_researcher_stats(researcher_id):
             }), 403
 
         with get_session() as session:
-            from backend.core.database import Task
+            from backend.core.database import Task, Worker
 
             # Get all projects for this researcher
             projects = session.query(Project).filter_by(
@@ -568,13 +583,18 @@ def get_researcher_stats(researcher_id):
                 if total_tasks > 0 and completed_tasks >= total_tasks:
                     completed_projects += 1
 
-                # Get contributors for this project
-                contributors = session.query(distinct(TaskResult.worker_id)).filter(
-                    TaskResult.project_id == project.project_id,
-                    TaskResult.worker_id.isnot(None)
-                ).all()
-
-                for contrib in contributors:
+                # Contributors: distinct users who completed work (Task -> TaskResult)
+                contributor_rows = (
+                    session.query(distinct(Worker.user_id))
+                    .join(Task, Task.assigned_worker_id == Worker.worker_id)
+                    .join(TaskResult, TaskResult.task_id == Task.task_id)
+                    .filter(
+                        TaskResult.project_id == project.project_id,
+                        Worker.user_id.isnot(None),
+                    )
+                    .all()
+                )
+                for contrib in contributor_rows:
                     if contrib[0]:
                         all_contributors.add(contrib[0])
 

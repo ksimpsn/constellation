@@ -1,12 +1,13 @@
 import ConstellationStarfieldBackground from "../components/ConstellationStarfieldBackground";
 import FlowNav from "../components/FlowNav";
 import { useState, useEffect, useRef } from "react";
-import { Link } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 
-// Backend runs on 5001 by default; allow override via VITE_API_URL
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5001";
+import { API_BASE_URL } from "../api/config";
 
 export default function SubmitProject() {
+  const { user } = useAuth();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [pyFile, setPyFile] = useState<File | null>(null);
@@ -143,6 +144,10 @@ export default function SubmitProject() {
       }
     }
   }, [jobId, jobStatus]); // Re-run when jobId or jobStatus changes
+
+  if (!user) {
+    return <Navigate to="/login" replace state={{ from: "/submit" }} />;
+  }
 
   const inputStyle = {
     marginTop: "8px",

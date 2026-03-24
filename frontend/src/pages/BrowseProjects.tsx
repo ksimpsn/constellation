@@ -2,6 +2,7 @@ import ConstellationStarfieldBackground from "../components/ConstellationStarfie
 import FlowNav from "../components/FlowNav";
 import { useState, useMemo, useRef, useEffect } from "react";
 import { Link } from "react-router-dom";
+import { API_BASE_URL } from "../api/config";
 
 interface LearnMoreLink {
   label: string;
@@ -9,13 +10,14 @@ interface LearnMoreLink {
 }
 
 interface Project {
-  id: number;
+  id: string | number;
   title: string;
   description: string;
   longDescription?: string;
   tags: string[];
   whyJoin: string[];
   learnMore: LearnMoreLink[];
+  researcherName?: string;
 }
 
 const ALL_TAGS = [
@@ -183,8 +185,45 @@ export default function BrowseProjects() {
   const [search, setSearch] = useState("");
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   const [filterOpen, setFilterOpen] = useState(false);
-  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [expandedId, setExpandedId] = useState<string | number | null>(null);
+  const [projects, setProjects] = useState<Project[]>(sampleProjects);
+  const [listLoading, setListLoading] = useState(true);
   const filterRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_BASE_URL}/api/projects/browse`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((data: { projects?: unknown[] }) => {
+        if (cancelled || !data?.projects?.length) return;
+        const mapped: Project[] = data.projects.map((raw) => {
+          const p = raw as Record<string, unknown>;
+          return {
+            id: (p.id as string | number) ?? "",
+            title: String(p.title ?? ""),
+            description: String(p.description ?? ""),
+            longDescription: String(p.longDescription ?? p.description ?? ""),
+            tags: Array.isArray(p.tags) ? (p.tags as string[]) : [],
+            whyJoin: Array.isArray(p.whyJoin) ? (p.whyJoin as string[]) : [],
+            learnMore: Array.isArray(p.learnMore)
+              ? (p.learnMore as LearnMoreLink[])
+              : [],
+            researcherName:
+              typeof p.researcherName === "string" ? p.researcherName : undefined,
+          };
+        });
+        setProjects(mapped);
+      })
+      .catch(() => {
+        /* keep bundled sample projects */
+      })
+      .finally(() => {
+        if (!cancelled) setListLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -208,7 +247,7 @@ export default function BrowseProjects() {
   const clearTagFilters = () => setSelectedTags(new Set());
 
   const filteredProjects = useMemo(() => {
-    let list = sampleProjects;
+    let list = projects;
     if (selectedTags.size > 0) {
       list = list.filter((p) =>
         p.tags.some((t) => selectedTags.has(t))
@@ -222,14 +261,19 @@ export default function BrowseProjects() {
         p.description.toLowerCase().includes(q) ||
         p.tags.some((t) => t.toLowerCase().includes(q))
     );
-  }, [search, selectedTags]);
+  }, [search, selectedTags, projects]);
 
   return (
     <ConstellationStarfieldBackground>
       <FlowNav />
       <div className="relative z-10 px-6 pt-24 pb-16 max-w-6xl mx-auto w-full min-h-screen flex flex-col">
         <h1 className="text-4xl font-bold text-white/90 mb-4">Browse Research Projects</h1>
-        <p className="text-white/70 mb-6">Click a project to learn more, then contribute your CPU if you’d like to join.</p>
+        <p className="text-white/70 mb-6">
+          Click a project to learn more, then contribute your CPU if you’d like to join.
+          {listLoading && (
+            <span className="block text-sm text-white/50 mt-2">Loading projects from server…</span>
+          )}
+        </p>
 
         <div className="mb-6 flex flex-wrap items-center gap-3">
           <label htmlFor="browse-search" className="sr-only">
@@ -339,7 +383,14 @@ export default function BrowseProjects() {
                 >
                   <div className="p-5" onClick={(e) => isExpanded && e.stopPropagation()}>
                     <div className="flex items-start justify-between gap-2">
-                      <h2 className="text-xl font-semibold text-white/90 m-0">{proj.title}</h2>
+                      <div>
+                        <h2 className="text-xl font-semibold text-white/90 m-0">{proj.title}</h2>
+                        {proj.researcherName && (
+                          <p className="text-white/45 text-xs mt-1 m-0">
+                            Lead researcher: {proj.researcherName}
+                          </p>
+                        )}
+                      </div>
                       {isExpanded && (
                         <button
                           type="button"
@@ -374,14 +425,21 @@ export default function BrowseProjects() {
                           <h3 className="text-sm font-semibold text-white/90 uppercase tracking-wider mb-2">
                             Why be part of this project
                           </h3>
-                          <ul className="list-none p-0 m-0 space-y-1.5">
-                            {proj.whyJoin.map((reason, i) => (
-                              <li key={i} className="flex gap-2 text-white/75 text-[14px] leading-relaxed">
-                                <span className="text-emerald-400/90 shrink-0">•</span>
-                                <span>{reason}</span>
-                              </li>
-                            ))}
-                          </ul>
+                          {proj.whyJoin.length > 0 ? (
+                            <ul className="list-none p-0 m-0 space-y-1.5">
+                              {proj.whyJoin.map((reason, i) => (
+                                <li key={i} className="flex gap-2 text-white/75 text-[14px] leading-relaxed">
+                                  <span className="text-emerald-400/90 shrink-0">•</span>
+                                  <span>{reason}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-white/70 text-[14px] leading-relaxed m-0">
+                              Contribute spare compute to help this team process datasets and runs. Your device
+                              runs small, sandboxed tasks orchestrated by Constellation.
+                            </p>
+                          )}
                         </div>
                         {proj.learnMore.length > 0 && (
                           <div>

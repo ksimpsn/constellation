@@ -1,13 +1,43 @@
+import { useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import ConstellationStarfieldBackground from '../components/ConstellationStarfieldBackground';
 import FlowNav from '../components/FlowNav';
+import { useAuth } from '../context/AuthContext';
+import { hasResearcherRole, hasVolunteerRole } from '../auth/session';
 
 export default function Profile() {
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
+
+  useEffect(() => {
+    if (!user) {
+      navigate('/login', { replace: true });
+      return;
+    }
+    if (hasResearcherRole(user.role) && !hasVolunteerRole(user.role)) {
+      navigate('/researcher-profile', { replace: true });
+    }
+  }, [user, navigate]);
 
   const handleLogout = () => {
+    logout();
     navigate('/');
   };
+
+  if (!user) {
+    return (
+      <ConstellationStarfieldBackground>
+        <FlowNav />
+        <div className="relative z-10 pt-28 text-center text-white/70">Loading…</div>
+      </ConstellationStarfieldBackground>
+    );
+  }
+
+  const displayName = user.name ?? 'User';
+  const displayEmail = user.email ?? '';
+  const roleLabel = user.role
+    ? user.role.split(',').map((r) => r.trim()).join(' · ')
+    : 'Volunteer';
 
   return (
     <ConstellationStarfieldBackground>
@@ -33,10 +63,10 @@ export default function Profile() {
                   <path d="M5 19c0-3.2 3-6 7-6s7 2.8 7 6" />
                 </svg>
               </div>
-              <h2 className="text-xl sm:text-2xl font-semibold text-white mb-1">John Doe</h2>
-              <p className="text-white/60 text-sm font-medium">@johndoe</p>
+              <h2 className="text-xl sm:text-2xl font-semibold text-white mb-1">{displayName}</h2>
+              <p className="text-white/60 text-sm font-medium">{displayEmail}</p>
               <span className="inline-flex items-center gap-1.5 mt-3 px-3 py-1.5 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-200 text-xs font-medium">
-                Volunteer
+                {roleLabel}
               </span>
             </div>
             {/* Quick links */}
@@ -95,10 +125,9 @@ export default function Profile() {
               </h3>
               <dl className="space-y-0">
                 {[
-                  { term: 'Name', value: 'John Doe' },
-                  { term: 'Username', value: '@johndoe' },
-                  { term: 'Account type', value: 'Volunteer' },
-                  { term: 'Member since', value: 'January 2024' },
+                  { term: 'Name', value: displayName },
+                  { term: 'Email', value: displayEmail },
+                  { term: 'Account type', value: roleLabel },
                 ].map(({ term, value }) => (
                   <div
                     key={term}

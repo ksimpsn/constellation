@@ -7,7 +7,7 @@ This module provides SQLAlchemy models for:
 - Redshift-equivalent tables: TaskResults, WorkerHeartbeats
 """
 
-from sqlalchemy import create_engine, Column, Integer, String, Text, Float, DateTime, ForeignKey, Index, UniqueConstraint
+from sqlalchemy import create_engine, Column, Integer, String, Text, Float, DateTime, ForeignKey, Index, UniqueConstraint, inspect, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy.dialects.sqlite import JSON
@@ -64,6 +64,7 @@ class Project(Base):
     replication_factor = Column(Integer, nullable=False, default=2)
     max_verification_attempts = Column(Integer, nullable=False, default=2)
     status = Column(String(50), nullable=False, default="active", index=True)  # 'active', 'archived', 'deleted'
+    tags = Column(JSON, nullable=True)  # list[str] for browse / filters
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -240,9 +241,60 @@ class WorkerHeartbeat(Base):
 # Database Initialization and Session Management
 # ============================================================================
 
+def _migrate_sqlite_table_columns(table_name: str, additions: list) -> None:
+    """
+    Add missing columns on SQLite (legacy constellation.db files).
+    additions: list of (column_name, sql_type_and_default_fragment).
+    """
+    try:
+        insp = inspect(engine)
+        if table_name not in insp.get_table_names():
+            return
+        cols = {c["name"] for c in insp.get_columns(table_name)}
+        for name, ddl in additions:
+            if name in cols:
+                continue
+            try:
+                with engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {name} {ddl}"))
+                cols.add(name)
+                print(f"[init_db] Added column {table_name}.{name}")
+            except Exception as e:
+                print(f"[init_db] {table_name}.{name}: {e}")
+    except Exception as e:
+        print(f"[init_db] migrate {table_name}: {e}")
+
+
+def _migrate_sqlite_legacy_schema():
+    """Bring older SQLite files in line with current models."""
+    _migrate_sqlite_table_columns(
+        "projects",
+        [
+            ("func_name", "TEXT NOT NULL DEFAULT 'main'"),
+            ("chunk_size", "INTEGER NOT NULL DEFAULT 1000"),
+            ("replication_factor", "INTEGER NOT NULL DEFAULT 2"),
+            ("max_verification_attempts", "INTEGER NOT NULL DEFAULT 2"),
+            ("status", "TEXT NOT NULL DEFAULT 'active'"),
+            ("tags", "JSON"),
+        ],
+    )
+    _migrate_sqlite_table_columns(
+        "tasks",
+        [
+            ("replica_index", "INTEGER NOT NULL DEFAULT 0"),
+            ("retry_count", "INTEGER NOT NULL DEFAULT 0"),
+            ("error_message", "TEXT"),
+            ("raw_result_data", "JSON"),
+            ("raw_runtime_seconds", "FLOAT"),
+            ("updated_at", "DATETIME"),
+        ],
+    )
+
+
 def init_db():
     """Create all tables in the database."""
     Base.metadata.create_all(bind=engine)
+    _migrate_sqlite_legacy_schema()
     print("Database initialized and tables created.")
 
 
@@ -370,7 +422,8 @@ def create_project(researcher_id: str, title: str, description: str,
                    code_path: str, dataset_path: str, dataset_type: str,
                    func_name: str = "main", chunk_size: int = 1000,
                    replication_factor: int = 2,
-                   max_verification_attempts: int = 2) -> Project:
+                   max_verification_attempts: int = 2,
+                   tags: list = None) -> Project:
     """Create a new project."""
     with SessionLocal() as session:
         project = Project(
@@ -384,6 +437,7 @@ def create_project(researcher_id: str, title: str, description: str,
             chunk_size=chunk_size,
             replication_factor=replication_factor,
             max_verification_attempts=max_verification_attempts,
+            tags=tags or [],
         )
         session.add(project)
         session.commit()
@@ -472,16 +526,15 @@ def update_task(task_id: str, **kwargs) -> bool:
         return True
 
 
-def create_task_result(task_id: str, run_id: str, project_id: str, worker_id: str,
+def create_task_result(task_id: str, run_id: str, project_id: str,
                        result_data: dict, runtime_seconds: float = None,
                        memory_used_mb: float = None) -> TaskResult:
-    """Create a task result."""
+    """Create a task result. Worker is implied via Task.assigned_worker_id."""
     with SessionLocal() as session:
         result = TaskResult(
             task_id=task_id,
             run_id=run_id,
             project_id=project_id,
-            worker_id=worker_id,
             result_data=result_data,
             runtime_seconds=runtime_seconds,
             memory_used_mb=memory_used_mb,
@@ -638,7 +691,8 @@ def get_researcher_projects_with_stats(researcher_id: str) -> list:
             # Get unique contributors at user level (one user may own multiple workers).
             completed_task_users = (
                 session.query(distinct(Worker.user_id))
-                .join(TaskResult, Worker.worker_id == TaskResult.worker_id)
+                .join(Task, Task.assigned_worker_id == Worker.worker_id)
+                .join(TaskResult, TaskResult.task_id == Task.task_id)
                 .filter(
                     TaskResult.project_id == project.project_id,
                     Worker.user_id.isnot(None)
@@ -704,6 +758,48 @@ def get_researcher_projects_with_stats(researcher_id: str) -> list:
         return result
 
 
+def list_browse_projects(limit: int = 200) -> list:
+    """
+    Active projects for the public browse page (title, description, tags, researcher name).
+    """
+    import json
+
+    with SessionLocal() as session:
+        rows = (
+            session.query(Project, User.name)
+            .join(User, Project.researcher_id == User.user_id)
+            .filter(Project.status == "active")
+            .order_by(Project.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+        out = []
+        for project, researcher_name in rows:
+            raw = project.tags
+            if raw is None:
+                tag_list = []
+            elif isinstance(raw, list):
+                tag_list = raw
+            elif isinstance(raw, str):
+                try:
+                    tag_list = json.loads(raw)
+                except Exception:
+                    tag_list = []
+            else:
+                tag_list = []
+            out.append({
+                "id": project.project_id,
+                "title": project.title,
+                "description": (project.description or "")[:500],
+                "longDescription": project.description or "",
+                "tags": tag_list,
+                "researcherName": researcher_name,
+                "whyJoin": [],
+                "learnMore": [],
+            })
+        return out
+
+
 def get_top_contributors(limit: int = 10) -> list:
     """
     Get top contributors ranked by number of projects they've contributed to.
@@ -729,7 +825,9 @@ def get_top_contributors(limit: int = 10) -> list:
         ).join(
             Worker, User.user_id == Worker.user_id
         ).join(
-            TaskResult, Worker.worker_id == TaskResult.worker_id
+            Task, Task.assigned_worker_id == Worker.worker_id
+        ).join(
+            TaskResult, TaskResult.task_id == Task.task_id
         ).group_by(
             User.user_id, User.name
         ).order_by(

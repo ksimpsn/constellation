@@ -3,7 +3,9 @@ import { useNavigate, Link } from 'react-router-dom';
 import ConstellationStarfieldBackground from '../components/ConstellationStarfieldBackground';
 import FlowNav from '../components/FlowNav';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+import { API_BASE_URL } from "../api/config";
+import { useAuth } from '../context/AuthContext';
+import { hasResearcherRole } from '../auth/session';
 
 const Signup: React.FC = () => {
   const [name, setName] = useState('');
@@ -13,6 +15,7 @@ const Signup: React.FC = () => {
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { login } = useAuth();
 
   const reasonOptions = [
     'Collaborate on research projects',
@@ -58,10 +61,15 @@ const Signup: React.FC = () => {
       }
 
       const data = await response.json();
+      login({
+        user_id: data.user_id,
+        email: data.email,
+        name,
+        role: data.role,
+      });
       setMessage('Signup successful! Redirecting...');
-      // Redirect based on role
       setTimeout(() => {
-        if (data.role === 'researcher') {
+        if (hasResearcherRole(data.role)) {
           navigate('/researcher-profile');
         } else {
           navigate('/profile');
