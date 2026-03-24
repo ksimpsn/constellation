@@ -17,11 +17,12 @@ from typing import List, Any
 import os
 import csv
 import json
-import uuid
-
-import csv, json, os, importlib.util
+import importlib.util
 import dill
 import ray
+import threading
+import time
+from sqlalchemy import func
 from datetime import datetime
 from backend.core.server import Cluster
 
@@ -30,7 +31,7 @@ from backend.core.database import (
     # Legacy functions (for backward compatibility)
     Job, save_job, update_job, get_job,
     # New schema models and functions
-    Project, Run, Task, TaskResult, Worker, WorkerHeartbeat,
+    Project, Run, Task, TaskResult, Worker, WorkerHeartbeat, User,
     create_project, get_project,
     create_run, get_run, update_run,
     create_task, get_pending_tasks, assign_task, update_task,
@@ -51,50 +52,628 @@ class ConstellationAPI:
         self.futures: dict[str, List[ray.ObjectRef]] = {}  # run_id -> List[ray.ObjectRef]
         # Map legacy job_id (integer) to run_id (string) for backward compatibility
         self.job_id_to_run_id: dict[int, str] = {}
+        self.run_id_to_job_id: dict[str, int] = {}
+        self.run_fn_bytes: dict[str, bytes] = {}
+        # In-memory queue for runs waiting on volunteer workers.
+        self.queued_runs: dict[str, dict] = {}
+        # Track runs currently being finalized to avoid duplicate processing.
+        self._runs_finalizing: set[str] = set()
+        self._lock = threading.RLock()
         self.counter = 0  # for legacy job_id compatibility
+        self._background_worker = threading.Thread(
+            target=self._background_result_processor,
+            name="constellation-result-processor",
+            daemon=True,
+        )
+        self._background_worker.start()
         print("[ConstellationAPI] Initialized API layer.")
+
+    def _background_result_processor(self):
+        """Continuously ingest finished Ray tasks and finalize runs."""
+        while True:
+            try:
+                self.try_dispatch_queued_runs()
+                self._process_runs_once()
+            except Exception as e:
+                logging.exception(f"[ConstellationAPI] Background processor error: {e}")
+            time.sleep(1.0)
+
+    def _process_runs_once(self):
+        with self._lock:
+            run_ids = [run_id for run_id in self.futures.keys() if isinstance(run_id, str)]
+
+        for run_id in run_ids:
+            with self._lock:
+                pending = list(self.futures.get(run_id, []))
+            if not pending:
+                continue
+
+            done, not_done = ray.wait(pending, num_returns=len(pending), timeout=0)
+            if done:
+                ray_results = list(self.server.get_results(done))
+                self._record_results(run_id, ray_results)
+                self._verify_completed_chunks_incrementally(run_id)
+
+            with self._lock:
+                self.futures[run_id] = list(not_done)
+                should_finalize = len(not_done) == 0 and run_id not in self._runs_finalizing
+                if should_finalize:
+                    self._runs_finalizing.add(run_id)
+
+            if should_finalize:
+                try:
+                    self._finalize_run(run_id)
+                finally:
+                    with self._lock:
+                        self._runs_finalizing.discard(run_id)
+
+    def _record_results(self, run_id: str, ray_results: list[dict]):
+        """Persist raw task completion rows as soon as Ray futures resolve."""
+        now = datetime.utcnow()
+        with get_session() as session:
+            for ray_result in ray_results:
+                task_id = ray_result.get("task_id")
+                task = session.query(Task).filter_by(task_id=task_id).first()
+                if not task:
+                    continue
+
+                result_data = ray_result.get("results", ray_result)
+                runtime = ray_result.get("runtime_seconds")
+                prev_status = task.status
+                task.raw_result_data = result_data
+                task.raw_runtime_seconds = runtime
+                task.completed_at = now
+                task.updated_at = now
+
+                if ray_result.get("error"):
+                    task.status = "failed"
+                    task.error_message = ray_result.get("error")
+                else:
+                    task.status = "completed"
+                    task.error_message = None
+
+                # Attribution should follow task assignment, not node identity.
+                if prev_status not in ["completed", "failed"]:
+                    worker = None
+                    if task.assigned_worker_id:
+                        worker = session.query(Worker).filter_by(worker_id=task.assigned_worker_id).first()
+                    if worker is None:
+                        node_id = ray_result.get("node_id")
+                        if node_id:
+                            worker = session.query(Worker).filter_by(ray_node_id=node_id).first()
+
+                    if worker:
+                        runtime_val = float(runtime) if isinstance(runtime, (int, float)) else 0.0
+                        worker.total_cpu_time_seconds = (worker.total_cpu_time_seconds or 0.0) + runtime_val
+                        if task.status == "completed":
+                            worker.tasks_completed = (worker.tasks_completed or 0) + 1
+                        elif task.status == "failed":
+                            worker.tasks_failed = (worker.tasks_failed or 0) + 1
+                        worker.updated_at = now
+            session.commit()
+
+    def _build_chunk_outputs(self, run_id: str) -> dict[int, dict[str, dict]]:
+        chunk_outputs: dict[int, dict[str, dict]] = {}
+        with get_session() as session:
+            tasks = session.query(Task).filter(Task.run_id == run_id, Task.status == "completed").all()
+            for task in tasks:
+                if task.raw_result_data is None:
+                    continue
+                chunk_outputs.setdefault(task.task_index, {})[task.task_id] = {
+                    "task_id": task.task_id,
+                    "output": task.raw_result_data,
+                    "runtime_seconds": task.raw_runtime_seconds,
+                }
+        return chunk_outputs
+
+    def _upsert_verified_results(self, run_id: str, project_id: str, verified_by_chunk: dict[int, dict]):
+        """Persist currently verified chunks without waiting for the full run to finish."""
+        with get_session() as session:
+            for chunk_idx, verified_item in verified_by_chunk.items():
+                supporting_task_ids = verified_item.get("supporting_task_ids") or []
+                canonical_task_id = supporting_task_ids[0] if supporting_task_ids else None
+                if not canonical_task_id:
+                    continue
+
+                existing = (
+                    session.query(TaskResult)
+                    .join(Task, TaskResult.task_id == Task.task_id)
+                    .filter(
+                        TaskResult.run_id == run_id,
+                        Task.task_index == chunk_idx,
+                    )
+                    .first()
+                )
+
+                if existing:
+                    existing.task_id = canonical_task_id
+                    existing.result_data = verified_item.get("output")
+                    existing.runtime_seconds = verified_item.get("runtime_seconds")
+                    existing.completed_at = datetime.utcnow()
+                else:
+                    session.add(TaskResult(
+                        task_id=canonical_task_id,
+                        run_id=run_id,
+                        project_id=project_id,
+                        result_data=verified_item.get("output"),
+                        runtime_seconds=verified_item.get("runtime_seconds"),
+                        completed_at=datetime.utcnow(),
+                    ))
+            session.commit()
+
+    def _verify_completed_chunks_incrementally(self, run_id: str):
+        """
+        Verify and persist chunks whose tasks are all terminal, without waiting
+        for all chunks in the run to finish.
+        """
+        with get_session() as session:
+            run_row = session.query(Run).filter_by(run_id=run_id).first()
+            if not run_row or run_row.status in ["completed", "failed", "cancelled"]:
+                return
+            project = session.query(Project).filter_by(project_id=run_row.project_id).first()
+            if not project:
+                return
+            project_id = run_row.project_id
+            replication_factor = max(1, int(project.replication_factor or 1))
+
+            verified_chunk_indexes = {
+                chunk_idx
+                for (chunk_idx,) in (
+                    session.query(Task.task_index)
+                    .join(TaskResult, TaskResult.task_id == Task.task_id)
+                    .filter(TaskResult.run_id == run_id)
+                    .distinct()
+                    .all()
+                )
+            }
+            tasks = session.query(Task).filter(Task.run_id == run_id).all()
+
+        tasks_by_chunk: dict[int, list[Task]] = {}
+        for task in tasks:
+            tasks_by_chunk.setdefault(task.task_index, []).append(task)
+
+        newly_verified: dict[int, dict] = {}
+        for chunk_idx, chunk_tasks in tasks_by_chunk.items():
+            if chunk_idx in verified_chunk_indexes:
+                continue
+
+            statuses = {task.status for task in chunk_tasks}
+            if statuses.intersection({"pending", "assigned", "running"}):
+                continue
+
+            chunk_outputs = []
+            for task in chunk_tasks:
+                if task.status == "completed" and task.raw_result_data is not None:
+                    chunk_outputs.append({
+                        "task_id": task.task_id,
+                        "output": task.raw_result_data,
+                        "runtime_seconds": task.raw_runtime_seconds,
+                    })
+
+            verified, verified_output, supporting_task_ids = self._verify_chunk_outputs(
+                chunk_outputs,
+                replication_factor=replication_factor,
+            )
+            if not verified:
+                continue
+
+            runtimes = [
+                item.get("runtime_seconds")
+                for item in chunk_outputs
+                if item.get("task_id") in supporting_task_ids and item.get("runtime_seconds") is not None
+            ]
+            avg_runtime = sum(runtimes) / len(runtimes) if runtimes else None
+            newly_verified[chunk_idx] = {
+                "output": verified_output,
+                "supporting_task_ids": supporting_task_ids,
+                "runtime_seconds": avg_runtime,
+            }
+
+        if newly_verified:
+            self._upsert_verified_results(run_id, project_id, newly_verified)
+
+    def _finalize_run(self, run_id: str):
+        """Verify outputs and persist one TaskResult per logical chunk."""
+        job_id = self.run_id_to_job_id.get(run_id)
+
+        with get_session() as session:
+            run_row = session.query(Run).filter_by(run_id=run_id).first()
+            if not run_row:
+                return
+            project = session.query(Project).filter_by(project_id=run_row.project_id).first()
+            if not project:
+                return
+            project_id = run_row.project_id
+            replication_factor = max(1, int(project.replication_factor or 1))
+            max_verification_attempts = max(0, int(project.max_verification_attempts or 0))
+            dataset_type = project.dataset_type
+            dataset_path = project.dataset_s3_path
+            chunk_size = max(1, int(project.chunk_size or 1))
+            run_row.status = "verifying"
+            run_row.updated_at = datetime.utcnow()
+            session.commit()
+
+        if job_id is not None:
+            update_job(job_id, status="verifying")
+
+        if dataset_type.lower() == "csv":
+            all_rows = self._load_csv(dataset_path)
+        elif dataset_type.lower() == "json":
+            all_rows = self._load_json(dataset_path)
+        else:
+            raise ValueError(f"Unsupported dataset type: {dataset_type}")
+        chunks = [all_rows[i:i + chunk_size] for i in range(0, len(all_rows), chunk_size)]
+
+        chunk_outputs = self._build_chunk_outputs(run_id)
+        verified_by_chunk: dict[int, dict] = {}
+        unresolved_chunks = set(range(len(chunks)))
+
+        for attempt in range(max_verification_attempts + 1):
+            unresolved_chunks = set()
+            for chunk_idx in range(len(chunks)):
+                chunk_attempt_outputs = list(chunk_outputs.get(chunk_idx, {}).values())
+                verified, verified_output, supporting_task_ids = self._verify_chunk_outputs(
+                    chunk_attempt_outputs,
+                    replication_factor=replication_factor,
+                )
+                if verified:
+                    runtimes = [
+                        item.get("runtime_seconds")
+                        for item in chunk_attempt_outputs
+                        if item.get("task_id") in supporting_task_ids and item.get("runtime_seconds") is not None
+                    ]
+                    avg_runtime = sum(runtimes) / len(runtimes) if runtimes else None
+                    verified_by_chunk[chunk_idx] = {
+                        "output": verified_output,
+                        "supporting_task_ids": supporting_task_ids,
+                        "runtime_seconds": avg_runtime,
+                    }
+                else:
+                    unresolved_chunks.add(chunk_idx)
+
+            # Persist verified chunks as they become available (partial progress).
+            if verified_by_chunk:
+                self._upsert_verified_results(run_id, project_id, verified_by_chunk)
+
+            if not unresolved_chunks:
+                break
+            if attempt >= max_verification_attempts:
+                break
+
+            retry_payloads = []
+            now = datetime.utcnow()
+            for chunk_idx in sorted(unresolved_chunks):
+                with get_session() as session:
+                    task = (
+                        session.query(Task)
+                        .filter(Task.run_id == run_id, Task.task_index == chunk_idx)
+                        .order_by(Task.retry_count.asc(), Task.replica_index.asc())
+                        .first()
+                    )
+                    if not task:
+                        continue
+                    task.retry_count = (task.retry_count or 0) + 1
+                    task.status = "assigned"
+                    task.assigned_at = now
+                    task.updated_at = now
+                    task.error_message = None
+                    session.commit()
+                    retry_payloads.append({
+                        "task_id": task.task_id,
+                        "task_index": chunk_idx,
+                        "replica_index": task.replica_index,
+                        "rows": chunks[chunk_idx],
+                        "params": None,
+                    })
+
+            if not retry_payloads:
+                break
+
+            retry_futures = self._dispatch_run_to_volunteers(
+                run_id=run_id,
+                payloads=retry_payloads,
+                fn_bytes=self.run_fn_bytes.get(run_id),
+            )
+            if not retry_futures:
+                break
+
+            retry_results = list(self.server.get_results(retry_futures))
+            self._record_results(run_id, retry_results)
+            for item in retry_results:
+                task_id = item.get("task_id")
+                with get_session() as session:
+                    task = session.query(Task).filter_by(task_id=task_id).first()
+                    if task and task.status == "completed" and task.raw_result_data is not None:
+                        chunk_outputs.setdefault(task.task_index, {})[task.task_id] = {
+                            "task_id": task.task_id,
+                            "output": task.raw_result_data,
+                            "runtime_seconds": task.raw_runtime_seconds,
+                        }
+
+        if unresolved_chunks:
+            with get_session() as session:
+                failure_message = (
+                    "Verification failed: no consensus output across replicas "
+                    f"after {max_verification_attempts} retry attempts"
+                )
+                # Mark all tasks in unresolved chunks as failed (verification-level failure).
+                unresolved_tasks = (
+                    session.query(Task)
+                    .filter(
+                        Task.run_id == run_id,
+                        Task.task_index.in_(list(unresolved_chunks))
+                    )
+                    .all()
+                )
+                for task in unresolved_tasks:
+                    task.status = "failed"
+                    task.error_message = failure_message
+                    task.updated_at = datetime.utcnow()
+
+                run_row = session.query(Run).filter_by(run_id=run_id).first()
+                if run_row:
+                    completed_count = session.query(Task).filter(
+                        Task.run_id == run_id, Task.status == "completed"
+                    ).count()
+                    failed_count = session.query(Task).filter(
+                        Task.run_id == run_id, Task.status == "failed"
+                    ).count()
+                    run_row.completed_tasks = completed_count
+                    run_row.failed_tasks = failed_count
+                    run_row.status = "failed"
+                    run_row.completed_at = datetime.utcnow()
+                    run_row.updated_at = datetime.utcnow()
+                    session.commit()
+            if job_id is not None:
+                update_job(job_id, status="failed")
+            with self._lock:
+                self.futures.pop(run_id, None)
+                self.run_fn_bytes.pop(run_id, None)
+            return
+
+        # Ensure latest verified results are persisted before marking run complete.
+        if verified_by_chunk:
+            self._upsert_verified_results(run_id, project_id, verified_by_chunk)
+
+        results = []
+        with get_session() as session:
+            persisted = (
+                session.query(TaskResult, Task.task_index)
+                .join(Task, TaskResult.task_id == Task.task_id)
+                .filter(TaskResult.run_id == run_id)
+                .order_by(Task.task_index)
+                .all()
+            )
+            seen_chunks = set()
+            for tr, chunk_idx in persisted:
+                if chunk_idx in seen_chunks:
+                    continue
+                seen_chunks.add(chunk_idx)
+                results.append({
+                    "task_index": chunk_idx,
+                    "task_id": tr.task_id,
+                    "result": tr.result_data,
+                    "runtime_seconds": tr.runtime_seconds,
+                })
+
+            completed_count = session.query(Task).filter(
+                Task.run_id == run_id, Task.status == "completed"
+            ).count()
+            failed_count = session.query(Task).filter(
+                Task.run_id == run_id, Task.status == "failed"
+            ).count()
+            run_row = session.query(Run).filter_by(run_id=run_id).first()
+            if run_row:
+                run_row.completed_tasks = completed_count
+                run_row.failed_tasks = failed_count
+                run_row.status = "completed"
+                run_row.completed_at = datetime.utcnow()
+                run_row.updated_at = datetime.utcnow()
+            session.commit()
+
+        if job_id is not None:
+            update_job(job_id, results=results, status="complete")
+
+        projects_dir = f"projects/{project_id}"
+        if os.path.isdir(projects_dir):
+            out_path = os.path.join(projects_dir, f"results_{run_id}.json")
+            try:
+                payload = {
+                    "run_id": run_id,
+                    "project_id": project_id,
+                    "total_tasks": len(results),
+                    "results": results,
+                }
+                with open(out_path, "w") as f:
+                    json.dump(payload, f, indent=2, default=str)
+            except Exception as e:
+                logging.warning(f"[ConstellationAPI] Could not write results to {out_path}: {e}")
+
+        with self._lock:
+            self.futures.pop(run_id, None)
+            self.run_fn_bytes.pop(run_id, None)
 
     # ---------------------------------------------------------
     # Worker Management
     # ---------------------------------------------------------
-    def sync_ray_workers_to_db(self):
-        """Sync connected Ray nodes to Worker table in database."""
-        try:
-            nodes = ray.nodes()
-            for node in nodes:
-                node_id = node.get("NodeID")
-                ip = node.get("NodeManagerAddress")
-                alive = node.get("Alive", False)
-                resources = node.get("Resources", {})
-                
-                if not alive:
+    def _canonicalize_output(self, value: Any) -> str:
+        """Stable serialization used for result verification comparisons."""
+        return json.dumps(value, sort_keys=True, default=str)
+
+    def _verify_chunk_outputs(self, chunk_outputs: list[dict], replication_factor: int):
+        """
+        Verify a chunk by comparing actual worker outputs.
+        Returns (verified: bool, verified_output, supporting_task_ids).
+        """
+        if not chunk_outputs:
+            return False, None, []
+
+        groups: dict[str, dict] = {}
+        for item in chunk_outputs:
+            signature = self._canonicalize_output(item["output"])
+            bucket = groups.setdefault(signature, {"count": 0, "output": item["output"], "task_ids": []})
+            bucket["count"] += 1
+            bucket["task_ids"].append(item["task_id"])
+
+        best = max(groups.values(), key=lambda g: g["count"])
+        if best["count"] >= max(1, replication_factor):
+            return True, best["output"], best["task_ids"]
+
+        return False, None, []
+
+    def _get_live_ray_nodes(self) -> dict:
+        """Return live Ray node metadata keyed by node id."""
+        live_nodes = {}
+        for node in ray.nodes():
+            if node.get("Alive", False):
+                live_nodes[node.get("NodeID")] = node
+        return live_nodes
+
+    def _get_connected_volunteer_workers(self, live_nodes: dict | None = None) -> list[Worker]:
+        """
+        Return volunteer-owned workers that map to currently live non-head Ray nodes.
+        """
+        if live_nodes is None:
+            live_nodes = self._get_live_ray_nodes()
+
+        eligible_node_ids = {
+            node_id for node_id, node in live_nodes.items()
+            if not node.get("IsHeadNode", False)
+        }
+
+        with get_session() as session:
+            workers = (
+                session.query(Worker)
+                .join(User, Worker.user_id == User.user_id)
+                .filter(
+                    Worker.user_id.isnot(None),
+                    Worker.ray_node_id.isnot(None),
+                    Worker.status.in_(["online", "idle", "busy"])
+                )
+                .all()
+            )
+            volunteer_workers = []
+            for worker in workers:
+                if "volunteer" not in (worker.owner.role or "").split(","):
                     continue
-                
-                # Check if worker exists in database
-                with get_session() as session:
-                    worker = session.query(Worker).filter_by(ray_node_id=node_id).first()
-                    
-                    if not worker:
-                        # New Ray node - register with generic name
-                        # Note: user_id should be set when worker connects via API
-                        worker_id = f"worker-{uuid.uuid4()}"
-                        worker = register_worker(
-                            worker_id=worker_id,
-                            worker_name=f"Ray-Node-{node_id[:8]}",
-                            ip_address=ip,
-                            cpu_cores=int(resources.get("CPU", 0)),
-                            memory_gb=resources.get("memory", 0) / (1024**3),
-                            ray_node_id=node_id
-                        )
-                        logging.info(f"[INFO] Registered new Ray worker: {worker.worker_id}")
-                    else:
-                        # Update existing worker
-                        worker.ip_address = ip
-                        worker.cpu_cores = int(resources.get("CPU", 0))
-                        worker.memory_gb = resources.get("memory", 0) / (1024**3)
-                        worker.last_heartbeat = datetime.utcnow()
+                if worker.ray_node_id in eligible_node_ids:
+                    volunteer_workers.append(worker)
+            return volunteer_workers
+
+    def _dispatch_run_to_volunteers(self, run_id: str, payloads: list[dict], fn_bytes) -> list[ray.ObjectRef]:
+        """Submit queued payloads using hard node-affinity to volunteer nodes."""
+        if fn_bytes is None:
+            raise RuntimeError(f"Missing serialized function bytes for run {run_id}")
+        live_nodes = self._get_live_ray_nodes()
+        volunteer_workers = self._get_connected_volunteer_workers(live_nodes=live_nodes)
+        if not volunteer_workers:
+            return []
+
+        node_ids = [worker.ray_node_id for worker in volunteer_workers if worker.ray_node_id]
+        if not node_ids:
+            return []
+
+        target_node_ids = [node_ids[idx % len(node_ids)] for idx in range(len(payloads))]
+
+        with get_session() as session:
+            for idx, payload in enumerate(payloads):
+                task_id = payload.get("task_id")
+                task = session.query(Task).filter_by(task_id=task_id).first()
+                if not task:
+                    continue
+                assigned_worker = volunteer_workers[idx % len(volunteer_workers)]
+                task.assigned_worker_id = assigned_worker.worker_id
+                task.status = "assigned"
+                task.assigned_at = datetime.utcnow()
+                task.updated_at = datetime.utcnow()
+            session.commit()
+
+        futures = self.server.submit_uploaded_tasks(
+            payloads,
+            fn_bytes,
+            target_node_ids=target_node_ids
+        )
+        return futures
+
+    def try_dispatch_queued_runs(self) -> int:
+        """Try dispatching all queued runs that are waiting for volunteer workers."""
+        self.sync_ray_workers_to_db()
+        dispatched_count = 0
+        queued_run_ids = list(self.queued_runs.keys())
+
+        for run_id in queued_run_ids:
+            queue_item = self.queued_runs.get(run_id)
+            if not queue_item:
+                continue
+
+            futures = self._dispatch_run_to_volunteers(
+                run_id=run_id,
+                payloads=queue_item["payloads"],
+                fn_bytes=queue_item["fn_bytes"]
+            )
+            if not futures:
+                continue
+
+            self.futures[run_id] = futures
+            self.queued_runs.pop(run_id, None)
+            update_run(run_id, status="running", started_at=datetime.utcnow())
+
+            job_id = self.run_id_to_job_id.get(run_id)
+            if job_id is not None:
+                update_job(job_id, status="running")
+            dispatched_count += 1
+            logging.info(f"[INFO] Dispatched queued run {run_id} to volunteer workers.")
+
+        return dispatched_count
+
+    def _expected_verified_results_count(self, run_id: str) -> int:
+        """Number of logical chunk results expected for a run."""
+        with get_session() as session:
+            chunk_count = (
+                session.query(Task.task_index)
+                .filter(Task.run_id == run_id)
+                .distinct()
+                .count()
+            )
+        return chunk_count
+
+    def sync_ray_workers_to_db(self):
+        """
+        Sync Ray metadata for existing volunteer workers only.
+        Never auto-register generic Ray nodes as volunteer workers.
+        """
+        try:
+            live_nodes = self._get_live_ray_nodes()
+            with get_session() as session:
+                workers = (
+                    session.query(Worker)
+                    .join(User, Worker.user_id == User.user_id)
+                    .filter(
+                        Worker.user_id.isnot(None),
+                        Worker.ray_node_id.isnot(None)
+                    )
+                    .all()
+                )
+
+                for worker in workers:
+                    if "volunteer" not in (worker.owner.role or "").split(","):
+                        continue
+
+                    node = live_nodes.get(worker.ray_node_id)
+                    if not node:
+                        worker.status = "offline"
+                        worker.updated_at = datetime.utcnow()
+                        continue
+
+                    resources = node.get("Resources", {})
+                    worker.ip_address = node.get("NodeManagerAddress")
+                    worker.cpu_cores = int(resources.get("CPU", 0))
+                    worker.memory_gb = resources.get("memory", 0) / (1024**3)
+                    worker.last_heartbeat = datetime.utcnow()
+                    if worker.status == "offline":
                         worker.status = "online"
-                        session.commit()
+                    worker.updated_at = datetime.utcnow()
+                session.commit()
         except Exception as e:
             logging.error(f"[ERROR] Failed to sync Ray workers: {e}")
 
@@ -221,6 +800,8 @@ class ConstellationAPI:
             file_type: str,
             func_name: str = "main",
             chunk_size: int = 1000,
+            replication_factor: int = 2,
+            max_verification_attempts: int = 2,
             researcher_id: str = None,
             title: str = None,
             description: str = None
@@ -262,6 +843,8 @@ class ConstellationAPI:
 
         if not isinstance(data, list):
             raise ValueError("Dataset loader must return a list of rows")
+        replication_factor = max(1, int(replication_factor or 1))
+        max_verification_attempts = max(0, int(max_verification_attempts or 0))
 
         # ---------------------------------------------------------
         # 3. Chunk dataset
@@ -289,7 +872,9 @@ class ConstellationAPI:
             dataset_path=dataset_path,  # Will be S3 path later
             dataset_type=file_type,
             func_name=func_name,
-            chunk_size=chunk_size
+            chunk_size=chunk_size,
+            replication_factor=replication_factor,
+            max_verification_attempts=max_verification_attempts,
         )
         
         # Copy files to project directory, named by project_id (same hash as folder / results_<run_id>.json)
@@ -311,18 +896,18 @@ class ConstellationAPI:
         # ---------------------------------------------------------
         # 5. Create Run and Tasks in DB
         # ---------------------------------------------------------
-        run = create_run(project_id=project.project_id, total_tasks=len(chunks))
-        run.started_at = datetime.utcnow()
-        run.status = "running"
+        run = create_run(project_id=project.project_id, total_tasks=len(chunks) * replication_factor)
+        run.status = "pending"
         with get_session() as session:
             session.merge(run)
             session.commit()
         
-        # Create Task records for each chunk
+        # Create Task records for each chunk replica.
         tasks = []
         for idx, chunk in enumerate(chunks):
-            task = create_task(run_id=run.run_id, task_index=idx)
-            tasks.append(task)
+            for replica_idx in range(replication_factor):
+                task = create_task(run_id=run.run_id, task_index=idx, replica_index=replica_idx)
+                tasks.append(task)
 
         # ---------------------------------------------------------
         # 6. Create Ray payloads (using DB task_ids)
@@ -332,36 +917,48 @@ class ConstellationAPI:
             chunk = chunks[task.task_index]
             payloads.append({
                 "task_id": task.task_id,  # Use DB task_id instead of index
+                "task_index": task.task_index,
+                "replica_index": task.replica_index,
                 "rows": chunk,
                 "params": None
             })
 
-        # ---------------------------------------------------------
-        # 7. Sync Ray workers to database before task submission
-        # ---------------------------------------------------------
-        self.sync_ray_workers_to_db()
-
-        # ---------------------------------------------------------
-        # 8. Submit tasks to Ray
-        # ---------------------------------------------------------
-        print(f"[DEBUG] About to submit: {len(payloads)} payloads")
-        futures = self.server.submit_uploaded_tasks(payloads, fn_bytes)
-        print(f"[DEBUG] Received {len(futures)} futures from submit_uploaded_tasks")
-        
-        # Store futures mapped to run_id
-        self.futures[run.run_id] = futures
-        
         # For backward compatibility: map legacy job_id to run_id
         legacy_job_id = self.counter
         self.counter += 1
         self.job_id_to_run_id[legacy_job_id] = run.run_id
+        self.run_id_to_job_id[run.run_id] = legacy_job_id
+        self.run_fn_bytes[run.run_id] = fn_bytes
         
+        # ---------------------------------------------------------
+        # 7. Sync workers and dispatch to volunteers (or queue)
+        # ---------------------------------------------------------
+        self.sync_ray_workers_to_db()
+        print(f"[DEBUG] About to submit: {len(payloads)} payloads")
+        futures = self._dispatch_run_to_volunteers(
+            run_id=run.run_id,
+            payloads=payloads,
+            fn_bytes=fn_bytes
+        )
+
         # Also save to legacy Job table for backward compatibility
-        save_job(job_id=legacy_job_id, data={"run_id": run.run_id, "project_id": project.project_id}, status="submitted")
+        if futures:
+            self.futures[run.run_id] = futures
+            update_run(run.run_id, status="running", started_at=datetime.utcnow())
+            save_job(job_id=legacy_job_id, data={"run_id": run.run_id, "project_id": project.project_id}, status="running")
+            print(f"[DEBUG] Received {len(futures)} futures from submit_uploaded_tasks")
+        else:
+            self.queued_runs[run.run_id] = {
+                "payloads": payloads,
+                "fn_bytes": fn_bytes
+            }
+            update_run(run.run_id, status="queued")
+            save_job(job_id=legacy_job_id, data={"run_id": run.run_id, "project_id": project.project_id}, status="queued")
+            logging.info(f"[INFO] Run {run.run_id} queued: waiting for volunteer workers.")
 
         logging.info(f"[INFO] Submitted uploaded project: project_id={project.project_id}, run_id={run.run_id}, job_id={legacy_job_id}, chunks={len(chunks)}")
 
-        return (legacy_job_id, run.run_id, project.project_id, len(chunks))
+        return (legacy_job_id, run.run_id, project.project_id, len(tasks))
 
     def submit_project(self, data):
         """
@@ -400,6 +997,77 @@ class ConstellationAPI:
     # ---------------------------------------------------------
     # Status Checking
     # ---------------------------------------------------------
+    def get_progress(self, job_id: int) -> dict:
+        """Return live progress metrics for a job/run."""
+        run_id = self.job_id_to_run_id.get(job_id)
+
+        # Fallback to legacy Job table for backward compatibility
+        if not run_id:
+            legacy_job = get_job(job_id)
+            if legacy_job and legacy_job.data and isinstance(legacy_job.data, dict):
+                run_id = legacy_job.data.get("run_id")
+
+        if run_id:
+            self.try_dispatch_queued_runs()
+            with get_session() as session:
+                run_row = session.query(Run).filter_by(run_id=run_id).first()
+                if not run_row:
+                    raise Exception("Run not found")
+
+                task_counts_by_status = {
+                    status: count for status, count in (
+                        session.query(Task.status, func.count(Task.task_id))
+                        .filter(Task.run_id == run_id)
+                        .group_by(Task.status)
+                        .all()
+                    )
+                }
+                total_tasks = session.query(func.count(Task.task_id)).filter(
+                    Task.run_id == run_id
+                ).scalar() or 0
+
+                expected_verified = self._expected_verified_results_count(run_id)
+                verified_chunks = (
+                    session.query(Task.task_index)
+                    .join(TaskResult, TaskResult.task_id == Task.task_id)
+                    .filter(TaskResult.run_id == run_id)
+                    .distinct()
+                    .count()
+                )
+
+                status = run_row.status or "pending"
+                if status == "completed":
+                    status = "complete"
+
+                return {
+                    "job_id": job_id,
+                    "run_id": run_id,
+                    "project_id": run_row.project_id,
+                    "status": status,
+                    "tasks": {
+                        "total": int(total_tasks),
+                        "pending": int(task_counts_by_status.get("pending", 0)),
+                        "assigned": int(task_counts_by_status.get("assigned", 0)),
+                        "running": int(task_counts_by_status.get("running", 0)),
+                        "completed": int(task_counts_by_status.get("completed", 0)),
+                        "failed": int(task_counts_by_status.get("failed", 0)),
+                        "cancelled": int(task_counts_by_status.get("cancelled", 0)),
+                    },
+                    "verification": {
+                        "verified_chunks": int(verified_chunks),
+                        "expected_chunks": int(expected_verified),
+                    },
+                }
+
+        legacy_job = get_job(job_id)
+        if not legacy_job:
+            raise Exception("Job not found")
+
+        return {
+            "job_id": job_id,
+            "status": legacy_job.status or "submitted",
+        }
+
     def check_status(self, job_id):
         """
         Returns the current status of the job/run.
@@ -408,8 +1076,6 @@ class ConstellationAPI:
         Args:
             job_id: Legacy integer job_id (will map to run_id internally)
         """
-        from datetime import datetime
-        
         logging.info(f"[ConstellationAPI] Status check for job_id={job_id}")
 
         # Map legacy job_id to run_id
@@ -423,43 +1089,16 @@ class ConstellationAPI:
         
         # Use new Run table if we have run_id
         if run_id:
+            self.try_dispatch_queued_runs()
             run = get_run(run_id)
             if not run:
                 logging.error(f"[ConstellationAPI] Run {run_id} not found in DB")
                 raise Exception("Run not found")
-            
-            current_status = run.status
+            current_status = run.status or "pending"
             logging.info(f"[ConstellationAPI] Current stored status for run {run_id}: {current_status}")
-
-            # If already complete, no need to re-check
-            if current_status in ["completed", "failed", "cancelled"]:
-                return "complete" if current_status == "completed" else current_status
-
-            # Check Ray futures to update status
-            futures = self.futures.get(run_id, [])
-            if not futures:
-                logging.warning(f"[ConstellationAPI] No futures found for run {run_id}; returning stored status")
-                return current_status
-
-            logging.info(f"[ConstellationAPI] Checking {len(futures)} Ray futures for run {run_id}")
-            done, not_done = ray.wait(futures, num_returns=len(futures), timeout=0)
-
-            logging.info(
-                f"[ConstellationAPI] Run {run_id} -> "
-                f"{len(done)} done, {len(not_done)} not done"
-            )
-
-            if len(done) == len(futures):
-                logging.info(f"[ConstellationAPI] All futures completed for run {run_id}")
-                update_run(run_id, status="completed", completed_at=datetime.utcnow())
-                # Update legacy job too
-                update_job(job_id, status="complete")
+            if current_status == "completed":
                 return "complete"
-            else:
-                if current_status == "pending":
-                    update_run(run_id, status="running", started_at=datetime.utcnow())
-                update_job(job_id, status="running")
-                return "running"
+            return current_status
         
         # Fallback to legacy Job table
         legacy_job = get_job(job_id)
@@ -509,155 +1148,46 @@ class ConstellationAPI:
         
         # Use new Run table if we have run_id
         if run_id:
-            # Load run attributes inside a session to avoid DetachedInstanceError when using run.project_id / run.total_tasks later
+            self.try_dispatch_queued_runs()
             with get_session() as session:
                 run_row = session.query(Run).filter_by(run_id=run_id).first()
                 if not run_row:
                     logging.error(f"[ConstellationAPI] Run {run_id} not found")
                     raise Exception("Run not found")
-                _project_id = run_row.project_id
-                _total_tasks = run_row.total_tasks
-            
-            # Check if results already in TaskResult table (join Task to order by task_index; never touch tr.task to avoid DetachedInstanceError)
-            with get_session() as session:
-                from backend.core.database import TaskResult
+
+                expected_verified = self._expected_verified_results_count(run_id)
                 task_results = (
-                    session.query(TaskResult)
+                    session.query(TaskResult, Task.task_index)
                     .join(Task, TaskResult.task_id == Task.task_id)
                     .filter(TaskResult.run_id == run_id)
                     .order_by(Task.task_index)
                     .all()
                 )
-                if task_results and len(task_results) == _total_tasks:
+
+                if task_results and len(task_results) >= expected_verified:
+                    seen_chunks = set()
                     results = []
-                    for tr in task_results:
+                    for tr, chunk_idx in task_results:
+                        if chunk_idx in seen_chunks:
+                            continue
+                        seen_chunks.add(chunk_idx)
                         results.append({
+                            "task_index": chunk_idx,
                             "task_id": tr.task_id,
                             "result": tr.result_data,
-                            "runtime_seconds": tr.runtime_seconds
+                            "runtime_seconds": tr.runtime_seconds,
                         })
-                    logging.info(f"[ConstellationAPI] Returning cached results for run {run_id}")
-                    return results
-
-            # Fetch from Ray futures (may be empty after server restart)
-            futures = self.futures.get(run_id, [])
-            if not futures:
-                # Server may have restarted; try returning cached results from DB again (join to order, no tr.task access)
-                with get_session() as session:
-                    from backend.core.database import TaskResult
-                    task_results = (
-                        session.query(TaskResult)
-                        .join(Task, TaskResult.task_id == Task.task_id)
-                        .filter(TaskResult.run_id == run_id)
-                        .order_by(Task.task_index)
-                        .all()
-                    )
-                    if task_results and len(task_results) == _total_tasks:
-                        results = []
-                        for tr in task_results:
-                            results.append({
-                                "task_id": tr.task_id,
-                                "result": tr.result_data,
-                                "runtime_seconds": tr.runtime_seconds
-                            })
-                        logging.info(f"[ConstellationAPI] Returning cached results for run {run_id} (no futures)")
+                    if len(results) == expected_verified:
                         return results
-                logging.error(f"[ConstellationAPI] No futures for run {run_id}; cannot fetch results")
-                raise Exception("No futures available to fetch results for this run")
 
-            logging.info(f"[ConstellationAPI] Blocking until Ray returns results for {len(futures)} tasks")
-            ray_results = self.server.get_results(futures)
-
-            # Store results in TaskResult table (use _project_id only; do not load Project to avoid DetachedInstanceError)
-            results = []
-            completed_count = 0
-            failed_count = 0
-            
-            with get_session() as session:
-                for ray_result in ray_results:
-                    task_id = ray_result.get("task_id")
-                    task = session.query(Task).filter_by(task_id=task_id).first()
-                    if not task:
-                        # Fallback: try to find by index if task_id is integer
-                        task = session.query(Task).filter_by(run_id=run_id, task_index=task_id).first()
-                    
-                    if task:
-                        # Capture task_id while session is active to avoid DetachedInstanceError (task.run can lazy-load Run)
-                        task_id_val = task.task_id
-                        result_data = ray_result.get("results", ray_result)
-                        runtime = ray_result.get("runtime_seconds")
-                        
-                        # Check if task failed
-                        if ray_result.get("error"):
-                            # Task failed
-                            task.status = "failed"
-                            task.error_message = ray_result.get("error")
-                            task.completed_at = datetime.utcnow()
-                            failed_count += 1
-                        else:
-                            # Task completed successfully
-                            task.status = "completed"
-                            task.completed_at = datetime.utcnow()
-                            completed_count += 1
-                        
-                        task.updated_at = datetime.utcnow()
-                        
-                        # Map Ray node_id to Worker.worker_id
-                        node_id = ray_result.get("node_id")
-                        if node_id:
-                            # Find worker by ray_node_id
-                            worker = session.query(Worker).filter_by(ray_node_id=node_id).first()
-                            worker_id = worker.worker_id if worker else "worker-unknown"
-                        else:
-                            worker_id = "worker-unknown"
-                        
-                        # Create or update TaskResult (within current session); use _project_id (project is detached)
-                        tr = session.query(TaskResult).filter_by(task_id=task_id_val).first()
-                        if not tr:
-                            tr = TaskResult(
-                                task_id=task_id_val,
-                                run_id=run_id,
-                                project_id=_project_id,
-                                worker_id=worker_id,  # Now correctly mapped from Ray node_id
-                                result_data=result_data,
-                                runtime_seconds=runtime,
-                                completed_at=datetime.utcnow()
-                            )
-                            session.add(tr)
-                        
-                        results.append({
-                            "task_id": task_id_val,
-                            "result": result_data,
-                            "runtime_seconds": runtime
-                        })
-                
-                # Update run with completed/failed task counts; capture project_id while session is active
-                run_row = session.query(Run).filter_by(run_id=run_id).first()
-                project_id = run_row.project_id if run_row else None
-                if run_row:
-                    run_row.completed_tasks = completed_count
-                    run_row.failed_tasks = failed_count
-                    run_row.updated_at = datetime.utcnow()
-                    session.commit()
-
-            logging.info(f"[ConstellationAPI] Results retrieved for run {run_id}: {len(results)} results ({completed_count} completed, {failed_count} failed)")
-            update_run(run_id, status="completed", completed_at=datetime.utcnow())
-            update_job(job_id, results=results, status="complete")
-            # Write aggregated results to project folder for persistence (use _project_id; project may be detached)
-            if project_id is None:
-                project_id = _project_id
-            if project_id:
-                projects_dir = f"projects/{project_id}"
-                if os.path.isdir(projects_dir):
-                    out_path = os.path.join(projects_dir, f"results_{run_id}.json")
-                    try:
-                        payload = {"run_id": run_id, "project_id": project_id, "total_tasks": len(results), "results": results}
-                        with open(out_path, "w") as f:
-                            json.dump(payload, f, indent=2, default=str)
-                        logging.info(f"[ConstellationAPI] Wrote results to {out_path}")
-                    except Exception as e:
-                        logging.warning(f"[ConstellationAPI] Could not write results to {out_path}: {e}")
-            return results
+                if run_row.status in ["failed", "cancelled"]:
+                    raise Exception(f"Run ended with status: {run_row.status}")
+                if run_row.status == "queued":
+                    raise Exception("Run is queued: waiting for volunteer workers to connect")
+                raise Exception(
+                    f"Results are not ready yet (run status: {run_row.status}). "
+                    "Tasks and verification continue in the background."
+                )
         
         # Fallback to legacy Job table
         legacy_job = get_job(job_id)

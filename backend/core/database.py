@@ -61,6 +61,8 @@ class Project(Base):
     dataset_type = Column(String(10), nullable=False)  # 'csv' or 'json'
     func_name = Column(String(255), nullable=False, default="main")
     chunk_size = Column(Integer, nullable=False, default=1000)
+    replication_factor = Column(Integer, nullable=False, default=2)
+    max_verification_attempts = Column(Integer, nullable=False, default=2)
     status = Column(String(50), nullable=False, default="active", index=True)  # 'active', 'archived', 'deleted'
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
@@ -116,6 +118,7 @@ class Task(Base):
     task_id = Column(String, primary_key=True, default=lambda: f"task-{uuid.uuid4()}")
     run_id = Column(String, ForeignKey("runs.run_id"), nullable=False, index=True)
     task_index = Column(Integer, nullable=False)  # Chunk index within run (0-based)
+    replica_index = Column(Integer, nullable=False, default=0)  # Replica number for this chunk (0-based)
     status = Column(String(50), nullable=False, default="pending", index=True)  # 'pending', 'assigned', 'running', 'completed', 'failed', 'cancelled'
     assigned_worker_id = Column(String, ForeignKey("workers.worker_id"), nullable=True, index=True)
     assigned_at = Column(DateTime, nullable=True)
@@ -123,6 +126,8 @@ class Task(Base):
     completed_at = Column(DateTime, nullable=True)
     retry_count = Column(Integer, nullable=False, default=0)
     error_message = Column(Text, nullable=True)
+    raw_result_data = Column(JSON, nullable=True)  # Latest raw worker output (pre-verification)
+    raw_runtime_seconds = Column(Float, nullable=True)  # Latest raw task runtime from worker payload
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -135,6 +140,7 @@ class Task(Base):
     __table_args__ = (
         Index('idx_task_run_status', 'run_id', 'status'),
         Index('idx_task_worker_status', 'assigned_worker_id', 'status'),
+        Index('idx_task_run_chunk_replica', 'run_id', 'task_index', 'replica_index'),
     )
 
     def __repr__(self):
@@ -164,7 +170,6 @@ class Worker(Base):
     # Relationships
     owner = relationship("User", back_populates="workers")
     assigned_tasks = relationship("Task", back_populates="assigned_worker")
-    task_results = relationship("TaskResult", back_populates="worker")
     heartbeats = relationship("WorkerHeartbeat", back_populates="worker", cascade="all, delete-orphan")
 
     # Indexes
@@ -188,7 +193,6 @@ class TaskResult(Base):
     task_id = Column(String, ForeignKey("tasks.task_id"), unique=True, nullable=False, index=True)
     run_id = Column(String, nullable=False, index=True)  # Denormalized for analytics
     project_id = Column(String, nullable=False, index=True)  # Denormalized for analytics
-    worker_id = Column(String, ForeignKey("workers.worker_id"), nullable=False, index=True)
     result_data = Column(JSON, nullable=False)  # JSON result payload
     runtime_seconds = Column(Float, nullable=True)
     memory_used_mb = Column(Float, nullable=True)
@@ -197,7 +201,6 @@ class TaskResult(Base):
 
     # Relationships
     task = relationship("Task", back_populates="result")
-    worker = relationship("Worker", back_populates="task_results")
 
     # Index for time-based queries
     __table_args__ = (
@@ -365,7 +368,9 @@ def user_has_role(user_id: str, role: str) -> bool:
 
 def create_project(researcher_id: str, title: str, description: str,
                    code_path: str, dataset_path: str, dataset_type: str,
-                   func_name: str = "main", chunk_size: int = 1000) -> Project:
+                   func_name: str = "main", chunk_size: int = 1000,
+                   replication_factor: int = 2,
+                   max_verification_attempts: int = 2) -> Project:
     """Create a new project."""
     with SessionLocal() as session:
         project = Project(
@@ -376,7 +381,9 @@ def create_project(researcher_id: str, title: str, description: str,
             dataset_s3_path=dataset_path,  # Will be S3 path later
             dataset_type=dataset_type,
             func_name=func_name,
-            chunk_size=chunk_size
+            chunk_size=chunk_size,
+            replication_factor=replication_factor,
+            max_verification_attempts=max_verification_attempts,
         )
         session.add(project)
         session.commit()
@@ -419,10 +426,10 @@ def update_run(run_id: str, **kwargs) -> bool:
         return True
 
 
-def create_task(run_id: str, task_index: int) -> Task:
+def create_task(run_id: str, task_index: int, replica_index: int = 0) -> Task:
     """Create a new task."""
     with SessionLocal() as session:
-        task = Task(run_id=run_id, task_index=task_index)
+        task = Task(run_id=run_id, task_index=task_index, replica_index=replica_index)
         session.add(task)
         session.commit()
         session.refresh(task)
@@ -501,6 +508,8 @@ def register_worker(worker_id: str, worker_name: str, user_id: str = None,
             worker.memory_gb = memory_gb
             if ray_node_id:
                 worker.ray_node_id = ray_node_id
+            worker.status = "online"
+            worker.last_heartbeat = datetime.utcnow()
             worker.updated_at = datetime.utcnow()
         else:
             # Create new worker
@@ -511,7 +520,9 @@ def register_worker(worker_id: str, worker_name: str, user_id: str = None,
                 ip_address=ip_address,
                 cpu_cores=cpu_cores,
                 memory_gb=memory_gb,
-                ray_node_id=ray_node_id
+                ray_node_id=ray_node_id,
+                status="online",
+                last_heartbeat=datetime.utcnow(),
             )
             session.add(worker)
         session.commit()
@@ -559,16 +570,27 @@ def update_worker_heartbeat(worker_id: str, cpu_availability: float = None,
 
 
 def get_available_workers(limit: int = None) -> list:
-    """Get available workers (idle or online with good CPU availability)."""
+    """Get available volunteer workers (idle or online with good CPU availability)."""
     with SessionLocal() as session:
-        query = session.query(Worker).filter(
-            Worker.status.in_(["idle", "online"]),
-            Worker.cpu_availability > 0.5,
-            Worker.last_heartbeat.isnot(None)
-        ).order_by(Worker.cpu_availability.desc())
+        query = (
+            session.query(Worker)
+            .join(User, Worker.user_id == User.user_id)
+            .filter(
+                Worker.status.in_(["idle", "online"]),
+                Worker.cpu_availability > 0.5,
+                Worker.last_heartbeat.isnot(None)
+            )
+            .all()
+        )
+
+        volunteer_workers = [
+            worker for worker in query
+            if worker.owner and "volunteer" in (worker.owner.role or "").split(",")
+        ]
+        volunteer_workers.sort(key=lambda w: w.cpu_availability or 0, reverse=True)
         if limit:
-            query = query.limit(limit)
-        return query.all()
+            return volunteer_workers[:limit]
+        return volunteer_workers
 
 
 def get_researcher_projects_with_stats(researcher_id: str) -> list:
@@ -613,23 +635,31 @@ def get_researcher_projects_with_stats(researcher_id: str) -> list:
             # Calculate progress percentage
             progress = int((completed_tasks / total_tasks * 100)) if total_tasks > 0 else 0
 
-            # Get unique contributors (workers who completed tasks for this project)
-            # Contributors are identified by unique worker_ids who have completed tasks
-            # Use TaskResult for completed tasks (more reliable)
-            completed_task_workers = session.query(distinct(TaskResult.worker_id)).filter(
-                TaskResult.project_id == project.project_id,
-                TaskResult.worker_id.isnot(None)
-            ).all()
-            total_contributors = len([w[0] for w in completed_task_workers if w[0]])
+            # Get unique contributors at user level (one user may own multiple workers).
+            completed_task_users = (
+                session.query(distinct(Worker.user_id))
+                .join(TaskResult, Worker.worker_id == TaskResult.worker_id)
+                .filter(
+                    TaskResult.project_id == project.project_id,
+                    Worker.user_id.isnot(None)
+                )
+                .all()
+            )
+            total_contributors = len([u[0] for u in completed_task_users if u[0]])
 
-            # Get active contributors (workers currently working on tasks)
-            # These are workers with tasks in "assigned" or "running" status
-            active_task_workers = session.query(distinct(Task.assigned_worker_id)).join(Run).filter(
-                Run.project_id == project.project_id,
-                Task.status.in_(["assigned", "running"]),
-                Task.assigned_worker_id.isnot(None)
-            ).all()
-            active_contributors = len([w[0] for w in active_task_workers if w[0]])
+            # Get active contributors at user level.
+            active_task_users = (
+                session.query(distinct(Worker.user_id))
+                .join(Task, Worker.worker_id == Task.assigned_worker_id)
+                .join(Run, Task.run_id == Run.run_id)
+                .filter(
+                    Run.project_id == project.project_id,
+                    Task.status.in_(["assigned", "running"]),
+                    Worker.user_id.isnot(None)
+                )
+                .all()
+            )
+            active_contributors = len([u[0] for u in active_task_users if u[0]])
 
             # Get completed contributors (for completed projects)
             completed_contributors = total_contributors if progress >= 100 else None
