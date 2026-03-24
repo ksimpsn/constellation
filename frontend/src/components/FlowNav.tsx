@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import ConstellationLogo from "./ConstellationLogo";
 import { useView } from "../context/ViewContext";
 import { useAuth } from "../context/AuthContext";
+import { hasResearcherRole, hasVolunteerRole } from "../auth/session";
 
 // Security uses same page as home "Privacy & Security" link (/security), not /security-research
 const discoverLinks = [
@@ -11,17 +12,7 @@ const discoverLinks = [
   { path: "/security", label: "Privacy & Security" },
 ];
 
-const contributeVolunteer = [
-  { path: "/browse", label: "Browse projects" },
-  { path: "/submit", label: "Submit a project" },
-];
-
-const contributeResearcher = [
-  { path: "/submit", label: "Submit a project" },
-  { path: "/browse", label: "Browse projects" },
-];
-
-/** Public links for guests (no login required). Submit requires sign-in. */
+/** Public links for guests (no login required). Submit requires sign-in + researcher role. */
 const guestContributeLinks = [
   { path: "/browse", label: "Browse projects" },
   { path: "/leaderboard", label: "Leaderboard" },
@@ -33,12 +24,19 @@ export default function FlowNav() {
   const navigate = useNavigate();
   const { isResearcher, setView } = useView();
   const { user, logout } = useAuth();
+  const canSwitchRoles =
+    Boolean(user) && hasResearcherRole(user!.role) && hasVolunteerRole(user!.role);
 
-  const baseContribute = isResearcher ? contributeResearcher : contributeVolunteer;
-  const loggedInContributeLinks = [
-    ...baseContribute,
-    { path: "/leaderboard", label: "Leaderboard" },
-  ];
+  /** Logged-in: everyone sees browse + leaderboard; submit only if account includes researcher (researcher-only or dual-role). */
+  const contributeLinks = user
+    ? [
+        { path: "/browse", label: "Browse projects" },
+        ...(hasResearcherRole(user.role)
+          ? [{ path: "/submit", label: "Submit a project" }]
+          : []),
+        { path: "/leaderboard", label: "Leaderboard" },
+      ]
+    : guestContributeLinks;
 
   useEffect(() => setOpen(false), [location.pathname]);
 
@@ -144,7 +142,7 @@ export default function FlowNav() {
                     Contribute
                   </p>
                   <ul className="space-y-0.5">
-                    {(user ? loggedInContributeLinks : guestContributeLinks).map(({ path, label }) => {
+                    {contributeLinks.map(({ path, label }) => {
                       const active =
                         path === "/leaderboard"
                           ? location.pathname === "/leaderboard"
@@ -212,15 +210,17 @@ export default function FlowNav() {
                           Log out
                         </button>
                       </li>
-                      <li className="pt-2 border-t border-white/10">
-                        <button
-                          type="button"
-                          onClick={handleSwitchView}
-                          className="w-full text-left px-4 py-3 rounded-xl text-[15px] text-indigo-300 hover:bg-white/10 transition-colors"
-                        >
-                          Switch to {isResearcher ? "Volunteer" : "Researcher"}
-                        </button>
-                      </li>
+                      {canSwitchRoles && (
+                        <li className="pt-2 border-t border-white/10">
+                          <button
+                            type="button"
+                            onClick={handleSwitchView}
+                            className="w-full text-left px-4 py-3 rounded-xl text-[15px] text-indigo-300 hover:bg-white/10 transition-colors"
+                          >
+                            Switch to {isResearcher ? "Volunteer" : "Researcher"}
+                          </button>
+                        </li>
+                      )}
                     </ul>
                   </div>
                 ) : (

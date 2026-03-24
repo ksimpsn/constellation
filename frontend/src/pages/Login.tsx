@@ -5,7 +5,7 @@ import FlowNav from '../components/FlowNav';
 
 import { API_BASE_URL } from "../api/config";
 import { useAuth } from '../context/AuthContext';
-import { hasResearcherRole } from '../auth/session';
+import { getPostAuthRedirectPath } from '../auth/session';
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -50,11 +50,7 @@ const Login: React.FC = () => {
       });
       setMessage('Login successful! Redirecting...');
       setTimeout(() => {
-        if (hasResearcherRole(data.role)) {
-          navigate('/researcher-profile');
-        } else {
-          navigate('/profile');
-        }
+        navigate(getPostAuthRedirectPath(data.role));
       }, 1500);
     } catch (error: unknown) {
       console.error('Login error:', error);

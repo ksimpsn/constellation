@@ -1,6 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import ConstellationStarfieldBackground from '../components/ConstellationStarfieldBackground';
 import FlowNav from '../components/FlowNav';
+import { useAuth } from '../context/AuthContext';
+import { API_BASE_URL } from '../api/config';
+import { hasResearcherRole, hasVolunteerRole } from '../auth/session';
 
 const inputStyle = {
   padding: '12px 16px',
@@ -13,10 +17,25 @@ const inputStyle = {
 } as const;
 
 export default function Settings() {
+  const location = useLocation();
+  const submitRequiresResearcher = Boolean(
+    (location.state as { submitRequiresResearcher?: boolean } | null)?.submitRequiresResearcher,
+  );
+  const { user, login } = useAuth();
+  const [wantResearcher, setWantResearcher] = useState(false);
+  const [wantVolunteer, setWantVolunteer] = useState(false);
+  const [rolesMessage, setRolesMessage] = useState('');
+  const [rolesSaving, setRolesSaving] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    setWantResearcher(hasResearcherRole(user.role));
+    setWantVolunteer(hasVolunteerRole(user.role));
+  }, [user?.user_id, user?.role]);
+
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [accountType, setAccountType] = useState('Researcher');
   const [privacySettings, setPrivacySettings] = useState({
     profileVisibility: 'public',
     dataSharing: true,
@@ -33,9 +52,41 @@ export default function Settings() {
     alert('Password reset functionality would be implemented here');
   };
 
-  const handleAccountTypeChange = (e: React.FormEvent) => {
+  const handleRolesSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    alert(`Account type changed to ${accountType}`);
+    if (!user) return;
+    if (!wantResearcher && !wantVolunteer) {
+      setRolesMessage('Select at least one role.');
+      return;
+    }
+    setRolesSaving(true);
+    setRolesMessage('');
+    const roles: string[] = [];
+    if (wantResearcher) roles.push('researcher');
+    if (wantVolunteer) roles.push('volunteer');
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/user/roles`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: user.user_id, roles }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setRolesMessage(data.error || `Update failed (${response.status})`);
+        return;
+      }
+      login({
+        user_id: data.user_id,
+        email: data.email,
+        name: data.name,
+        role: data.role,
+      });
+      setRolesMessage('Roles updated.');
+    } catch {
+      setRolesMessage(`Could not reach server at ${API_BASE_URL}`);
+    } finally {
+      setRolesSaving(false);
+    }
   };
 
   const handlePrivacyChange = (setting: keyof typeof privacySettings, value: string | boolean) => {
@@ -47,6 +98,12 @@ export default function Settings() {
       <FlowNav />
       <div className="relative z-10 px-6 pt-24 pb-16 max-w-[800px] mx-auto w-full flex flex-col gap-8">
         <h1 className="text-4xl font-bold text-white/90 mb-2 text-center">Account Settings</h1>
+
+        {submitRequiresResearcher && user && (
+          <p className="text-amber-200/90 text-sm text-center m-0 px-4 py-3 rounded-xl bg-amber-500/15 border border-amber-400/25">
+            Submitting projects requires the researcher role. Enable <strong className="text-white/95">Researcher</strong> below, save, then open Submit a project from the menu (researcher view).
+          </p>
+        )}
 
         <div className="p-6 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
           <h2 className="text-xl font-bold text-white/90 m-0 mb-5">Reset Password</h2>
@@ -70,20 +127,46 @@ export default function Settings() {
         </div>
 
         <div className="p-6 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
-          <h2 className="text-xl font-bold text-white/90 m-0 mb-5">Account Type</h2>
-          <form onSubmit={handleAccountTypeChange} className="flex flex-col gap-5">
-            <div className="flex flex-col gap-2">
-              <label className="text-white/80 text-sm font-medium">Current Account Type: <strong className="text-white/90">{accountType}</strong></label>
-              <select value={accountType} onChange={(e) => setAccountType(e.target.value)} style={inputStyle} className="cursor-pointer">
-                <option value="Researcher">Researcher</option>
-                <option value="Contributor">Contributor</option>
-                <option value="Institution">Institution</option>
-              </select>
-            </div>
-            <button type="submit" className="w-fit py-3.5 px-6 rounded-xl font-medium text-white bg-white/20 hover:bg-white/30 border border-white/20 transition-colors cursor-pointer">
-              Change Account Type
-            </button>
-          </form>
+          <h2 className="text-xl font-bold text-white/90 m-0 mb-5">Account roles</h2>
+          {!user ? (
+            <p className="text-white/60 m-0">Sign in to change your roles.</p>
+          ) : (
+            <form onSubmit={handleRolesSave} className="flex flex-col gap-5">
+              <p className="text-white/55 text-sm m-0">
+                Choose every role you want on this account. You need at least one. If you have both, use the menu to switch between researcher and volunteer experiences.
+              </p>
+              <label className="flex items-center gap-3 text-white/80 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={wantResearcher}
+                  onChange={() => setWantResearcher((v) => !v)}
+                  className="accent-purple-400 w-[18px] h-[18px] cursor-pointer"
+                />
+                Researcher
+              </label>
+              <label className="flex items-center gap-3 text-white/80 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={wantVolunteer}
+                  onChange={() => setWantVolunteer((v) => !v)}
+                  className="accent-purple-400 w-[18px] h-[18px] cursor-pointer"
+                />
+                Volunteer
+              </label>
+              <button
+                type="submit"
+                disabled={rolesSaving}
+                className="w-fit py-3.5 px-6 rounded-xl font-medium text-white bg-white/20 hover:bg-white/30 border border-white/20 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {rolesSaving ? 'Saving…' : 'Save roles'}
+              </button>
+              {rolesMessage && (
+                <p className={`text-sm m-0 ${rolesMessage.includes('failed') || rolesMessage.includes('Select') || rolesMessage.includes('Could not') ? 'text-red-300' : 'text-emerald-300'}`}>
+                  {rolesMessage}
+                </p>
+              )}
+            </form>
+          )}
         </div>
 
         <div className="p-6 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">

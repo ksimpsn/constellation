@@ -1,9 +1,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "./AuthContext";
-import { hasResearcherRole } from "../auth/session";
-
-const STORAGE_KEY = "constellation_view";
+import { hasResearcherRole, hasVolunteerRole, VIEW_MODE_STORAGE_KEY } from "../auth/session";
 
 export type ViewMode = "researcher" | "volunteer";
 
@@ -18,7 +16,7 @@ const ViewContext = createContext<ViewContextValue | null>(null);
 
 function readStoredView(): ViewMode {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
+    const stored = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
     if (stored === "researcher" || stored === "volunteer") return stored;
   } catch {
     // ignore
@@ -40,13 +38,24 @@ export function ViewProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const [view, setViewState] = useState<ViewMode>(() => readStoredView());
 
-  // Logged-in users: researcher menu vs volunteer follows their role
+  // Logged-in users: single role forces view; both roles keep saved preference
   useEffect(() => {
     if (!user) return;
-    const next: ViewMode = hasResearcherRole(user.role) ? "researcher" : "volunteer";
+    const hasR = hasResearcherRole(user.role);
+    const hasV = hasVolunteerRole(user.role);
+    let next: ViewMode;
+    if (hasR && !hasV) {
+      next = "researcher";
+    } else if (!hasR && hasV) {
+      next = "volunteer";
+    } else if (hasR && hasV) {
+      next = readStoredView();
+    } else {
+      next = "volunteer";
+    }
     setViewState(next);
     try {
-      localStorage.setItem(STORAGE_KEY, next);
+      localStorage.setItem(VIEW_MODE_STORAGE_KEY, next);
     } catch {
       // ignore
     }
@@ -55,12 +64,12 @@ export function ViewProvider({ children }: { children: ReactNode }) {
   // Sync view from URL on first load when no stored preference (e.g. direct link to /researcher)
   useEffect(() => {
     if (user) return;
-    const stored = localStorage.getItem(STORAGE_KEY);
+    const stored = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
     if (stored) return;
     const fromPath = isResearcherPath(location.pathname) ? "researcher" : "volunteer";
     setViewState((prev) => (fromPath !== prev ? fromPath : prev));
     try {
-      localStorage.setItem(STORAGE_KEY, fromPath);
+      localStorage.setItem(VIEW_MODE_STORAGE_KEY, fromPath);
     } catch {
       // ignore
     }
@@ -70,7 +79,7 @@ export function ViewProvider({ children }: { children: ReactNode }) {
     (next: ViewMode) => {
       setViewState(next);
       try {
-        localStorage.setItem(STORAGE_KEY, next);
+        localStorage.setItem(VIEW_MODE_STORAGE_KEY, next);
       } catch {
         // ignore
       }

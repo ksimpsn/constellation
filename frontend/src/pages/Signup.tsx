@@ -5,12 +5,13 @@ import FlowNav from '../components/FlowNav';
 
 import { API_BASE_URL } from "../api/config";
 import { useAuth } from '../context/AuthContext';
-import { hasResearcherRole } from '../auth/session';
+import { getPostAuthRedirectPath } from '../auth/session';
 
 const Signup: React.FC = () => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState('');
+  const [wantResearcher, setWantResearcher] = useState(false);
+  const [wantVolunteer, setWantVolunteer] = useState(false);
   const [reasons, setReasons] = useState<string[]>([]);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
@@ -35,8 +36,16 @@ const Signup: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!wantResearcher && !wantVolunteer) {
+      setMessage('Error: Select at least one role (Researcher and/or Volunteer).');
+      return;
+    }
     setLoading(true);
     setMessage('');
+
+    const roles: string[] = [];
+    if (wantResearcher) roles.push('researcher');
+    if (wantVolunteer) roles.push('volunteer');
 
     try {
       const response = await fetch(`${API_BASE_URL}/api/signup`, {
@@ -44,7 +53,7 @@ const Signup: React.FC = () => {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ name, email, role, reasons }),
+        body: JSON.stringify({ name, email, roles, reasons }),
       });
 
       if (!response.ok) {
@@ -69,11 +78,7 @@ const Signup: React.FC = () => {
       });
       setMessage('Signup successful! Redirecting...');
       setTimeout(() => {
-        if (hasResearcherRole(data.role)) {
-          navigate('/researcher-profile');
-        } else {
-          navigate('/profile');
-        }
+        navigate(getPostAuthRedirectPath(data.role));
       }, 1500);
     } catch (error: any) {
       console.error('Signup error:', error);
@@ -130,18 +135,30 @@ const Signup: React.FC = () => {
             />
           </div>
           <div className="mb-5">
-            <label htmlFor="role" className="text-white/80 text-sm font-medium">Role</label>
-            <select
-              id="role"
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              required
-              style={{ ...inputStyle, color: role ? 'white' : 'rgba(255,255,255,0.5)' }}
-            >
-              <option value="">Select your role</option>
-              <option value="researcher">Researcher</option>
-              <option value="contributor">Contributor</option>
-            </select>
+            <span className="text-white/80 text-sm font-medium block mb-2">Roles (select all that apply)</span>
+            <p className="text-white/50 text-xs m-0 mb-3">
+              You can post projects as a researcher, contribute compute as a volunteer, or both. You can add another role later in Settings.
+            </p>
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 text-white/80 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={wantResearcher}
+                  onChange={() => setWantResearcher((v) => !v)}
+                  className="accent-purple-400"
+                />
+                <span>Researcher — submit and manage projects</span>
+              </label>
+              <label className="flex items-center gap-2 text-white/80 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={wantVolunteer}
+                  onChange={() => setWantVolunteer((v) => !v)}
+                  className="accent-purple-400"
+                />
+                <span>Volunteer — browse and run tasks for projects</span>
+              </label>
+            </div>
           </div>
           <div className="mb-6">
             <label className="text-white/80 text-sm font-medium block mb-2">Why are you using Constellation? (Select all that apply)</label>

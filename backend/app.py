@@ -12,7 +12,19 @@ Later, it will connect to:
 
 from flask import Flask, request, jsonify
 from backend.core.api import ConstellationAPI
-from backend.core.database import get_user_by_id, user_has_role, register_worker, get_session, get_researcher_projects_with_stats, create_user, get_user_by_email, init_db, list_browse_projects
+from backend.core.database import (
+    get_user_by_id,
+    user_has_role,
+    register_worker,
+    get_session,
+    get_researcher_projects_with_stats,
+    create_user,
+    get_user_by_email,
+    init_db,
+    list_browse_projects,
+    normalize_roles_input,
+    set_user_roles,
+)
 from backend.core.server import Cluster
 import os
 import uuid
@@ -116,6 +128,14 @@ def submit_job():
 
     if not title or not py_file or not data_file:
         return jsonify({"error": "Missing required fields"}), 400
+
+    user_id = request.form.get("user_id")
+    if not user_id:
+        return jsonify({"error": "Sign in required to submit projects"}), 401
+    if not get_user_by_id(user_id):
+        return jsonify({"error": "Unknown user"}), 403
+    if not user_has_role(user_id, "researcher"):
+        return jsonify({"error": "Only accounts with the researcher role can submit projects"}), 403
 
     # Save temp files
     os.makedirs("tmp", exist_ok=True)
@@ -256,23 +276,24 @@ def signup():
         name = data.get("name")
         email = data.get("email")
         role = data.get("role")
+        roles = data.get("roles")
         reasons = data.get("reasons", [])
 
         # Validate required fields
-        if not name or not email or not role:
+        if not name or not email:
             return jsonify({
-                "error": "Missing required fields: name, email, and role are required"
+                "error": "Missing required fields: name and email are required"
             }), 400
 
-        # Validate role
-        if role not in ["volunteer", "researcher", "contributor"]:
+        if roles is None and not role:
             return jsonify({
-                "error": "Invalid role. Must be 'volunteer', 'researcher', or 'contributor'"
+                "error": "Missing roles: send 'roles' (array) or legacy 'role' (string)"
             }), 400
 
-        # Map "contributor" to "volunteer" (same thing)
-        if role == "contributor":
-            role = "volunteer"
+        try:
+            role_string = normalize_roles_input(role=role, roles=roles)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
 
         # Initialize database if needed
         init_db()
@@ -290,11 +311,11 @@ def signup():
         user = create_user(
             email=email,
             name=name,
-            role=role,
+            role=role_string,
             metadata={"signup_reasons": reasons} if reasons else None
         )
 
-        logging.info(f"[INFO] Created new user: {user.user_id} ({role})")
+        logging.info(f"[INFO] Created new user: {user.user_id} ({role_string})")
 
         return jsonify({
             "success": True,
@@ -308,6 +329,41 @@ def signup():
         logging.error(f"[ERROR] Error in signup endpoint: {e}")
         import traceback
         traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/user/roles", methods=["PATCH", "OPTIONS"])
+def patch_user_roles():
+    """
+    Update which roles an account has (researcher / volunteer / both).
+    Body: { "user_id": "...", "roles": ["researcher"] | ["volunteer"] | both }
+    """
+    if request.method == "OPTIONS":
+        return "", 200
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Missing request body"}), 400
+        user_id = data.get("user_id")
+        roles = data.get("roles")
+        if not user_id or roles is None:
+            return jsonify({"error": "user_id and roles are required"}), 400
+        try:
+            role_string = normalize_roles_input(roles=roles)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        user = set_user_roles(user_id, role_string)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+        return jsonify({
+            "success": True,
+            "user_id": user.user_id,
+            "email": user.email,
+            "name": user.name,
+            "role": user.role,
+        }), 200
+    except Exception as e:
+        logging.error(f"[ERROR] patch_user_roles: {e}")
         return jsonify({"error": str(e)}), 500
 
 

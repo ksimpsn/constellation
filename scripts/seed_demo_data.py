@@ -46,6 +46,11 @@ DEMO_USERS = [
         "name": "Riley Contributor",
         "role": "volunteer",
     },
+    {
+        "email": "demo-both-roles@constellation.test",
+        "name": "Jordan Dual-Role",
+        "role": "researcher,volunteer",
+    },
 ]
 
 # Projects: title, description, tags, paths relative to repo (for reference; need not exist for UI)
@@ -164,6 +169,7 @@ def main() -> None:
     print(f"Done. New users: {created_users}, new projects: {created_projects}.")
     print("Browse: GET http://localhost:5001/api/projects/browse")
     print("Researcher dashboard uses debug id: GET http://localhost:5001/api/researcher/debug-id")
+    print("Dual-role demo login: demo-both-roles@constellation.test (menu shows Switch to Researcher / Volunteer)")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,8 @@
 export const AUTH_STORAGE_KEY = "constellation_user";
 
+/** Must match ViewContext — used after login/signup to pick dashboard vs researcher home */
+export const VIEW_MODE_STORAGE_KEY = "constellation_view";
+
 export type AuthUser = {
   user_id: string;
   email: string;
@@ -19,6 +22,23 @@ export function hasVolunteerRole(role: string): boolean {
     .split(",")
     .map((r) => r.trim())
     .includes("volunteer");
+}
+
+/** Where to send the user after auth when they may have one or both roles */
+export function getPostAuthRedirectPath(role: string): string {
+  const hasR = hasResearcherRole(role);
+  const hasV = hasVolunteerRole(role);
+  if (hasR && hasV) {
+    try {
+      const v = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
+      if (v === "researcher") return "/researcher-profile";
+    } catch {
+      /* ignore */
+    }
+    return "/profile";
+  }
+  if (hasR) return "/researcher-profile";
+  return "/profile";
 }
 
 export function loadStoredUser(): AuthUser | null {

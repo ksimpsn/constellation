@@ -12,6 +12,7 @@ import {
   saveStoredUser,
   clearStoredUser,
   hasResearcherRole,
+  hasVolunteerRole,
 } from "../auth/session";
 
 type AuthContextValue = {
@@ -38,9 +39,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const isResearcher = user ? hasResearcherRole(user.role) : false;
-  const isVolunteer = user
-    ? user.role.split(",").map((r) => r.trim()).includes("volunteer")
-    : false;
+  const isVolunteer = user ? hasVolunteerRole(user.role) : false;
 
   const value = useMemo(
     () => ({

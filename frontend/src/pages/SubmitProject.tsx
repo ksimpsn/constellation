@@ -3,6 +3,7 @@ import FlowNav from "../components/FlowNav";
 import { useState, useEffect, useRef } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { hasResearcherRole } from "../auth/session";
 
 import { API_BASE_URL } from "../api/config";
 
@@ -24,6 +25,10 @@ export default function SubmitProject() {
   const pollingIntervalRef = useRef<number | null>(null);
 
   const handleSubmit = async () => {
+    if (!user || !hasResearcherRole(user.role)) {
+      setMessage("Only accounts with the researcher role can submit projects.");
+      return;
+    }
     if (!title.trim()) {
       setMessage("Please enter a project title.");
       return;
@@ -55,6 +60,7 @@ export default function SubmitProject() {
     formData.append("chunk_size", String(Math.floor(rowsPerTask)));
     formData.append("replication_factor", String(Math.floor(replicationFactor)));
     formData.append("max_verification_attempts", String(Math.floor(maxVerificationAttempts)));
+    formData.append("user_id", user.user_id);
 
     try {
       const response = await fetch(`${API_BASE_URL}/submit`, {
@@ -147,6 +153,10 @@ export default function SubmitProject() {
 
   if (!user) {
     return <Navigate to="/login" replace state={{ from: "/submit" }} />;
+  }
+
+  if (!hasResearcherRole(user.role)) {
+    return <Navigate to="/settings" replace state={{ submitRequiresResearcher: true }} />;
   }
 
   const inputStyle = {

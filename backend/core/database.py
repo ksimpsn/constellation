@@ -387,6 +387,48 @@ def delete_job(job_id):
 # Helper Functions for New Schema
 # ============================================================================
 
+def normalize_roles_input(role=None, roles=None) -> str:
+    """
+    Build a canonical role string: 'researcher', 'volunteer', or 'researcher,volunteer'.
+    Accepts legacy single `role` or `roles` as a list or comma-separated string.
+    Maps 'contributor' to 'volunteer'. Raises ValueError if nothing valid remains.
+    """
+    parts: list[str] = []
+    if roles is not None:
+        if isinstance(roles, str):
+            parts.extend(roles.split(","))
+        else:
+            for item in roles:
+                parts.append(str(item))
+    elif role is not None:
+        parts.append(str(role))
+    seen: list[str] = []
+    for p in parts:
+        r = p.strip().lower()
+        if r == "contributor":
+            r = "volunteer"
+        if r not in ("researcher", "volunteer"):
+            continue
+        if r not in seen:
+            seen.append(r)
+    if not seen:
+        raise ValueError("At least one role is required (researcher and/or volunteer)")
+    seen.sort(key=lambda x: 0 if x == "researcher" else 1)
+    return ",".join(seen)
+
+
+def set_user_roles(user_id: str, role_string: str) -> User | None:
+    """Replace the user's role field (e.g. 'researcher,volunteer')."""
+    with SessionLocal() as session:
+        user = session.query(User).filter_by(user_id=user_id).first()
+        if not user:
+            return None
+        user.role = role_string
+        session.commit()
+        session.refresh(user)
+        return user
+
+
 def create_user(email: str, name: str, role: str = "volunteer", metadata: dict = None) -> User:
     """Create a new user."""
     with SessionLocal() as session:
@@ -415,7 +457,8 @@ def user_has_role(user_id: str, role: str) -> bool:
     if not user:
         return False
     # Role can be 'researcher', 'volunteer', or 'researcher,volunteer'
-    return role in user.role.split(',')
+    rset = {x.strip() for x in (user.role or "").split(",") if x.strip()}
+    return role in rset
 
 
 def create_project(researcher_id: str, title: str, description: str,
