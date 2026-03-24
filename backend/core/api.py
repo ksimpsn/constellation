@@ -109,7 +109,44 @@ class ConstellationAPI:
 
             done, not_done = ray.wait(pending, num_returns=len(pending), timeout=0)
             if done:
-                ray_results = list(self.server.get_results(done))
+                try:
+                    ray_results = list(self.server.get_results(done))
+                except ray.exceptions.TaskUnschedulableError as e:
+                    # Avoid endless background-loop spam when a pinned node disappears.
+                    logging.error(
+                        "[ConstellationAPI] Run %s unschedulable; marking failed: %s",
+                        run_id,
+                        e,
+                    )
+                    with get_session() as session:
+                        run_row = session.query(Run).filter_by(run_id=run_id).first()
+                        if run_row:
+                            run_row.status = "failed"
+                            run_row.completed_at = datetime.utcnow()
+                            run_row.updated_at = datetime.utcnow()
+                        session.query(Task).filter(
+                            Task.run_id == run_id,
+                            Task.status.in_(["pending", "assigned", "running"]),
+                        ).update(
+                            {
+                                Task.status: "failed",
+                                Task.error_message: "Task became unschedulable (target node unavailable).",
+                                Task.updated_at: datetime.utcnow(),
+                            },
+                            synchronize_session=False,
+                        )
+                        session.commit()
+
+                    job_id = self.run_id_to_job_id.get(run_id)
+                    if job_id is not None:
+                        update_job(job_id, status="failed")
+
+                    with self._lock:
+                        self.futures.pop(run_id, None)
+                        self.run_fn_bytes.pop(run_id, None)
+                        self._runs_finalizing.discard(run_id)
+                    continue
+
                 self._record_results(run_id, ray_results)
                 self._verify_completed_chunks_incrementally(run_id)
 
@@ -307,7 +344,7 @@ class ConstellationAPI:
             max_verification_attempts = max(0, int(project.max_verification_attempts or 0))
             dataset_type = project.dataset_type
             dataset_path = project.dataset_s3_path
-            chunk_size = max(1, int(project.chunk_size or 1))
+            chunk_size = max(1, int(getattr(project, "chunk_size", 1) or 1))
             run_row.status = "verifying"
             run_row.updated_at = datetime.utcnow()
             session.commit()
@@ -321,6 +358,22 @@ class ConstellationAPI:
             all_rows = self._load_json(dataset_path)
         else:
             raise ValueError(f"Unsupported dataset type: {dataset_type}")
+
+        # Main-branch flow expects project.chunk_size to exist; AWS-backed project lookups
+        # can return a SimpleNamespace without that field. Infer from persisted run tasks.
+        if not getattr(project, "chunk_size", None):
+            with get_session() as session:
+                logical_chunks = (
+                    session.query(Task.task_index)
+                    .filter(Task.run_id == run_id)
+                    .distinct()
+                    .count()
+                )
+            if logical_chunks > 0 and len(all_rows) > 0:
+                chunk_size = max(1, (len(all_rows) + logical_chunks - 1) // logical_chunks)
+            else:
+                chunk_size = 1
+
         chunks = [all_rows[i:i + chunk_size] for i in range(0, len(all_rows), chunk_size)]
 
         chunk_outputs = self._build_chunk_outputs(run_id)

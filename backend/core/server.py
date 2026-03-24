@@ -209,11 +209,12 @@ class Cluster:
                     target_node_id = target_node_ids[idx]
 
                 if target_node_id:
-                    # Hard affinity ensures volunteer-only execution.
+                    # Prefer the selected volunteer node, but allow fallback scheduling
+                    # if that node disappears mid-run.
                     future = compute_uploaded_task.options(
                         scheduling_strategy=NodeAffinitySchedulingStrategy(
                             node_id=target_node_id,
-                            soft=False
+                            soft=True
                         )
                     ).remote(payload, func_bytes)
                 else:

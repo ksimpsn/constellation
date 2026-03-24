@@ -4,7 +4,7 @@ import time
 import hashlib
 import json
 
-@ray.remote(resources={"volunteer_worker": 1})
+@ray.remote
 def compute_task(payload: dict):
     """
         Minimal compute function for MVP.
@@ -44,7 +44,7 @@ def compute_task(payload: dict):
         "ray_worker_id": runtime_context.get_worker_id()
     }
 
-@ray.remote(resources={"volunteer_worker": 1})
+@ray.remote
 def compute_uploaded_task(payload, func_bytes):
     """
     Executes a user-uploaded function against a batch of rows.
