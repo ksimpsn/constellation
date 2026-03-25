@@ -1081,7 +1081,7 @@ def create_project(researcher_id: str, title: str, description: str,
             chunk_size=chunk_size,
             replication_factor=replication_factor,
             max_verification_attempts=max_verification_attempts,
-            s3_upload_fn=s3.upload_file,
+            s3_upload_fn=_get_s3_client().upload_file,
             bucket_name=BUCKET_NAME,
             num_chunks=num_chunks,
         )

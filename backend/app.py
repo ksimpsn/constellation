@@ -320,7 +320,7 @@ def signup():
             }), 409
 
         user_id = (request.get_json() or {}).get("user_id") or email.split("@")[0].replace(".", "_")
-        user, err = create_user(user_id=user_id, email=email, name=full_name, role=role)
+        user, err = create_user(user_id=user_id, email=email, name=full_name, role=role_string)
         if err:
             return jsonify({"error": err}), 409
         if not user:

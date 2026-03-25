@@ -275,6 +275,7 @@ def create_aws_user(
     """
     if not is_aws_db_configured():
         raise RuntimeError("AWS database not configured. Set AWS_DATABASE_URL.")
+    role = role or "volunteer"
     roles = [x.strip() for x in role.split(",") if x.strip()]
     with get_aws_session() as session:
         if session.query(AWSUser).filter_by(username=user_id).first():
