@@ -369,9 +369,29 @@ def patch_user_roles():
 
 @app.route("/api/login", methods=["POST", "OPTIONS"])
 def login():
-    """
-    Endpoint: POST /api/login
-    Purpose: Authenticate a user by email and return user info.
+    """POST /api/login — authenticate by email; body: { "email" }."""
+    if request.method == "OPTIONS":
+        return "", 200
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Missing request body"}), 400
+        email = (data.get("email") or "").strip()
+        if not email:
+            return jsonify({"error": "email is required"}), 400
+        user = get_user_by_email(email)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+        return jsonify({
+            "user_id": user.user_id,
+            "email": user.email,
+            "name": user.name,
+            "role": user.role,
+        }), 200
+    except Exception as e:
+        logging.error(f"[ERROR] login: {e}")
+        return jsonify({"error": str(e)}), 500
+
 
 def _project_to_dict(p):
     return {
@@ -507,7 +527,9 @@ def download_run_results(run_id):
     import json as json_module
     body = json_module.dumps(payload, indent=2)
     resp = Response(body, mimetype="application/json")
-    resp.headers["Content-Disposition"] = f'attachment; filename="results_{run_id}.json"'
+    resp.headers["Content-Disposition"] = (
+        f"attachment; filename=\"results_{run_id}.json\""
+    )
     return resp
 
 
@@ -570,10 +592,54 @@ def register_worker_endpoint():
         resources = matching_node.get("Resources", {})
         cpu_cores = int(resources.get("CPU", 0)) if resources.get("CPU") else None
         memory_gb = (resources.get("memory", 0) / (1024**3)) if resources.get("memory") else None
-        with get_session() as session:
-            from backend.core.database import Task, Worker
 
-            # Get all projects for this researcher
+        worker_id = f"worker-{uuid.uuid4()}"
+        ip_address = matching_node.get("NodeManagerAddress") or client_ip
+        register_worker(
+            worker_id=worker_id,
+            worker_name=worker_name,
+            user_id=user_id,
+            ip_address=ip_address,
+            cpu_cores=cpu_cores,
+            memory_gb=memory_gb,
+            ray_node_id=str(node_id) if node_id is not None else None,
+        )
+        dispatched_runs = api.try_dispatch_queued_runs()
+        if dispatched_runs:
+            logging.info(f"[INFO] Dispatched {dispatched_runs} queued run(s) after worker register")
+
+        return jsonify({
+            "worker_id": worker_id,
+            "status": "registered",
+            "ray_node_id": str(node_id) if node_id is not None else None,
+            "message": "Worker registered successfully",
+            "queued_runs_dispatched": dispatched_runs,
+        }), 200
+
+    except Exception as e:
+        logging.error(f"[ERROR] register_worker_endpoint: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/researcher/<researcher_id>/stats", methods=["GET", "OPTIONS"])
+def get_researcher_stats(researcher_id):
+    """GET /api/researcher/<researcher_id>/stats — profile aggregate stats."""
+    try:
+        from backend.core.database import Project, Run, Task, TaskResult, Worker
+        from sqlalchemy import distinct
+
+        user = get_user_by_id(researcher_id)
+        if not user:
+            return jsonify({"error": f"User {researcher_id} not found"}), 404
+
+        if not user_has_role(researcher_id, "researcher"):
+            return jsonify({
+                "error": f"User {researcher_id} does not have 'researcher' role"
+            }), 403
+
+        with get_session() as session:
             projects = session.query(Project).filter_by(
                 researcher_id=researcher_id,
                 status="active"
@@ -581,12 +647,9 @@ def register_worker_endpoint():
 
             total_projects = len(projects)
             completed_projects = 0
-
-            # Get unique contributors across all projects
             all_contributors = set()
 
             for project in projects:
-                # Check if project is completed (all tasks done)
                 runs = session.query(Run).filter_by(project_id=project.project_id).all()
                 total_tasks = 0
                 completed_tasks = 0
@@ -603,7 +666,6 @@ def register_worker_endpoint():
                 if total_tasks > 0 and completed_tasks >= total_tasks:
                     completed_projects += 1
 
-                # Contributors: distinct users who completed work (Task -> TaskResult)
                 contributor_rows = (
                     session.query(distinct(Worker.user_id))
                     .join(Task, Task.assigned_worker_id == Worker.worker_id)
@@ -678,14 +740,10 @@ def get_researcher_projects(researcher_id):
         # Get projects with statistics
         projects = get_researcher_projects_with_stats(researcher_id)
 
-        return jsonify({
-            "worker_id": worker_id,
-            "status": "registered",
-            "ray_node_id": node_id,
-            "message": "Worker registered successfully"
-        }), 200
+        return jsonify({"projects": projects}), 200
+
     except Exception as e:
-        logging.error(f"[ERROR] register_worker: {e}")
+        logging.error(f"[ERROR] Error in get_researcher_projects endpoint: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
@@ -945,7 +1003,7 @@ def start_head():
                 logging.info("[INFO] Head node is ready for remote worker connections")
             else:
                 logging.warning("[WARNING] Head node may not accept remote connections. For same-machine demo use scripts/start-ray-head.sh (uses --node-ip-address=127.0.0.1).")
-            
+
             return jsonify({
                 "status": "started",
                 "head_node_ip": local_ip,

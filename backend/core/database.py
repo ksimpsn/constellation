@@ -16,7 +16,6 @@ from datetime import datetime
 import uuid
 import hashlib
 import json
-import boto3
 
 # Create SQLite database (local file: constellation.db)
 DATABASE_URL = "sqlite:///constellation.db"
@@ -27,7 +26,18 @@ SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
 BUCKET_NAME = "constellation-bucket-005988779256-us-east-1-an"
-s3 = boto3.client("s3")
+
+_s3_client = None
+
+
+def _get_s3_client():
+    """Lazy boto3 client so Flask can import without boto3; install for S3 uploads."""
+    global _s3_client
+    if _s3_client is None:
+        import boto3
+
+        _s3_client = boto3.client("s3")
+    return _s3_client
 
 # ============================================================================
 # DynamoDB-Equivalent Tables (Transactional Data)
@@ -44,7 +54,7 @@ class User(Base):
     user_metadata = Column("metadata", JSON, nullable=True)  # Flexible storage (signup reasons, preferences)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-    
+
     # Relationships
     projects = relationship("Project", back_populates="researcher", cascade="all, delete-orphan")
     workers = relationship("Worker", back_populates="owner", cascade="all, delete-orphan")
@@ -214,7 +224,7 @@ class TaskResult(Base):
     memory_used_mb = Column(Float, nullable=True)
     completed_at = Column(DateTime, nullable=False, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    
+
     attempt_id = Column(Integer, nullable=False, default=0)
 
     result_hash = Column(String(128), nullable=True, index=True)
@@ -481,7 +491,7 @@ def user_has_role(user_id: str, role: str) -> bool:
     rset = {x.strip() for x in (user.role or "").split(",") if x.strip()}
     return role in rset
 
-def create_project(researcher_id: str, title: str, description: str, 
+def create_project(researcher_id: str, title: str, description: str,
                    code_path: str, dataset_path: str, dataset_type: str,
                    func_name: str = "main", chunk_size: int = 1000,
                    replication_factor: int = 2,
@@ -505,11 +515,11 @@ def create_project(researcher_id: str, title: str, description: str,
         session.flush()  # Assign project_id (from default) before using it for S3 keys
 
         code_key = f"{project.project_id}/code.py"
-        s3.upload_file(code_path, BUCKET_NAME, code_key)
+        _get_s3_client().upload_file(code_path, BUCKET_NAME, code_key)
         project.code_s3_path = f"s3://{BUCKET_NAME}/{code_key}"
 
         dataset_key = f"{project.project_id}/dataset.{dataset_type}"
-        s3.upload_file(dataset_path, BUCKET_NAME, dataset_key)
+        _get_s3_client().upload_file(dataset_path, BUCKET_NAME, dataset_key)
         project.dataset_s3_path = f"s3://{BUCKET_NAME}/{dataset_key}"
 
         session.commit()
@@ -748,7 +758,7 @@ def create_task_result(task_id: str, run_id: str, project_id: str, worker_id: st
         session.commit()
         session.refresh(result)
         return result
-    
+
 def _hash_result(result_data):
     serialized = json.dumps(result_data, sort_keys=True, default=str)
     return hashlib.sha256(serialized.encode()).hexdigest()

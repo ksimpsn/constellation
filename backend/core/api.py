@@ -27,7 +27,7 @@ from datetime import datetime
 from backend.core.server import Cluster
 
 from backend.core.database import (
-    get_session, 
+    get_session,
     # Legacy functions (for backward compatibility)
     Job, save_job, update_job, get_job,
     # New schema models and functions
@@ -805,8 +805,6 @@ class ConstellationAPI:
             researcher_id: str = None,
             title: str = None,
             description: str = None,
-            replication_factor: int = 2,
-            max_verification_attempts: int = 2,
     ) -> int:
         """
         Full pipeline for researcher-uploaded projects.
@@ -862,10 +860,10 @@ class ConstellationAPI:
         # Default researcher_id if not provided (for backward compatibility)
         if not researcher_id:
             researcher_id = "user-default"  # TODO: Get from auth context
-        
+
         if not title:
             title = f"Project {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        
+
         project = create_project(
             researcher_id=researcher_id,
             title=title,
@@ -878,7 +876,7 @@ class ConstellationAPI:
             replication_factor=replication_factor,
             max_verification_attempts=max_verification_attempts,
         )
-        
+
         # Copy files to project directory, named by project_id (same hash as folder / results_<run_id>.json)
         proj_dir = f"projects/{project.project_id}"
         os.makedirs(proj_dir, exist_ok=True)
@@ -887,7 +885,7 @@ class ConstellationAPI:
         stored_dataset_path = f"{proj_dir}/{pid}.{file_type}"
         shutil.copyfile(code_path, stored_code_path)
         shutil.copyfile(dataset_path, stored_dataset_path)
-        
+
         # # Update project with stored paths
         # project.code_s3_path = stored_code_path
         # project.dataset_s3_path = stored_dataset_path
@@ -903,7 +901,7 @@ class ConstellationAPI:
         with get_session() as session:
             session.merge(run)
             session.commit()
-        
+
         # Create Task records for each chunk replica.
         tasks = []
         for idx, chunk in enumerate(chunks):
@@ -931,7 +929,7 @@ class ConstellationAPI:
         self.job_id_to_run_id[legacy_job_id] = run.run_id
         self.run_id_to_job_id[run.run_id] = legacy_job_id
         self.run_fn_bytes[run.run_id] = fn_bytes
-        
+
         # ---------------------------------------------------------
         # 7. Sync workers and dispatch to volunteers (or queue)
         # ---------------------------------------------------------
@@ -1077,7 +1075,7 @@ class ConstellationAPI:
         """
         Returns the current status of the job/run.
         Status could be: submitted, running, complete, failed, etc.
-        
+
         Args:
             job_id: Legacy integer job_id (will map to run_id internally)
         """
@@ -1085,13 +1083,13 @@ class ConstellationAPI:
 
         # Map legacy job_id to run_id
         run_id = self.job_id_to_run_id.get(job_id)
-        
+
         # Fallback to legacy Job table for backward compatibility
         if not run_id:
             legacy_job = get_job(job_id)
             if legacy_job and legacy_job.data and isinstance(legacy_job.data, dict):
                 run_id = legacy_job.data.get("run_id")
-        
+
         # Use new Run table if we have run_id
         if run_id:
             self.try_dispatch_queued_runs()
@@ -1104,7 +1102,7 @@ class ConstellationAPI:
             if current_status == "completed":
                 return "complete"
             return current_status
-        
+
         # Fallback to legacy Job table
         legacy_job = get_job(job_id)
         if not legacy_job:
@@ -1134,23 +1132,23 @@ class ConstellationAPI:
         """
         Retrieve results for a completed job/run.
         Blocks until results are ready.
-        
+
         Args:
             job_id: Legacy integer job_id (will map to run_id internally)
         """
         from datetime import datetime
-        
+
         logging.info(f"[ConstellationAPI] Fetching results for job_id={job_id}")
 
         # Map legacy job_id to run_id
         run_id = self.job_id_to_run_id.get(job_id)
-        
+
         # Fallback to legacy Job table
         if not run_id:
             legacy_job = get_job(job_id)
             if legacy_job and legacy_job.data and isinstance(legacy_job.data, dict):
                 run_id = legacy_job.data.get("run_id")
-        
+
         # Use new Run table if we have run_id
         if run_id:
             self.try_dispatch_queued_runs()
@@ -1193,7 +1191,7 @@ class ConstellationAPI:
                     f"Results are not ready yet (run status: {run_row.status}). "
                     "Tasks and verification continue in the background."
                 )
-        
+
         # Fallback to legacy Job table
         legacy_job = get_job(job_id)
         if not legacy_job:
@@ -1222,7 +1220,7 @@ class ConstellationAPI:
         print(f"[ConstellationAPI] Verifying results for job: {job_id}")
         # TODO: Add redundancy check
         return True
-    
+
     def _persist_verification_results(self, run_id, project_id, execution):
         """
         Store all verification attempts into TaskResult table and
