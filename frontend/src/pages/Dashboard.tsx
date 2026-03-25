@@ -1,69 +1,85 @@
-import { useEffect, useMemo, useState } from "react";
 import ConstellationStarfieldBackground from "../components/ConstellationStarfieldBackground";
 import FlowNav from "../components/FlowNav";
 import PageBackButton from "../components/PageBackButton";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
 import { API_BASE_URL } from "../api/config";
 import { useAuth } from "../context/AuthContext";
+import { hasVolunteerRole } from "../auth/session";
 
-type VolunteerProject = {
-  project_id: string;
+interface VolunteerProject {
+  id: string;
   title: string;
   description: string;
   status: string;
   progress: number;
-  sessionsContributed: number;
-  lastContributionAt?: string | null;
-};
+  totalChunks: number;
+  chunksCompleted: number;
+  researcherName?: string;
+}
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const [projects, setProjects] = useState<VolunteerProject[]>([]);
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!user?.user_id) {
+    if (!user) {
       setLoading(false);
+      navigate("/login", { replace: true });
       return;
     }
+
+    if (!hasVolunteerRole(user.role)) {
+      setLoading(false);
+      navigate("/researcher", { replace: true });
+      return;
+    }
+
     let cancelled = false;
-    fetch(`${API_BASE_URL}/api/volunteer/${encodeURIComponent(user.user_id)}/projects`)
-      .then(async (r) => {
-        if (r.ok) return (await r.json()) as { projects?: VolunteerProject[] };
-        const body = await r.json().catch(() => ({}));
-        throw new Error(String((body as { error?: unknown }).error || r.status));
-      })
-      .then((data) => {
-        if (cancelled) return;
-        setProjects(Array.isArray(data.projects) ? data.projects : []);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        setLoadError(err instanceof Error ? err.message : "Failed to load projects");
-      })
-      .finally(() => {
+
+    const fetchProjects = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const res = await fetch(
+          `${API_BASE_URL}/api/volunteer/${encodeURIComponent(user.user_id)}/projects`
+        );
+        if (!res.ok) {
+          let detail = res.statusText;
+          try {
+            const body = await res.json();
+            if (body?.error) detail = String(body.error);
+          } catch {
+            // ignore parse errors
+          }
+          throw new Error(detail || "Failed to load volunteer projects");
+        }
+
+        const data = await res.json();
+        if (!cancelled) {
+          const rows = Array.isArray(data?.projects) ? data.projects : [];
+          setProjects(rows);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Failed to load volunteer projects");
+        }
+      } finally {
         if (!cancelled) setLoading(false);
-      });
+      }
+    };
+
+    fetchProjects();
     return () => {
       cancelled = true;
     };
-  }, [user?.user_id]);
+  }, [user, navigate]);
 
-  const { inProgress, completed } = useMemo(() => {
-    const done: VolunteerProject[] = [];
-    const running: VolunteerProject[] = [];
-    for (const p of projects) {
-      if (p.status === "completed" || p.progress >= 100) done.push(p);
-      else running.push(p);
-    }
-    return { inProgress: running, completed: done };
-  }, [projects]);
-
-  const totalSessions = useMemo(
-    () => projects.reduce((sum, p) => sum + (p.sessionsContributed || 0), 0),
-    [projects]
-  );
+  const inProgress = projects.filter((p) => (p.progress ?? 0) < 100);
+  const completed = projects.filter((p) => (p.progress ?? 0) >= 100);
 
   return (
     <ConstellationStarfieldBackground>
@@ -83,48 +99,74 @@ export default function Dashboard() {
             <span className="text-lg" aria-hidden>→</span>
           </Link>
           <p className="text-white/60 text-sm mt-2">Find new research projects and contribute your CPU</p>
-          {loadError && <p className="text-red-300 text-sm mt-2 m-0">Failed to load contributions: {loadError}</p>}
         </div>
+
+        {error && (
+          <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-400/30 text-red-200 text-sm">
+            {error}
+          </div>
+        )}
 
         <div className="flex flex-col lg:flex-row gap-6 w-full items-stretch">
           <div className="flex-[1.2] min-w-0 p-5 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10 overflow-y-auto min-h-[280px]">
             <h2 className="text-xl font-semibold text-white/90 mt-0 mb-3">In-Progress</h2>
-            <ul className="list-none p-0 m-0 leading-relaxed">
-              {loading ? (
-                <li className="text-white/60 text-sm">Loading your contributed projects...</li>
-              ) : inProgress.length === 0 ? (
-                <li className="text-white/60 text-sm">No in-progress contributions yet.</li>
-              ) : (
-                inProgress.map((p) => (
-                  <li key={p.project_id} className="mb-3 p-3 rounded-lg bg-white/5 border border-white/10 transition-all duration-200 hover:shadow-[0_0_24px_rgba(255,255,255,0.15)] hover:border-white/20 cursor-pointer">
-                    <Link to={`/project/${encodeURIComponent(p.project_id)}`} className="text-white/90 no-underline hover:text-white block">
-                      {p.title} ({Math.max(0, Math.min(100, p.progress || 0))}%)
+            {loading ? (
+              <p className="text-white/60 m-0">Loading projects...</p>
+            ) : inProgress.length === 0 ? (
+              <p className="text-white/60 m-0">No in-progress contributed projects yet.</p>
+            ) : (
+              <ul className="list-none p-0 m-0 leading-relaxed">
+                {inProgress.map((project) => (
+                  <li
+                    key={project.id}
+                    className="mb-3 p-3 rounded-lg bg-white/5 border border-white/10 transition-all duration-200 hover:shadow-[0_0_24px_rgba(255,255,255,0.15)] hover:border-white/20"
+                  >
+                    <Link
+                      to={`/project/${encodeURIComponent(project.id)}`}
+                      className="text-white/90 no-underline hover:text-white block"
+                    >
+                      {project.title} ({project.progress}%)
                     </Link>
-                    <div className="h-1.5 rounded bg-blue-400/80 mt-1" style={{ width: `${Math.max(0, Math.min(100, p.progress || 0))}%` }} />
+                    {project.researcherName ? (
+                      <p className="text-xs text-white/60 mt-1 mb-1.5">Researcher: {project.researcherName}</p>
+                    ) : null}
+                    <div
+                      className="h-1.5 rounded bg-blue-400/80 mt-1"
+                      style={{ width: `${Math.max(0, Math.min(100, project.progress || 0))}%` }}
+                    />
                   </li>
-                ))
-              )}
-            </ul>
+                ))}
+              </ul>
+            )}
           </div>
 
           <div className="flex-[1.2] min-w-0 p-5 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10 overflow-y-auto min-h-[280px]">
             <h2 className="text-xl font-semibold text-white/90 mt-0 mb-3">Completed</h2>
-            <ul className="list-none p-0 m-0 leading-relaxed">
-              {loading ? (
-                <li className="text-white/60 text-sm">Loading completed contributions...</li>
-              ) : completed.length === 0 ? (
-                <li className="text-white/60 text-sm">No completed project contributions yet.</li>
-              ) : (
-                completed.map((p) => (
-                  <li key={p.project_id} className="mb-3 p-3 rounded-lg bg-white/5 border border-white/10 transition-all duration-200 hover:shadow-[0_0_24px_rgba(255,255,255,0.15)] hover:border-white/20 cursor-pointer">
-                    <Link to={`/project/${encodeURIComponent(p.project_id)}`} className="text-white/90 no-underline hover:text-white block">
-                      {p.title} (100%)
+            {loading ? (
+              <p className="text-white/60 m-0">Loading projects...</p>
+            ) : completed.length === 0 ? (
+              <p className="text-white/60 m-0">No completed contributed projects yet.</p>
+            ) : (
+              <ul className="list-none p-0 m-0 leading-relaxed">
+                {completed.map((project) => (
+                  <li
+                    key={project.id}
+                    className="mb-3 p-3 rounded-lg bg-white/5 border border-white/10 transition-all duration-200 hover:shadow-[0_0_24px_rgba(255,255,255,0.15)] hover:border-white/20"
+                  >
+                    <Link
+                      to={`/project/${encodeURIComponent(project.id)}`}
+                      className="text-white/90 no-underline hover:text-white block"
+                    >
+                      {project.title} (100%)
                     </Link>
+                    {project.researcherName ? (
+                      <p className="text-xs text-white/60 mt-1 mb-1.5">Researcher: {project.researcherName}</p>
+                    ) : null}
                     <div className="h-1.5 rounded bg-emerald-400/80 mt-1 w-full" />
                   </li>
-                ))
-              )}
-            </ul>
+                ))}
+              </ul>
+            )}
           </div>
 
           <div className="max-w-[13rem] mx-auto lg:mx-0 lg:w-52 lg:max-w-none shrink-0 p-4 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10 overflow-visible">
@@ -163,7 +205,7 @@ export default function Dashboard() {
                     </div>
                     <span className="text-[10px] text-white/60 mt-0.5">Dedicated</span>
                     <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1.5 rounded-md bg-white/95 text-slate-800 text-xs font-medium max-w-[160px] text-center opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 pointer-events-none z-10 shadow-lg">
-                      You logged {totalSessions} contribution session{totalSessions === 1 ? "" : "s"}
+                      You logged 50 contribution sessions
                     </div>
                   </div>
                 </div>

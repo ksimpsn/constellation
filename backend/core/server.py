@@ -9,6 +9,7 @@ import socket
 import subprocess
 import time
 import warnings
+import sys
 from backend.core.worker import compute_task, compute_uploaded_task
 import hashlib
 import json
@@ -34,6 +35,14 @@ class Cluster:
         finally:
             s.close()
 
+    @staticmethod
+    def _ray_cli_base_cmd() -> list[str]:
+        """
+        Return a reliable command prefix for invoking Ray CLI.
+        Use the current interpreter to avoid PATH issues (e.g. missing `ray` binary).
+        """
+        return [sys.executable, "-m", "ray.scripts.scripts"]
+
     def start_head(self) -> str:
         """Start a Ray head node on this machine and connect as driver.
 
@@ -49,62 +58,40 @@ class Cluster:
         # Allow manual override for tricky local networking (VPNs, multiple interfaces).
         local_ip = os.environ.get("RAY_NODE_IP") or self._get_local_ip()
 
-        # Best-effort cleanup: ray stop can hang or exceed a short timeout when workers are attached.
+        # Best-effort cleanup: stale Ray processes can make "start --head" fail,
+        # but cleanup itself may occasionally hang. Do not fail startup on this.
         try:
             subprocess.run(
-                ["ray", "stop"],
+                [*self._ray_cli_base_cmd(), "stop"],
+                check=False,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                timeout=60,
+                timeout=10,
             )
         except subprocess.TimeoutExpired:
-            logging.warning(
-                "[Cluster] ray stop timed out after 60s; continuing. "
-                "If ray start fails, run `ray stop` manually or disconnect workers."
-            )
-        except Exception as e:
-            logging.warning("[Cluster] ray stop failed (%s); continuing", e)
+            logging.warning("[Cluster] 'ray stop' timed out; continuing with head startup.")
         time.sleep(1)
 
         env = os.environ.copy()
         env["RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER"] = "1"
 
-        # ray start --head can take well over 45s on macOS, with VPNs, or when ports are contended.
-        try:
-            start_timeout = int(os.environ.get("RAY_START_HEAD_TIMEOUT", "180"))
-        except ValueError:
-            start_timeout = 180
-
         # DEVNULL prevents daemon children from holding pipes open,
         # which caused subprocess.run to hang waiting for EOF.
-        try:
-            subprocess.run(
-                [
-                    "ray", "start", "--head",
-                    "--port=6379",
-                    f"--node-ip-address={local_ip}",
-                    "--num-cpus=0",
-                    "--min-worker-port=20000",
-                    "--max-worker-port=20020",
-                ],
-                check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=start_timeout,
-                env=env,
-            )
-        except subprocess.TimeoutExpired:
-            logging.error(
-                "[Cluster] ray start --head timed out after %ss (local_ip=%s). "
-                "Increase RAY_START_HEAD_TIMEOUT or run `ray stop` and free port 6379.",
-                start_timeout,
-                local_ip,
-            )
-            raise RuntimeError(
-                f"Ray head failed to start within {start_timeout}s. "
-                "Try: `ray stop`, ensure port 6379 is free, or set "
-                "RAY_START_HEAD_TIMEOUT to a larger value (seconds)."
-            ) from None
+        subprocess.run(
+            [
+                *self._ray_cli_base_cmd(), "start", "--head",
+                "--port=6379",
+                f"--node-ip-address={local_ip}",
+                "--num-cpus=0",
+                "--min-worker-port=20000",
+                "--max-worker-port=20020",
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=45,
+            env=env,
+        )
         time.sleep(2)
 
         self.context = ray.init(
@@ -133,7 +120,7 @@ class Cluster:
         env = os.environ.copy()
         env["RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER"] = "1"
         subprocess.run(
-            ["ray", "start", f"--address={head_address}"],
+            [*Cluster._ray_cli_base_cmd(), "start", f"--address={head_address}"],
             check=True,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -203,11 +190,8 @@ class Cluster:
                     target_node_id = target_node_ids[idx]
 
                 if target_node_id:
-                    # Prefer the target volunteer node but allow Ray to reschedule
-                    # elsewhere if that node disappears (soft=True).  Same-node
-                    # collisions across replicas are caught post-execution in
-                    # _record_results, and tasks on dead nodes are re-queued by
-                    # _requeue_disconnected_tasks.
+                    # Prefer the selected volunteer node, but allow fallback scheduling
+                    # if that node disappears mid-run.
                     future = compute_uploaded_task.options(
                         scheduling_strategy=NodeAffinitySchedulingStrategy(
                             node_id=target_node_id,

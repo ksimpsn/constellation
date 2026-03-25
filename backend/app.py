@@ -25,12 +25,18 @@ from backend.core.database import (
     init_db,
     normalize_roles_input,
     set_user_roles,
+    get_project_stats,
 )
 from backend.core.database_aws import (
     init_aws_db,
     get_aws_project_ip,
     update_aws_project_ip,
     list_aws_browse_projects,
+    is_aws_db_configured,
+    get_aws_session,
+    AWSProject,
+    AWSProjectUser,
+    AWSResearcher,
 )
 from backend.core.server import Cluster
 import os
@@ -46,7 +52,7 @@ app = Flask(__name__)
 # This fixes "failed to fetch" errors by allowing cross-origin requests
 CORS(app,
      origins="*",  # Allow all origins in development
-     methods=["GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE"],
+     methods=["GET", "POST", "OPTIONS", "PUT", "DELETE"],
      allow_headers=["Content-Type", "Authorization"],
      supports_credentials=False)
 
@@ -111,66 +117,6 @@ def browse_projects_list():
         logging.error(f"[ERROR] browse_projects_list: {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/api/projects/<project_id>/stats", methods=["GET", "OPTIONS"])
-def get_project_stats(project_id):
-    """Public project stats (progress, task counts) for any viewer."""
-    try:
-        from backend.core.database import Run, Task, TaskResult, Worker
-        from sqlalchemy import func, distinct
-
-        with get_session() as session:
-            all_tasks = session.query(Task).join(Run).filter(Run.project_id == project_id).all()
-            total_tasks = len(all_tasks)
-            completed_tasks = sum(1 for t in all_tasks if t.status == "completed")
-            failed_tasks = sum(1 for t in all_tasks if t.status == "failed")
-            progress = int((completed_tasks / total_tasks) * 100) if total_tasks > 0 else 0
-
-            latest_run = (
-                session.query(Run)
-                .filter(Run.project_id == project_id)
-                .order_by(Run.created_at.desc())
-                .first()
-            )
-            status = (latest_run.status or "unknown") if latest_run else "unknown"
-            if status == "completed":
-                progress = 100
-
-            total_contributors = (
-                session.query(func.count(distinct(Worker.user_id)))
-                .join(Task, Task.assigned_worker_id == Worker.worker_id)
-                .join(TaskResult, TaskResult.task_id == Task.task_id)
-                .filter(TaskResult.project_id == project_id, Worker.user_id.isnot(None))
-                .scalar()
-            ) or 0
-
-            active_contributors = (
-                session.query(func.count(distinct(Worker.user_id)))
-                .join(Task, Worker.worker_id == Task.assigned_worker_id)
-                .join(Run, Task.run_id == Run.run_id)
-                .filter(
-                    Run.project_id == project_id,
-                    Task.status.in_(["assigned", "running"]),
-                    Worker.user_id.isnot(None),
-                )
-                .scalar()
-            ) or 0
-
-        return jsonify({
-            "project_id": project_id,
-            "progress": progress,
-            "status": status,
-            "totalTasks": total_tasks,
-            "completedTasks": completed_tasks,
-            "failedTasks": failed_tasks,
-            "totalContributors": total_contributors,
-            "activeContributors": active_contributors,
-        }), 200
-
-    except Exception as e:
-        logging.error(f"[ERROR] get_project_stats: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -366,16 +312,11 @@ def signup():
         role = data.get("role")
         roles = data.get("roles")
         reasons = data.get("reasons", [])
-        password = (data.get("password") or "").strip()
 
         # Validate required fields
         if not full_name or not email:
             return jsonify({
                 "error": "Missing required fields: name and email are required"
-            }), 400
-        if len(password) < 8:
-            return jsonify({
-                "error": "Password must be at least 8 characters."
             }), 400
 
         if roles is None and not role:
@@ -401,13 +342,7 @@ def signup():
             }), 409
 
         user_id = (request.get_json() or {}).get("user_id") or email.split("@")[0].replace(".", "_")
-        user, err = create_user(
-            user_id=user_id,
-            email=email,
-            name=full_name,
-            role=role_string,
-            password=password or None,
-        )
+        user, err = create_user(user_id=user_id, email=email, name=full_name, role=role_string)
         if err:
             return jsonify({"error": err}), 409
         if not user:
@@ -463,91 +398,21 @@ def patch_user_roles():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/user/password", methods=["PATCH", "OPTIONS"])
-def patch_user_password():
-    """
-    Update account password.
-    Body: { "user_id": "...", "current_password": "...", "new_password": "..." }
-    """
-    if request.method == "OPTIONS":
-        return "", 200
-    try:
-        from werkzeug.security import check_password_hash, generate_password_hash
-        from backend.core.database_aws import (
-            get_aws_password_hash_by_email,
-            set_aws_user_password_by_user_id,
-        )
-
-        data = request.get_json()
-        if not data:
-            return jsonify({"error": "Missing request body"}), 400
-
-        user_id = (data.get("user_id") or "").strip()
-        current_password = str(data.get("current_password") or "")
-        new_password = str(data.get("new_password") or "")
-
-        if not user_id or not current_password or not new_password:
-            return jsonify({"error": "user_id, current_password, and new_password are required"}), 400
-        if len(new_password) < 8:
-            return jsonify({"error": "New password must be at least 8 characters."}), 400
-
-        user = get_user_by_id(user_id)
-        if not user:
-            return jsonify({"error": "User not found"}), 404
-
-        stored_hash = get_aws_password_hash_by_email(user.email)
-        requires_verification = bool(stored_hash) and stored_hash != "CHANGE_ME"
-        if requires_verification:
-            try:
-                if not check_password_hash(stored_hash, current_password):
-                    return jsonify({"error": "Current password is incorrect"}), 401
-            except Exception:
-                return jsonify({"error": "Current password is incorrect"}), 401
-
-        new_hash = generate_password_hash(new_password)
-        ok = set_aws_user_password_by_user_id(user_id, new_hash)
-        if not ok:
-            return jsonify({"error": "Could not update password"}), 500
-
-        return jsonify({"success": True, "message": "Password updated successfully"}), 200
-    except Exception as e:
-        logging.error(f"[ERROR] patch_user_password: {e}")
-        return jsonify({"error": str(e)}), 500
-
-
 @app.route("/api/login", methods=["POST", "OPTIONS"])
 def login():
-    """POST /api/login — authenticate by email/password; body: { "email", "password" }."""
+    """POST /api/login — authenticate by email; body: { "email" }."""
     if request.method == "OPTIONS":
         return "", 200
     try:
-        from werkzeug.security import check_password_hash
-        from backend.core.database_aws import get_aws_password_hash_by_email
-
         data = request.get_json()
         if not data:
             return jsonify({"error": "Missing request body"}), 400
         email = (data.get("email") or "").strip()
-        password = str(data.get("password") or "")
         if not email:
             return jsonify({"error": "email is required"}), 400
-        if not password:
-            return jsonify({"error": "password is required"}), 400
         user = get_user_by_email(email)
         if not user:
             return jsonify({"error": "User not found"}), 404
-
-        stored_hash = get_aws_password_hash_by_email(email)
-        # Legacy accounts may have placeholder password "CHANGE_ME";
-        # for those, accept any provided password until user sets one.
-        requires_verification = bool(stored_hash) and stored_hash != "CHANGE_ME"
-        if requires_verification:
-            try:
-                if not check_password_hash(stored_hash, password):
-                    return jsonify({"error": "Invalid email or password"}), 401
-            except Exception:
-                # If the stored value isn't a recognized hash format, treat as legacy.
-                pass
         return jsonify({
             "user_id": user.user_id,
             "email": user.email,
@@ -610,6 +475,92 @@ def get_researcher_projects(researcher_id):
 
     except Exception as e:
         logging.error(f"[ERROR] Error in get_researcher_projects endpoint: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/volunteer/<volunteer_id>/projects", methods=["GET", "OPTIONS"])
+def get_volunteer_projects(volunteer_id):
+    """
+    Endpoint: GET /api/volunteer/<volunteer_id>/projects
+    Purpose: Return projects the volunteer has contributed to (from AWS project_users).
+    """
+    if request.method == "OPTIONS":
+        return "", 200
+
+    try:
+        user = get_user_by_id(volunteer_id)
+        if not user:
+            return jsonify({"error": f"User {volunteer_id} not found"}), 404
+
+        if not user_has_role(volunteer_id, "volunteer"):
+            return jsonify({
+                "error": f"User {volunteer_id} does not have 'volunteer' role"
+            }), 403
+
+        if not is_aws_db_configured():
+            return jsonify({"projects": []}), 200
+
+        with get_aws_session() as session:
+            rows = (
+                session.query(AWSProject, AWSResearcher.name, AWSProjectUser.joined_at)
+                .join(AWSProjectUser, AWSProjectUser.project_id == AWSProject.project_id)
+                .outerjoin(AWSResearcher, AWSResearcher.username == AWSProject.researcher_id)
+                .filter(AWSProjectUser.username == volunteer_id)
+                .order_by(
+                    AWSProjectUser.joined_at.desc(),
+                    AWSProject.date_created.desc(),
+                    AWSProject.project_id.desc(),
+                )
+                .all()
+            )
+
+            projects = []
+            for project, researcher_name, joined_at in rows:
+                total_chunks = project.total_chunks or 0
+                chunks_completed = project.chunks_completed or 0
+                progress = 0
+                if total_chunks > 0:
+                    progress = int(round((chunks_completed / total_chunks) * 100))
+                progress = max(0, min(100, progress))
+
+                projects.append(
+                    {
+                        "id": str(project.project_id),
+                        "title": project.name or f"Project {project.project_id}",
+                        "description": project.description or "",
+                        "status": (project.status or "pending"),
+                        "progress": progress,
+                        "totalChunks": total_chunks,
+                        "chunksCompleted": chunks_completed,
+                        "researcherName": researcher_name,
+                        "joinedAt": joined_at.isoformat() if joined_at else None,
+                        "createdAt": project.date_created.isoformat() if project.date_created else None,
+                    }
+                )
+
+        return jsonify({"projects": projects}), 200
+    except Exception as e:
+        logging.error(f"[ERROR] get_volunteer_projects: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/projects/<project_id>/stats", methods=["GET", "OPTIONS"])
+def get_project_stats_route(project_id):
+    """GET /api/projects/<project_id>/stats — project progress and contributor metrics."""
+    if request.method == "OPTIONS":
+        return "", 200
+
+    try:
+        stats = get_project_stats(project_id)
+        if not stats:
+            return jsonify({"error": "Project not found"}), 404
+        return jsonify({"project": stats}), 200
+    except Exception as e:
+        logging.error(f"[ERROR] get_project_stats_route: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
@@ -1247,176 +1198,6 @@ def get_researcher_stats(researcher_id):
 
     except Exception as e:
         logging.error(f"[ERROR] Error in get_researcher_stats endpoint: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/api/volunteer/<volunteer_id>/stats", methods=["GET", "OPTIONS"])
-def get_volunteer_stats(volunteer_id):
-    """GET /api/volunteer/<volunteer_id>/stats — volunteer profile aggregate stats."""
-    try:
-        from backend.core.database import TaskResult, Worker
-        from sqlalchemy import distinct
-
-        user = get_user_by_id(volunteer_id)
-        if not user:
-            return jsonify({"error": f"User {volunteer_id} not found"}), 404
-
-        if not user_has_role(volunteer_id, "volunteer"):
-            return jsonify({
-                "error": f"User {volunteer_id} does not have 'volunteer' role"
-            }), 403
-
-        with get_session() as session:
-            worker_ids = [
-                row[0]
-                for row in session.query(Worker.worker_id).filter(Worker.user_id == volunteer_id).all()
-            ]
-
-            if not worker_ids:
-                return jsonify({
-                    "projectsContributed": 0,
-                    "sessionsContributed": 0
-                }), 200
-
-            projects_contributed = (
-                session.query(distinct(TaskResult.project_id))
-                .filter(
-                    TaskResult.worker_id.in_(worker_ids),
-                    TaskResult.project_id.isnot(None),
-                )
-                .count()
-            )
-
-            sessions_contributed = (
-                session.query(TaskResult.task_result_id)
-                .filter(TaskResult.worker_id.in_(worker_ids))
-                .count()
-            )
-
-        return jsonify({
-            "projectsContributed": projects_contributed,
-            "sessionsContributed": sessions_contributed
-        }), 200
-
-    except Exception as e:
-        logging.error(f"[ERROR] Error in get_volunteer_stats endpoint: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/api/volunteer/<volunteer_id>/projects", methods=["GET", "OPTIONS"])
-def get_volunteer_projects(volunteer_id):
-    """GET /api/volunteer/<volunteer_id>/projects — projects this volunteer contributed to."""
-    try:
-        from backend.core.database import Run, Task, TaskResult, Worker
-        from backend.core.database_aws import get_aws_project
-        from sqlalchemy import func
-
-        user = get_user_by_id(volunteer_id)
-        if not user:
-            return jsonify({"error": f"User {volunteer_id} not found"}), 404
-
-        if not user_has_role(volunteer_id, "volunteer"):
-            return jsonify({
-                "error": f"User {volunteer_id} does not have 'volunteer' role"
-            }), 403
-
-        with get_session() as session:
-            # Get all worker_ids for this volunteer
-            worker_ids = [
-                row[0]
-                for row in session.query(Worker.worker_id).filter(Worker.user_id == volunteer_id).all()
-            ]
-
-            # Collect project_ids from TaskResults (completed work)
-            result_rows = (
-                session.query(
-                    TaskResult.project_id.label("project_id"),
-                    func.count(TaskResult.task_result_id).label("sessions_contributed"),
-                    func.max(TaskResult.completed_at).label("last_contribution_at"),
-                )
-                .filter(TaskResult.worker_id.in_(worker_ids))
-                .group_by(TaskResult.project_id)
-                .all()
-            ) if worker_ids else []
-
-            # Also collect project_ids from Tasks assigned to this volunteer's workers
-            # (in-progress tasks that may not have TaskResults yet)
-            assigned_project_ids: set[str] = set()
-            if worker_ids:
-                assigned_rows = (
-                    session.query(Task.run_id)
-                    .filter(
-                        Task.assigned_worker_id.in_(worker_ids),
-                        Task.status.in_(["assigned", "running", "completed"]),
-                    )
-                    .distinct()
-                    .all()
-                )
-                run_ids = [r[0] for r in assigned_rows]
-                if run_ids:
-                    run_project_rows = (
-                        session.query(Run.project_id)
-                        .filter(Run.run_id.in_(run_ids))
-                        .distinct()
-                        .all()
-                    )
-                    assigned_project_ids = {str(r[0]) for r in run_project_rows}
-
-            # Build a dict keyed by project_id from TaskResult rows
-            by_project: dict[str, dict] = {}
-            for row in result_rows:
-                pid = str(row.project_id)
-                by_project[pid] = {
-                    "sessions_contributed": int(row.sessions_contributed or 0),
-                    "last_contribution_at": row.last_contribution_at,
-                }
-
-            # Merge in assigned project_ids that don't have TaskResults yet
-            for pid in assigned_project_ids:
-                if pid not in by_project:
-                    by_project[pid] = {"sessions_contributed": 0, "last_contribution_at": None}
-
-            projects = []
-            for pid, contrib in sorted(
-                by_project.items(),
-                key=lambda kv: kv[1]["last_contribution_at"] or datetime.min,
-                reverse=True,
-            ):
-                project = get_aws_project(pid)
-                all_tasks = session.query(Task).join(Run).filter(Run.project_id == pid).all()
-                total_tasks = len(all_tasks)
-                completed_tasks = sum(1 for t in all_tasks if t.status == "completed")
-                progress = int((completed_tasks / total_tasks) * 100) if total_tasks > 0 else 0
-
-                latest_run = (
-                    session.query(Run)
-                    .filter(Run.project_id == pid)
-                    .order_by(Run.created_at.desc())
-                    .first()
-                )
-                status = (latest_run.status or "unknown") if latest_run else "unknown"
-                if status == "completed":
-                    progress = 100
-
-                last_at = contrib["last_contribution_at"]
-                projects.append({
-                    "project_id": pid,
-                    "title": getattr(project, "title", None) or f"Project {pid}",
-                    "description": getattr(project, "description", "") or "",
-                    "status": status,
-                    "progress": progress,
-                    "sessionsContributed": contrib["sessions_contributed"],
-                    "lastContributionAt": last_at.isoformat() if last_at else None,
-                })
-
-        return jsonify({"projects": projects}), 200
-
-    except Exception as e:
-        logging.error(f"[ERROR] Error in get_volunteer_projects endpoint: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500

@@ -50,7 +50,7 @@ interface WorkerRecord {
   status?: string;
 }
 
-interface ResearcherProjectStats {
+interface ProjectStats {
   id: string | number;
   progress?: number;
   totalContributors?: number;
@@ -81,7 +81,7 @@ const parseProject = (raw: unknown): AwsProject => {
 const toProjectData = (project: AwsProject | null, requestedProject: string): ProjectData | null => {
   if (!project) return null;
 
-  const name = project.title.trim() || requestedProject || "Untitled Project";
+  const name = project.title.trim() || requestedProject || "Untitled AWS Project";
   const overview =
     project.longDescription?.trim() ||
     project.description.trim() ||
@@ -90,7 +90,7 @@ const toProjectData = (project: AwsProject | null, requestedProject: string): Pr
     project.whyJoin.length > 0
       ? project.whyJoin
       : [
-          "Motivation details are not available yet for this project.",
+          "Motivation details are not available yet for this AWS project.",
           "Contributors are still welcome while project metadata is being expanded.",
         ];
   const learnMore =
@@ -108,7 +108,7 @@ const toProjectData = (project: AwsProject | null, requestedProject: string): Pr
     whyJoin,
     learnMore,
     researcherName: project.researcherName,
-    progressPlaceholder: "Progress metrics are not yet available from the projects browse payload.",
+    progressPlaceholder: "Progress metrics are not yet available from the AWS projects browse payload.",
     tasksPlaceholder: "Task history has not been connected to this page yet. Star updates will appear once per-task data is available.",
   };
 };
@@ -125,9 +125,8 @@ export default function ProjectDetailsUpdated() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<"connect" | "disconnect" | null>(null);
   const [volunteerConnected, setVolunteerConnected] = useState(false);
-  const [projectStats, setProjectStats] = useState<ResearcherProjectStats | null>(null);
-  const [researcherStats, setResearcherStats] = useState<ResearcherProjectStats | null>(null);
-  const [researcherStatsLoading, setResearcherStatsLoading] = useState(false);
+  const [projectStats, setProjectStats] = useState<ProjectStats | null>(null);
+  const [projectStatsLoading, setProjectStatsLoading] = useState(false);
   const [hoveredTaskIndex, setHoveredTaskIndex] = useState<number | null>(null);
 
   useEffect(() => {
@@ -146,7 +145,7 @@ export default function ProjectDetailsUpdated() {
 
         if (!match) {
           setProject(null);
-          setLoadError("Project not found.");
+          setLoadError("Project not found in AWS project table.");
           return;
         }
 
@@ -166,31 +165,6 @@ export default function ProjectDetailsUpdated() {
       cancelled = true;
     };
   }, [requestedProject]);
-
-  // Fetch public project stats (progress/tasks) for all users once project id is known
-  useEffect(() => {
-    if (!project?.id) return;
-    let cancelled = false;
-    fetch(`${API_BASE_URL}/api/projects/${encodeURIComponent(project.id)}/stats`)
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((data: Record<string, unknown>) => {
-        if (cancelled) return;
-        const stats: ResearcherProjectStats = {
-          id: project.id,
-          progress: Number(data.progress ?? 0),
-          totalTasks: Number(data.totalTasks ?? 0),
-          completedTasks: Number(data.completedTasks ?? 0),
-          failedTasks: Number(data.failedTasks ?? 0),
-          totalContributors: Number(data.totalContributors ?? 0),
-          activeContributors: Number(data.activeContributors ?? 0),
-          status: typeof data.status === "string" ? data.status : undefined,
-        };
-        setProjectStats(stats);
-        setProject((prev) => prev ? { ...prev, progress: stats.progress ?? 0, progressPlaceholder: undefined } : prev);
-      })
-      .catch(() => { /* stats unavailable, keep placeholder */ });
-    return () => { cancelled = true; };
-  }, [project?.id]);
 
   useEffect(() => {
     if (!user || !isVolunteer) {
@@ -219,36 +193,24 @@ export default function ProjectDetailsUpdated() {
   }, [user, isVolunteer, project?.id]);
 
   useEffect(() => {
-    if (!user || !isResearcher || !project) {
-      setResearcherStats(null);
-      setResearcherStatsLoading(false);
+    if (!project) {
+      setProjectStats(null);
+      setProjectStatsLoading(false);
       return;
     }
 
     let cancelled = false;
-    setResearcherStatsLoading(true);
-    fetch(`${API_BASE_URL}/api/researcher/${encodeURIComponent(user.user_id)}/projects`)
+    setProjectStatsLoading(true);
+    fetch(`${API_BASE_URL}/api/projects/${encodeURIComponent(project.id)}/stats`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((data: { projects?: unknown[] }) => {
+      .then((data: { project?: unknown }) => {
         if (cancelled) return;
-        const rows = Array.isArray(data?.projects) ? data.projects : [];
-        const match =
-          rows.find((raw) => {
-            const p = raw as Record<string, unknown>;
-            return String(p.id ?? "") === project.id;
-          }) ??
-          rows.find((raw) => {
-            const p = raw as Record<string, unknown>;
-            return normalize(String(p.title ?? "")) === normalize(project.name);
-          });
-
-        if (!match) {
-          setResearcherStats(null);
+        const p = (data?.project || {}) as Record<string, unknown>;
+        if (!p.id) {
+          setProjectStats(null);
           return;
         }
-
-        const p = match as Record<string, unknown>;
-        setResearcherStats({
+        setProjectStats({
           id: p.id as string | number,
           progress: Number(p.progress ?? 0),
           totalContributors: Number(p.totalContributors ?? 0),
@@ -259,21 +221,22 @@ export default function ProjectDetailsUpdated() {
           completedTasks: Number(p.completedTasks ?? 0),
           failedTasks: Number(p.failedTasks ?? 0),
           totalRuns: Number(p.totalRuns ?? 0),
-          averageTaskTime: Number(p.averageTaskTime ?? 0),
+          averageTaskTime:
+            p.averageTaskTime == null ? undefined : Number(p.averageTaskTime),
           status: typeof p.status === "string" ? p.status : undefined,
         });
       })
       .catch(() => {
-        if (!cancelled) setResearcherStats(null);
+        if (!cancelled) setProjectStats(null);
       })
       .finally(() => {
-        if (!cancelled) setResearcherStatsLoading(false);
+        if (!cancelled) setProjectStatsLoading(false);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [user, isResearcher, project]);
+  }, [project]);
 
   const connectWorkerForProject = async () => {
     if (!project || !user) {
@@ -333,6 +296,7 @@ export default function ProjectDetailsUpdated() {
   const tasks = project?.completedTasks ?? [];
   const volunteerView = !!isVolunteer && !isResearcher;
   const connectedStarCount = volunteerView && volunteerConnected ? 1 : 0;
+  const displayedProgress = Math.max(0, Math.min(100, projectStats?.progress ?? project?.progress ?? 0));
 
   const { starPositions, lines } = useMemo((): {
     starPositions: ConstellationStar[];
@@ -418,7 +382,7 @@ export default function ProjectDetailsUpdated() {
 
         {listLoading ? (
           <div className="rounded-xl bg-white/[0.06] backdrop-blur-md border border-white/10 p-5">
-            <p className="text-white/70 text-sm m-0">Loading project details...</p>
+            <p className="text-white/70 text-sm m-0">Loading project details from AWS...</p>
           </div>
         ) : loadError || !project ? (
           <div className="rounded-xl bg-white/[0.06] backdrop-blur-md border border-red-300/30 p-5">
@@ -433,7 +397,7 @@ export default function ProjectDetailsUpdated() {
         ) : (
           <>
             <header className="shrink-0 mb-3">
-              <p className="text-xs uppercase tracking-[0.2em] text-white/50 mb-1">Project details</p>
+              <p className="text-xs uppercase tracking-[0.2em] text-white/50 mb-1">AWS project details</p>
               <h1 className="text-2xl sm:text-3xl font-semibold text-white tracking-tight mt-0 mb-1">
                 {project.name}
               </h1>
@@ -562,25 +526,20 @@ export default function ProjectDetailsUpdated() {
                     <h2 className="text-sm font-semibold text-white/90 uppercase tracking-wider mt-0 mb-3">
                       Researcher overview
                     </h2>
-                    {researcherStatsLoading ? (
+                    {projectStatsLoading ? (
                       <p className="text-sm text-white/70 m-0">Loading researcher statistics...</p>
-                    ) : (researcherStats ?? projectStats) ? (
+                    ) : projectStats ? (
                       <div className="space-y-2 text-sm text-white/80">
-                        {(() => {
-                          const s = researcherStats ?? projectStats!;
-                          return (
-                            <>
-                              <p className="m-0">Project progress: {s.progress ?? 0}%</p>
-                              <p className="m-0">Total contributors: {s.totalContributors ?? 0}</p>
-                              <p className="m-0">Active contributors: {s.activeContributors ?? 0}</p>
-                              <p className="m-0">Total tasks: {s.totalTasks ?? 0}</p>
-                              <p className="m-0">Completed tasks: {s.completedTasks ?? 0}</p>
-                              <p className="m-0">Failed tasks: {s.failedTasks ?? 0}</p>
-                              {s.totalRuns != null && <p className="m-0">Total runs: {s.totalRuns}</p>}
-                              {!!s.averageTaskTime && <p className="m-0">Avg task time: {s.averageTaskTime.toFixed(1)}s</p>}
-                            </>
-                          );
-                        })()}
+                        <p className="m-0">Project progress: {projectStats.progress ?? 0}%</p>
+                        <p className="m-0">Total contributors: {projectStats.totalContributors ?? 0}</p>
+                        <p className="m-0">Active contributors: {projectStats.activeContributors ?? 0}</p>
+                        <p className="m-0">Total tasks: {projectStats.totalTasks ?? 0}</p>
+                        <p className="m-0">Completed tasks: {projectStats.completedTasks ?? 0}</p>
+                        <p className="m-0">Failed tasks: {projectStats.failedTasks ?? 0}</p>
+                        <p className="m-0">Total runs: {projectStats.totalRuns ?? 0}</p>
+                        <p className="m-0">
+                          Avg task time: {(projectStats.averageTaskTime ?? 0).toFixed(1)}s
+                        </p>
                       </div>
                     ) : (
                       <p className="text-sm text-white/70 m-0">
@@ -598,7 +557,7 @@ export default function ProjectDetailsUpdated() {
                     <div className="space-y-2 text-sm text-white/75">
                       <p className="m-0">Data source: AWS projects table</p>
                       <p className="m-0">Project ID: {project.id}</p>
-                      <p className="m-0">Status: {researcherStats?.status ?? "pending"}</p>
+                      <p className="m-0">Status: {projectStats?.status ?? "pending"}</p>
                       <p className="m-0">Replication factor: not exposed in browse payload yet</p>
                       <p className="m-0">Max verification attempts: not exposed in browse payload yet</p>
                     </div>
@@ -608,21 +567,22 @@ export default function ProjectDetailsUpdated() {
                 <div className="rounded-xl bg-white/[0.06] backdrop-blur-md border border-white/10 p-5 shrink-0">
                   <div className="flex items-center gap-3 mb-2">
                     <span className="text-sm font-semibold text-white/90">Project progress</span>
-                    <span className="text-2xl font-bold text-white tabular-nums ml-auto">{project.progress}%</span>
+                    <span className="text-2xl font-bold text-white tabular-nums ml-auto">{displayedProgress}%</span>
                   </div>
                   <div className="h-3 rounded-full bg-white/15 overflow-hidden">
                     <div
                       className="h-full rounded-full transition-all duration-700 ease-out"
-                      style={{ width: `${project.progress}%`, background: "linear-gradient(90deg, #a78bfa, #818cf8)" }}
+                      style={{ width: `${displayedProgress}%`, background: "linear-gradient(90deg, #a78bfa, #818cf8)" }}
                     />
                   </div>
-                  {projectStats && (
-                    <p className="text-white/55 text-sm mt-3 mb-0">
-                      {projectStats.completedTasks?.toLocaleString()} / {projectStats.totalTasks?.toLocaleString()} tasks complete
-                      {(projectStats.activeContributors ?? 0) > 0 && ` · ${projectStats.activeContributors} active contributors`}
-                    </p>
-                  )}
-                  {!projectStats && project.progressPlaceholder && (
+                  {projectStatsLoading ? (
+                    <p className="text-white/55 text-sm mt-3 mb-0">Loading project metrics...</p>
+                  ) : projectStats ? (
+                    <div className="text-white/70 text-sm mt-3 space-y-1">
+                      <p className="m-0">Total contributors: {projectStats.totalContributors ?? 0}</p>
+                      <p className="m-0">Active contributors: {projectStats.activeContributors ?? 0}</p>
+                    </div>
+                  ) : (
                     <p className="text-white/55 text-sm mt-3 mb-0">{project.progressPlaceholder}</p>
                   )}
                 </div>

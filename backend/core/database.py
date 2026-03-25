@@ -1249,87 +1249,140 @@ def get_researcher_projects_with_stats(researcher_id: str) -> list:
         return result
 
 
-def list_browse_projects(limit: int = 200) -> list:
+def get_project_stats(project_id: str) -> dict | None:
     """
-    Active projects for the public browse page (title, description, tags, researcher name).
+    Project-level stats used by the project details page.
+    Mirrors researcher dashboard metrics for a single project.
     """
-    import json
+    from types import SimpleNamespace
+    from backend.core.database_aws import is_aws_db_configured, get_aws_project
+
+    pid = str(project_id)
+    aws_project = get_aws_project(pid) if is_aws_db_configured() else None
 
     with SessionLocal() as session:
-        rows = (
-            session.query(Project, User.name)
-            .join(User, Project.researcher_id == User.user_id)
-            .filter(Project.status == "active")
-            .order_by(Project.created_at.desc())
-            .limit(limit)
+        from sqlalchemy import func, distinct
+
+        runs = session.query(Run).filter_by(project_id=pid).all()
+        total_runs = len(runs)
+        latest_run = (
+            max(runs, key=lambda r: (r.updated_at or r.created_at or datetime.min))
+            if runs
+            else None
+        )
+
+        all_tasks = session.query(Task).join(Run).filter(Run.project_id == pid).all()
+        total_tasks = len(all_tasks)
+        completed_tasks = sum(1 for t in all_tasks if t.status == "completed")
+        failed_tasks = sum(1 for t in all_tasks if t.status == "failed")
+        progress = int((completed_tasks / total_tasks) * 100) if total_tasks > 0 else 0
+
+        completed_task_users = (
+            session.query(distinct(Worker.user_id))
+            .join(Task, Task.assigned_worker_id == Worker.worker_id)
+            .join(TaskResult, TaskResult.task_id == Task.task_id)
+            .filter(
+                TaskResult.project_id == pid,
+                Worker.user_id.isnot(None),
+            )
             .all()
         )
-        out = []
-        for project, researcher_name in rows:
-            raw = project.tags
-            if raw is None:
-                tag_list = []
-            elif isinstance(raw, list):
-                tag_list = raw
-            elif isinstance(raw, str):
-                try:
-                    tag_list = json.loads(raw)
-                except Exception:
-                    tag_list = []
-            else:
-                tag_list = []
-            out.append({
-                "id": project.project_id,
-                "title": project.title,
-                "description": (project.description or "")[:500],
-                "longDescription": project.description or "",
-                "tags": tag_list,
-                "researcherName": researcher_name,
-                "whyJoin": [],
-                "learnMore": [],
-            })
-        return out
+        total_contributors = len([u[0] for u in completed_task_users if u[0]])
+
+        active_task_users = (
+            session.query(distinct(Worker.user_id))
+            .join(Task, Worker.worker_id == Task.assigned_worker_id)
+            .join(Run, Task.run_id == Run.run_id)
+            .filter(
+                Run.project_id == pid,
+                Task.status.in_(["assigned", "running"]),
+                Worker.user_id.isnot(None),
+            )
+            .all()
+        )
+        active_contributors = len([u[0] for u in active_task_users if u[0]])
+        completed_contributors = total_contributors if progress >= 100 else None
+
+        avg_task_time = session.query(func.avg(TaskResult.runtime_seconds)).filter(
+            TaskResult.project_id == pid,
+            TaskResult.runtime_seconds.isnot(None),
+        ).scalar()
+
+        if not aws_project and total_runs == 0 and total_tasks == 0:
+            return None
+
+        project_like = aws_project or SimpleNamespace(
+            project_id=pid,
+            status="pending",
+            created_at=None,
+            updated_at=None,
+        )
+
+        latest_updated = getattr(project_like, "updated_at", None) or getattr(project_like, "created_at", None)
+        for run in runs:
+            if run.updated_at and (latest_updated is None or run.updated_at > latest_updated):
+                latest_updated = run.updated_at
+
+        created_at = getattr(project_like, "created_at", None) or getattr(project_like, "date_created", None)
+
+        return {
+            "id": pid,
+            "status": getattr(project_like, "status", None) or "pending",
+            "progress": progress,
+            "totalContributors": total_contributors,
+            "activeContributors": active_contributors,
+            "completedContributors": completed_contributors,
+            "totalTasks": total_tasks,
+            "completedTasks": completed_tasks,
+            "failedTasks": failed_tasks,
+            "totalRuns": total_runs,
+            "averageTaskTime": round(avg_task_time, 1) if avg_task_time else None,
+            "latestRunId": latest_run.run_id if latest_run else None,
+            "latestRunStatus": latest_run.status if latest_run else None,
+            "createdAt": created_at.isoformat() if hasattr(created_at, "isoformat") and created_at else None,
+            "updatedAt": latest_updated.isoformat() if hasattr(latest_updated, "isoformat") and latest_updated else None,
+        }
 
 
 def list_browse_projects(limit: int = 200) -> list:
     """
-    Get top contributors ranked by number of projects they've contributed to.
-    Only includes workers that have completed at least one task and have associated users.
+    Public browse list sourced from AWS projects table.
+    Kept for backward compatibility with older imports/call sites.
+    """
+    try:
+        from backend.core.database_aws import list_aws_browse_projects
+        return list_aws_browse_projects(limit=limit)
+    except Exception:
+        return []
 
-    Returns a list of dictionaries with contributor data:
-    [
-        {
-            "name": "John Doe",
-            "projects_contributed": 5
-        },
-        ...
-    ]
+
+def get_top_contributors_by_projects(limit: int = 200) -> list:
+    """
+    Top contributors ranked by number of distinct projects contributed to.
+    Uses Worker.user_id as the contributor identifier.
     """
     with SessionLocal() as session:
         from sqlalchemy import func, distinct
 
-        # Get workers with their associated users, ranked by number of distinct projects contributed to
-        # Only count completed tasks (from TaskResult table)
         contributors = session.query(
-            User.name,
+            Worker.user_id,
             func.count(distinct(TaskResult.project_id)).label('projects_contributed')
-        ).join(
-            Worker, User.user_id == Worker.user_id
         ).join(
             Task, Task.assigned_worker_id == Worker.worker_id
         ).join(
             TaskResult, TaskResult.task_id == Task.task_id
+        ).filter(
+            Worker.user_id.isnot(None)
         ).group_by(
-            User.user_id, User.name
+            Worker.user_id
         ).order_by(
             func.count(distinct(TaskResult.project_id)).desc()
         ).limit(limit).all()
 
-        # Format the results
         result = []
         for contributor in contributors:
             result.append({
-                "name": contributor.name,
+                "name": contributor.user_id,
                 "projects_contributed": contributor.projects_contributed
             })
 
