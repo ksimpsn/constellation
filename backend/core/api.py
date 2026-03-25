@@ -636,31 +636,63 @@ class ConstellationAPI:
     def _get_connected_volunteer_workers(self, live_nodes: dict | None = None) -> list[Worker]:
         """
         Return volunteer-owned workers that map to currently live non-head Ray nodes.
+        If a worker is missing ray_node_id, try to resolve by IP address.
         """
         if live_nodes is None:
             live_nodes = self._get_live_ray_nodes()
 
-        eligible_node_ids = {
-            node_id for node_id, node in live_nodes.items()
+        eligible_nodes = {
+            node_id: node
+            for node_id, node in live_nodes.items()
             if not node.get("IsHeadNode", False)
         }
+        eligible_node_ids = set(eligible_nodes.keys())
 
         with get_session() as session:
             workers = (
                 session.query(Worker)
                 .filter(
                     Worker.user_id.isnot(None),
-                    Worker.ray_node_id.isnot(None),
                     Worker.status.in_(["online", "idle", "busy"])
                 )
+                .order_by(Worker.updated_at.desc())
                 .all()
             )
+
+            available_by_ip: dict[str, list[str]] = {}
+            for node_id, node in eligible_nodes.items():
+                addr = node.get("NodeManagerAddress")
+                if not addr:
+                    continue
+                available_by_ip.setdefault(addr, []).append(node_id)
+
             volunteer_workers = []
+            used_node_ids: set[str] = set()
+            changed = False
             for worker in workers:
                 if not user_has_role(worker.user_id, "volunteer"):
                     continue
-                if worker.ray_node_id in eligible_node_ids:
+
+                resolved_node_id = None
+                if worker.ray_node_id in eligible_node_ids and worker.ray_node_id not in used_node_ids:
+                    resolved_node_id = worker.ray_node_id
+                elif worker.ip_address:
+                    candidates = available_by_ip.get(worker.ip_address, [])
+                    for node_id in candidates:
+                        if node_id not in used_node_ids:
+                            resolved_node_id = node_id
+                            break
+                    if resolved_node_id and worker.ray_node_id != resolved_node_id:
+                        worker.ray_node_id = resolved_node_id
+                        worker.updated_at = datetime.utcnow()
+                        changed = True
+
+                if resolved_node_id:
+                    used_node_ids.add(resolved_node_id)
                     volunteer_workers.append(worker)
+
+            if changed:
+                session.commit()
             return volunteer_workers
 
     @staticmethod
@@ -776,6 +808,22 @@ class ConstellationAPI:
         self.sync_ray_workers_to_db()
         dispatched_count = 0
         queued_run_ids = list(self.queued_runs.keys())
+
+        # Detect queued runs persisted in SQLite that are not present in memory.
+        # This typically means the Flask process restarted after submission.
+        with get_session() as session:
+            persisted_queued = {
+                row[0]
+                for row in session.query(Run.run_id)
+                .filter(Run.status == "queued")
+                .all()
+            }
+        missing_in_memory = persisted_queued.difference(set(queued_run_ids))
+        for run_id in sorted(missing_in_memory):
+            logging.warning(
+                f"[DISPATCH] Run {run_id} is queued in DB but missing in-memory payloads; "
+                "it cannot be dispatched until the project is resubmitted."
+            )
 
         for run_id in queued_run_ids:
             queue_item = self.queued_runs.get(run_id)

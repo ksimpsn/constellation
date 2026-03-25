@@ -16,16 +16,22 @@ from backend.core.database import (
     get_user_by_id,
     user_has_role,
     register_worker,
+    get_all_workers,
+    set_workers_offline_for_user,
     get_session,
     get_researcher_projects_with_stats,
     create_user,
     get_user_by_email,
     init_db,
-    list_browse_projects,
     normalize_roles_input,
     set_user_roles,
 )
-from backend.core.database_aws import init_aws_db, get_aws_project_ip, update_aws_project_ip
+from backend.core.database_aws import (
+    init_aws_db,
+    get_aws_project_ip,
+    update_aws_project_ip,
+    list_aws_browse_projects,
+)
 from backend.core.server import Cluster
 import os
 import uuid
@@ -97,9 +103,9 @@ def home():
 
 @app.route("/api/projects/browse", methods=["GET", "OPTIONS"])
 def browse_projects_list():
-    """Public list of active projects for the Browse Projects page."""
+    """Public list of projects for Browse Projects (AWS-backed)."""
     try:
-        projects = list_browse_projects()
+        projects = list_aws_browse_projects()
         return jsonify({"projects": projects}), 200
     except Exception as e:
         logging.error(f"[ERROR] browse_projects_list: {e}")
@@ -893,6 +899,50 @@ def list_workers():
     return jsonify({"workers": [_worker_to_dict(w) for w in workers]}), 200
 
 
+@app.route("/api/workers/disconnect", methods=["POST"])
+def disconnect_worker():
+    """
+    Endpoint: POST /api/workers/disconnect
+    Purpose: Mark the requesting volunteer's active worker records as offline.
+    Request body: { "user_id" } or { "email" } (or both)
+    """
+    try:
+        data = request.get_json() or {}
+        user_id = data.get("user_id")
+        email = data.get("email")
+
+        user = None
+        if user_id:
+            user = get_user_by_id(user_id)
+            if not user:
+                return jsonify({"error": f"User {user_id} not found"}), 404
+        elif email:
+            user = get_user_by_email(email)
+            if not user:
+                return jsonify({"error": f"User with email {email} not found"}), 404
+            user_id = user.user_id
+        else:
+            return jsonify({"error": "Missing required field: user_id or email"}), 400
+
+        if not user_has_role(user_id, "volunteer"):
+            return jsonify({
+                "error": f"User {user_id} does not have 'volunteer' role. Current role: {user.role}"
+            }), 403
+
+        updated = set_workers_offline_for_user(user_id)
+        return jsonify({
+            "status": "disconnected",
+            "user_id": user_id,
+            "workers_marked_offline": updated,
+            "message": "Worker contribution has been stopped for this user."
+        }), 200
+    except Exception as e:
+        logging.error(f"[ERROR] disconnect_worker: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/runs/<run_id>/results/download", methods=["GET"])
 def download_run_results(run_id):
     """GET /api/runs/<run_id>/results/download - download aggregated results as JSON file."""
@@ -1126,6 +1176,19 @@ def connect_worker():
                 "error": "Cannot determine head node IP. Provide project_id (with a running head) or head_node_ip."
             }), 400
 
+        # Snapshot non-head nodes before join so we can detect the new worker node.
+        pre_join_non_head_ids = set()
+        if ray.is_initialized():
+            for node in ray.nodes():
+                if not node.get("Alive", False):
+                    continue
+                resources = node.get("Resources") or {}
+                if resources.get("node:__internal_head__") or node.get("IsHeadNode", False):
+                    continue
+                node_id = node.get("NodeID")
+                if node_id:
+                    pre_join_non_head_ids.add(node_id)
+
         # Join the cluster as a Ray worker (subprocess on this machine)
         try:
             Cluster.join_as_worker(head_node_ip)
@@ -1146,19 +1209,40 @@ def connect_worker():
         cpu_cores = None
         memory_gb = None
         if ray.is_initialized():
+            candidate_nodes = []
             for node in ray.nodes():
                 if not node.get("Alive", False):
                     continue
                 res = node.get("Resources") or {}
-                if res.get("node:__internal_head__"):
+                if res.get("node:__internal_head__") or node.get("IsHeadNode", False):
                     continue
+                candidate_nodes.append(node)
+
+            # Prefer a newly observed non-head node after join.
+            newly_joined = [
+                n for n in candidate_nodes if n.get("NodeID") not in pre_join_non_head_ids
+            ]
+            ordered_candidates = newly_joined if newly_joined else candidate_nodes
+
+            def _candidate_rank(node):
                 node_addr = node.get("NodeManagerAddress", "")
-                if node_addr in (local_ip, "127.0.0.1", head_node_ip):
-                    ray_node_id = node.get("NodeID")
-                    cpu_cores = int(res.get("CPU", 0)) or None
-                    mem = res.get("memory", 0)
-                    memory_gb = round(mem / (1024**3), 2) if mem else None
-                    break
+                # Rank local node matches first.
+                if node_addr == local_ip:
+                    return 0
+                if node_addr == "127.0.0.1":
+                    return 1
+                if node_addr == head_node_ip:
+                    return 2
+                return 3
+
+            ordered_candidates = sorted(ordered_candidates, key=_candidate_rank)
+            if ordered_candidates:
+                chosen = ordered_candidates[0]
+                res = chosen.get("Resources") or {}
+                ray_node_id = chosen.get("NodeID")
+                cpu_cores = int(res.get("CPU", 0)) or None
+                mem = res.get("memory", 0)
+                memory_gb = round(mem / (1024**3), 2) if mem else None
 
         worker = register_worker(
             worker_id=f"worker-{uuid.uuid4()}",

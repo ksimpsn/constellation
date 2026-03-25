@@ -6,13 +6,13 @@ import Home from "./pages/Home.tsx";
 import Dashboard from "./pages/Dashboard.tsx";
 import Why from "./pages/Why.tsx";
 import Security from "./pages/Security.tsx";
-import BrowseProjects from "./pages/BrowseProjects.tsx";
+import BrowseProjectsAws from "./pages/BrowseProjectsAws.tsx";
 import SubmitProject from "./pages/SubmitProject.tsx";
 import ResearcherDashboard from "./pages/ResearcherDashboard.tsx";
 import VolunteerConnect from "./pages/VolunteerConnect.tsx";
 import Signup from "./pages/Signup.tsx";
 import Login from "./pages/Login.tsx";
-import ProjectDetails from "./pages/ProjectDetails.tsx";
+import ProjectDetailsUpdated from "./pages/ProjectDetailsUpdated.tsx";
 import Profile from "./pages/Profile.tsx";
 import ResearcherProfile from "./pages/ResearcherProfile.tsx";
 import Settings from "./pages/Settings.tsx";
@@ -28,7 +28,7 @@ function AppRoutes() {
         <Route path="/why" element={<Why />} />
         <Route path="/security" element={<Security />} />
         <Route path="/security-research" element={<SecurityResearch />} />
-        <Route path="/browse" element={<BrowseProjects />} />
+        <Route path="/browse" element={<BrowseProjectsAws />} />
         <Route path="/submit" element={<SubmitProject />} />
         <Route path="/researcher" element={<ResearcherDashboard />} />
         <Route path="/volunteer" element={<VolunteerConnect />} />
@@ -39,7 +39,7 @@ function AppRoutes() {
         <Route path="/settings" element={<Settings />} />
         <Route path="/leaderboard" element={<Leaderboard />} />
         <Route path="/big-dipper" element={<BigDipperDemo />} />
-        <Route path="/project/:projectName" element={<ProjectDetails />} />
+        <Route path="/project/:projectName" element={<ProjectDetailsUpdated />} />
       </Routes>
   );
 }

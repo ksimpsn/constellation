@@ -1,7 +1,7 @@
 import ConstellationStarfieldBackground from "../components/ConstellationStarfieldBackground";
 import FlowNav from "../components/FlowNav";
 import { useState, useMemo, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { API_BASE_URL } from "../api/config";
 
 interface LearnMoreLink {
@@ -21,6 +21,7 @@ interface Project {
 }
 
 export default function BrowseProjectsAws() {
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   const [expandedId, setExpandedId] = useState<string | number | null>(null);
@@ -105,9 +106,9 @@ export default function BrowseProjectsAws() {
     <ConstellationStarfieldBackground>
       <FlowNav />
       <div className="relative z-10 px-6 pt-24 pb-16 max-w-6xl mx-auto w-full min-h-screen flex flex-col">
-        <h1 className="text-4xl font-bold text-white/90 mb-2">Browse Projects (SQLite)</h1>
+        <h1 className="text-4xl font-bold text-white/90 mb-2">Browse Projects (AWS)</h1>
         <p className="text-white/70 mb-4">
-          Data source: <code>/api/projects/browse</code> from the local SQLite projects table.
+          Data source: <code>/api/projects/browse</code> from the AWS <code>projects</code> table.
         </p>
 
         <div className="mb-6 rounded-xl border border-amber-300/30 bg-amber-500/10 p-4 text-sm text-amber-100">
@@ -147,7 +148,7 @@ export default function BrowseProjectsAws() {
           })}
         </div>
 
-        {listLoading && <p className="text-white/60">Loading projects from SQLite...</p>}
+        {listLoading && <p className="text-white/60">Loading projects from AWS...</p>}
         {loadError && (
           <div className="mb-6 rounded-xl border border-red-300/30 bg-red-500/10 p-4 text-sm text-red-100">
             Failed to load browse data: {loadError}
@@ -160,7 +161,7 @@ export default function BrowseProjectsAws() {
         >
           {!listLoading && filteredProjects.length === 0 ? (
             <p className="col-span-full text-white/60 py-8">
-              No SQLite-backed projects match your current filters.
+              No AWS-backed projects match your current filters.
             </p>
           ) : (
             filteredProjects.map((proj) => {
@@ -276,13 +277,14 @@ export default function BrowseProjectsAws() {
                           )}
                         </div>
 
-                        <Link
-                          to={`/project/${encodeURIComponent(proj.title)}`}
-                          className="inline-flex items-center justify-center gap-2 w-full px-4 py-3 rounded-lg bg-white/20 hover:bg-white/30 border border-white/30 text-white font-medium no-underline transition-all duration-200 text-sm mt-2"
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/project/${encodeURIComponent(String(proj.id))}`)}
+                          className="inline-flex items-center justify-center gap-2 w-full px-4 py-3 rounded-lg bg-white/20 hover:bg-white/30 border border-white/30 text-white font-medium transition-all duration-200 text-sm mt-2 cursor-pointer disabled:opacity-60 disabled:cursor-wait"
                         >
-                          Contribute CPU to this project
+                          See project details
                           <span aria-hidden>→</span>
-                        </Link>
+                        </button>
                       </div>
                     )}
                   </div>

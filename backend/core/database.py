@@ -1316,6 +1316,27 @@ def list_browse_projects(limit: int = 200) -> list:
         return result
 
 
+def set_workers_offline_for_user(user_id: str) -> int:
+    """Mark all active workers for a user as offline. Returns number updated."""
+    if not user_id:
+        return 0
+    with SessionLocal() as session:
+        rows = (
+            session.query(Worker)
+            .filter(
+                Worker.user_id == user_id,
+                Worker.status.in_(["online", "idle", "busy"]),
+            )
+            .all()
+        )
+        for worker in rows:
+            worker.status = "offline"
+            worker.ray_node_id = None
+            worker.updated_at = datetime.utcnow()
+        session.commit()
+        return len(rows)
+
+
 # Simple test connection function
 if __name__ == "__main__":
     init_db()

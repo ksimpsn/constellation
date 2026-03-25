@@ -7,6 +7,7 @@ Example: export AWS_DATABASE_URL="postgresql://USER:PASSWORD@HOST:5432/DATABASE"
 Runs, tasks, workers, task_results, worker_heartbeats remain in SQLite (database.py).
 """
 
+import json
 import os
 from contextlib import contextmanager
 from datetime import datetime
@@ -232,6 +233,62 @@ def get_all_aws_projects(researcher_id: str = None, limit: int = None) -> list:
             )
             for p in rows
         ]
+
+
+def list_aws_browse_projects(limit: int = 200) -> list:
+    """
+    Public browse list sourced from AWS projects table.
+    Returns shape compatible with frontend browse/details pages.
+    """
+    if not is_aws_db_configured():
+        return []
+
+    with get_aws_session() as session:
+        rows = (
+            session.query(AWSProject, AWSResearcher.name)
+            .outerjoin(AWSResearcher, AWSProject.researcher_id == AWSResearcher.username)
+            .order_by(AWSProject.date_created.desc())
+            .limit(limit)
+            .all()
+        )
+
+        out = []
+        for project, researcher_name in rows:
+            raw = project.tags
+            if raw is None:
+                tag_list = []
+            elif isinstance(raw, list):
+                tag_list = [str(tag) for tag in raw if str(tag).strip()]
+            elif isinstance(raw, str):
+                stripped = raw.strip()
+                if not stripped:
+                    tag_list = []
+                else:
+                    try:
+                        parsed = json.loads(stripped)
+                        if isinstance(parsed, list):
+                            tag_list = [str(tag) for tag in parsed if str(tag).strip()]
+                        else:
+                            tag_list = [x.strip() for x in stripped.split(",") if x.strip()]
+                    except Exception:
+                        tag_list = [x.strip() for x in stripped.split(",") if x.strip()]
+            else:
+                tag_list = []
+
+            out.append(
+                {
+                    "id": project.project_id,
+                    "title": project.name,
+                    "description": (project.description or "")[:500],
+                    "longDescription": project.description or "",
+                    "tags": tag_list,
+                    "researcherName": researcher_name,
+                    "whyJoin": [],
+                    "learnMore": [],
+                }
+            )
+
+        return out
 
 
 def get_aws_project(project_id) -> Optional[SimpleNamespace]:
