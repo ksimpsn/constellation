@@ -7,5 +7,5 @@ __pycache__/
 .pytest_cache/
 env/
 source/
-.venv/
-venv/
+.venv*/
+venv/.venv312/
