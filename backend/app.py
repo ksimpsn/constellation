@@ -163,7 +163,7 @@ def submit_job():
     except (TypeError, ValueError):
         max_verification_attempts = 2
 
-    # ✨ CALL THE CORRECT API FUNCTION
+    # ✨ CALL THE CORRECT API FUNCTION (tie project + run to this researcher)
     out = api.submit_uploaded_project(
         code_path=py_path,
         dataset_path=data_path,
@@ -174,6 +174,7 @@ def submit_job():
         chunk_size=chunk_size,
         replication_factor=replication_factor,
         max_verification_attempts=max_verification_attempts,
+        researcher_id=user_id,
     )
     job_id, run_id, project_id, total_tasks = out
 

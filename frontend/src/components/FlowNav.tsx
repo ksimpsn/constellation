@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import ConstellationLogo from "./ConstellationLogo";
 import { useView } from "../context/ViewContext";
 import { useAuth } from "../context/AuthContext";
-import { hasResearcherRole, hasVolunteerRole } from "../auth/session";
+import { hasResearcherRole } from "../auth/session";
 
 // Security uses same page as home "Privacy & Security" link (/security), not /security-research
 const discoverLinks = [
@@ -22,10 +22,9 @@ export default function FlowNav() {
   const [open, setOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
-  const { isResearcher, setView } = useView();
-  const { user, logout } = useAuth();
-  const canSwitchRoles =
-    Boolean(user) && hasResearcherRole(user!.role) && hasVolunteerRole(user!.role);
+  const { isResearcher: viewIsResearcher } = useView();
+  const { user, logout, isResearcher: accountIsResearcher, isVolunteer: accountIsVolunteer } = useAuth();
+  const hasBothRoles = Boolean(user) && accountIsResearcher && accountIsVolunteer;
 
   /** Logged-in: everyone sees browse + leaderboard; submit only if account includes researcher (researcher-only or dual-role). */
   const contributeLinks = user
@@ -43,11 +42,6 @@ export default function FlowNav() {
   const go = (path: string) => {
     navigate(path);
     setOpen(false);
-  };
-
-  const handleSwitchView = () => {
-    setOpen(false);
-    setView(isResearcher ? "volunteer" : "researcher");
   };
 
   return (
@@ -90,12 +84,12 @@ export default function FlowNav() {
             onClick={() => setOpen(false)}
           />
           <aside
-            className="fixed top-0 right-0 bottom-0 z-50 w-full max-w-sm flex flex-col bg-slate-900/95 backdrop-blur-xl border-l border-white/10 shadow-2xl animate-slide-in-right"
+            className="fixed top-0 right-0 bottom-0 z-50 w-full max-w-sm flex flex-col min-h-0 bg-slate-900/95 backdrop-blur-xl border-l border-white/10 shadow-2xl animate-slide-in-right"
             role="dialog"
             aria-label="Navigation menu"
           >
-            <div className="p-6 pt-14">
-              <div className="flex items-center justify-between mb-8">
+            <div className="shrink-0 pt-14 px-6 pb-3">
+              <div className="flex items-center justify-between">
                 <span className="text-lg font-semibold text-white/90">Menu</span>
                 <button
                   type="button"
@@ -108,8 +102,10 @@ export default function FlowNav() {
                   </svg>
                 </button>
               </div>
+            </div>
 
-              <nav className="flex flex-col gap-6">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain px-6 pb-8 touch-pan-y">
+              <nav className="flex flex-col gap-6 pb-2">
                 <div className="menu-stagger-1">
                   <p className="text-xs font-medium uppercase tracking-wider text-white/50 mb-2">Discover</p>
                   <ul className="space-y-0.5">
@@ -167,27 +163,70 @@ export default function FlowNav() {
                 {user ? (
                   <div className="menu-stagger-3">
                     <p className="text-xs font-medium uppercase tracking-wider text-white/50 mb-2">
-                      You {isResearcher ? "(Researcher)" : "(Volunteer)"}
+                      You {hasBothRoles ? "(Researcher & volunteer)" : viewIsResearcher ? "(Researcher)" : "(Volunteer)"}
                     </p>
                     <ul className="space-y-0.5">
-                      <li>
-                        <button
-                          type="button"
-                          onClick={() => go(isResearcher ? "/researcher-profile" : "/profile")}
-                          className="w-full text-left px-4 py-3 rounded-xl text-[15px] text-white/80 hover:bg-white/10 hover:text-white transition-colors"
-                        >
-                          My profile
-                        </button>
-                      </li>
-                      <li>
-                        <button
-                          type="button"
-                          onClick={() => go(isResearcher ? "/researcher" : "/dashboard")}
-                          className="w-full text-left px-4 py-3 rounded-xl text-[15px] text-white/80 hover:bg-white/10 hover:text-white transition-colors"
-                        >
-                          My dashboard
-                        </button>
-                      </li>
+                      {hasBothRoles ? (
+                        <>
+                          <li>
+                            <button
+                              type="button"
+                              onClick={() => go("/researcher-profile")}
+                              className="w-full text-left px-4 py-3 rounded-xl text-[15px] text-white/80 hover:bg-white/10 hover:text-white transition-colors"
+                            >
+                              Researcher profile
+                            </button>
+                          </li>
+                          <li>
+                            <button
+                              type="button"
+                              onClick={() => go("/profile")}
+                              className="w-full text-left px-4 py-3 rounded-xl text-[15px] text-white/80 hover:bg-white/10 hover:text-white transition-colors"
+                            >
+                              Volunteer profile
+                            </button>
+                          </li>
+                          <li>
+                            <button
+                              type="button"
+                              onClick={() => go("/researcher")}
+                              className="w-full text-left px-4 py-3 rounded-xl text-[15px] text-white/80 hover:bg-white/10 hover:text-white transition-colors"
+                            >
+                              Researcher dashboard
+                            </button>
+                          </li>
+                          <li>
+                            <button
+                              type="button"
+                              onClick={() => go("/dashboard")}
+                              className="w-full text-left px-4 py-3 rounded-xl text-[15px] text-white/80 hover:bg-white/10 hover:text-white transition-colors"
+                            >
+                              Volunteer dashboard
+                            </button>
+                          </li>
+                        </>
+                      ) : (
+                        <>
+                          <li>
+                            <button
+                              type="button"
+                              onClick={() => go(viewIsResearcher ? "/researcher-profile" : "/profile")}
+                              className="w-full text-left px-4 py-3 rounded-xl text-[15px] text-white/80 hover:bg-white/10 hover:text-white transition-colors"
+                            >
+                              My profile
+                            </button>
+                          </li>
+                          <li>
+                            <button
+                              type="button"
+                              onClick={() => go(viewIsResearcher ? "/researcher" : "/dashboard")}
+                              className="w-full text-left px-4 py-3 rounded-xl text-[15px] text-white/80 hover:bg-white/10 hover:text-white transition-colors"
+                            >
+                              My dashboard
+                            </button>
+                          </li>
+                        </>
+                      )}
                       <li>
                         <button
                           type="button"
@@ -210,17 +249,6 @@ export default function FlowNav() {
                           Log out
                         </button>
                       </li>
-                      {canSwitchRoles && (
-                        <li className="pt-2 border-t border-white/10">
-                          <button
-                            type="button"
-                            onClick={handleSwitchView}
-                            className="w-full text-left px-4 py-3 rounded-xl text-[15px] text-indigo-300 hover:bg-white/10 transition-colors"
-                          >
-                            Switch to {isResearcher ? "Volunteer" : "Researcher"}
-                          </button>
-                        </li>
-                      )}
                     </ul>
                   </div>
                 ) : (

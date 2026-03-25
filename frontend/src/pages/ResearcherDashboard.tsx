@@ -109,7 +109,7 @@ export default function ResearcherDashboard() {
           `}
         </style>
         <h1 className="text-4xl font-bold text-white/90 mb-10">
-          Your Research Projects
+          My Researcher Dashboard
         </h1>
 
         {loading && (

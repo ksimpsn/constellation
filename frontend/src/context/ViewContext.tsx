@@ -61,6 +61,32 @@ export function ViewProvider({ children }: { children: ReactNode }) {
     }
   }, [user?.user_id, user?.role]);
 
+  // Keep menu context in sync when opening researcher vs volunteer routes directly (esp. dual-role)
+  useEffect(() => {
+    if (!user) return;
+    const hasR = hasResearcherRole(user.role);
+    const hasV = hasVolunteerRole(user.role);
+    let next: ViewMode | null = null;
+    if (isResearcherPath(location.pathname) && hasR) {
+      next = "researcher";
+    } else if (
+      (location.pathname === "/dashboard" || location.pathname === "/profile") &&
+      hasV
+    ) {
+      next = "volunteer";
+    }
+    if (next === null) return;
+    setViewState((prev) => {
+      if (prev === next) return prev;
+      try {
+        localStorage.setItem(VIEW_MODE_STORAGE_KEY, next);
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }, [location.pathname, user?.user_id, user?.role]);
+
   // Sync view from URL on first load when no stored preference (e.g. direct link to /researcher)
   useEffect(() => {
     if (user) return;

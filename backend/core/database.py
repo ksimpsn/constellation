@@ -780,10 +780,32 @@ def get_researcher_projects_with_stats(researcher_id: str) -> list:
                 if run.updated_at and run.updated_at > latest_updated:
                     latest_updated = run.updated_at
 
+            latest_run = None
+            if runs:
+                latest_run = max(runs, key=lambda r: r.created_at or datetime.min)
+
+            raw_tags = project.tags
+            if raw_tags is None:
+                tag_list = []
+            elif isinstance(raw_tags, list):
+                tag_list = raw_tags
+            else:
+                tag_list = []
+
             result.append({
                 "id": project.project_id,
+                "researcherId": project.researcher_id,
                 "title": project.title,
                 "description": project.description or "",
+                "status": project.status,
+                "datasetType": project.dataset_type,
+                "funcName": project.func_name,
+                "chunkSize": project.chunk_size,
+                "replicationFactor": project.replication_factor,
+                "maxVerificationAttempts": project.max_verification_attempts,
+                "tags": tag_list,
+                "codePath": project.code_s3_path or "",
+                "datasetPath": project.dataset_s3_path or "",
                 "progress": progress,
                 "resultUrl": result_url,
                 "totalContributors": total_contributors,
@@ -795,7 +817,9 @@ def get_researcher_projects_with_stats(researcher_id: str) -> list:
                 "createdAt": project.created_at.isoformat() if project.created_at else None,
                 "updatedAt": latest_updated.isoformat() if latest_updated else None,
                 "totalRuns": total_runs,
-                "averageTaskTime": round(avg_task_time, 1) if avg_task_time else None
+                "averageTaskTime": round(avg_task_time, 1) if avg_task_time else None,
+                "latestRunId": latest_run.run_id if latest_run else None,
+                "latestRunStatus": latest_run.status if latest_run else None,
             })
 
         return result
