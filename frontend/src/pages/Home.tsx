@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { BigDipperBackground } from "../components/BigDipperBackground";
 import FlowNav from "../components/FlowNav";
 
-const isElectron = typeof window !== "undefined" && Boolean(window.isElectron);
+const isElectron = typeof window !== "undefined" && Boolean((window as unknown as { isElectron?: boolean }).isElectron);
 
 /** Keeps subtitle readable on bright stars without a background plate */
 const subtitleReadable = {

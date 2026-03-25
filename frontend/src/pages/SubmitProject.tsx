@@ -18,8 +18,10 @@ export default function SubmitProject() {
   const [maxVerificationAttempts, setMaxVerificationAttempts] = useState<number>(1);
   const [message, setMessage] = useState("");
 
-  // Track job ID, status, and results
+  // Track job ID, run ID, project ID, status, and results
   const [jobId, setJobId] = useState<number | null>(null);
+  const [runId, setRunId] = useState<string | null>(null);
+  const [projectId, setProjectId] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<string | null>(null);
   const [jobResults, setJobResults] = useState<any | null>(null);
   const pollingIntervalRef = useRef<number | null>(null);
@@ -50,8 +52,7 @@ export default function SubmitProject() {
       return;
     }
 
-    console.log("inside handle submit");
-
+    const base = getApiUrl();
     const formData = new FormData();
     formData.append("title", title);
     formData.append("description", description);
@@ -75,12 +76,13 @@ export default function SubmitProject() {
         return;
       }
 
-      // Save job ID and reset status/results
       setJobId(result.job_id);
+      setRunId(result.run_id ?? null);
+      setProjectId(result.project_id ?? null);
       setJobStatus("submitted");
       setJobResults(null);
-
-      setMessage(`Project submitted successfully! Job ID: ${result.job_id}`);
+      const taskMsg = result.total_tasks != null ? ` (${result.total_tasks} tasks created)` : "";
+      setMessage(`Project submitted. Run ID: ${result.run_id ?? result.job_id}${taskMsg}`);
     } catch (err) {
       console.error(err);
       setMessage(
@@ -89,16 +91,13 @@ export default function SubmitProject() {
     }
   };
 
-  // Check status function (used by polling)
   const checkStatus = async () => {
     if (jobId == null) return;
-
+    const base = getApiUrl();
     try {
       const response = await fetch(`${API_BASE_URL}/status/${jobId}`);
       const result = await response.json();
       setJobStatus(result.status);
-
-      // Auto-fetch results when job completes
       if (result.status === "complete" && jobResults === null) {
         handleGetResults();
       }
@@ -108,10 +107,9 @@ export default function SubmitProject() {
     }
   };
 
-  // Fetch results
   const handleGetResults = async () => {
     if (jobId == null) return;
-
+    const base = getApiUrl();
     try {
       const response = await fetch(`${API_BASE_URL}/results/${jobId}`);
       const result = await response.json().catch(() => ({}));

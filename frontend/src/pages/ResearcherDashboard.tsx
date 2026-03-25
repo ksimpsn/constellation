@@ -87,15 +87,6 @@ export default function ResearcherDashboard() {
     window.open(url, "_blank");
   };
 
-  if (!user || !hasResearcherRole(user.role)) {
-    return (
-      <ConstellationStarfieldBackground>
-        <FlowNav />
-        <div className="relative z-10 pt-28 text-center text-white/70">Loading…</div>
-      </ConstellationStarfieldBackground>
-    );
-  }
-
   return (
     <ConstellationStarfieldBackground>
       <FlowNav />

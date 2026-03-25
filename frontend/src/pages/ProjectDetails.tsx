@@ -171,6 +171,21 @@ export default function ProjectDetails() {
   const hasTasks = tasks.length > 0;
   const hasAnyStars = starPositions.length > 0;
 
+  if (error || !project) {
+    return (
+      <GradientBackground>
+        <p style={{ color: "#c00" }}>{error || "Project not found"}</p>
+        <button onClick={() => navigate(-1)} style={{ marginTop: "12px", padding: "8px 16px", cursor: "pointer" }}>
+          ← Back
+        </button>
+      </GradientBackground>
+    );
+  }
+
+  const displayRun = liveRunStatus ?? latestRun;
+  const total = displayRun?.total_tasks ?? 1;
+  const progress = displayRun ? Math.round(((displayRun.completed_tasks ?? 0) / total) * 100) : 0;
+
   return (
     <ConstellationStarfieldBackground>
       <FlowNav />

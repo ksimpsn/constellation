@@ -11,42 +11,44 @@ The system is built on **Ray**, enabling scalable task distribution, progress tr
 1. **Navigate to the project directory:**
    ```bash
    cd constellation
-   ```
-
-2. **Create and activate a virtual environment (recommended):**
-   ```bash
-   python3 -m venv env
-   source env/bin/activate  # On Windows: env\Scripts\activate
-   ```
-
+2. **Create and activate a virtual environment:**
+    python3 -m venv env
+    source env/bin/activate  # On Windows: env\Scripts\activate
 3. **Install Python dependencies:**
-   ```bash
-   # Option 1: Install from requirements.txt (recommended)
-   pip install -r requirements.txt
-
-   # Option 2: Install individually
-   pip install flask flask-cors ray sqlalchemy dill
-   ```
-
+    python3 -m pip install -r requirements.txt
 4. **Initialize the database:**
+    ```bash
+    python3 -c "from backend.core.database import init_db; init_db()"
+    ```
+    If you already have a `projects` table and are upgrading, add verification columns:
+    ```sql
+    ALTER TABLE projects ADD COLUMN replication_factor INTEGER NOT NULL DEFAULT 2;
+    ALTER TABLE projects ADD COLUMN max_verification_attempts INTEGER NOT NULL DEFAULT 2;
+    ```
+5. **Run the Flask backend server:**
+
+   **Option B (recommended on macOS/Windows):** Start the Ray head first, then Flask. Use two terminals:
+
+   **Terminal 1 – start Ray head:**
    ```bash
-   python3 -c "from backend.core.database import init_db; init_db()"
+   ./scripts/start-ray-head.sh
    ```
+   (On macOS/Windows this sets `RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=1` so the cluster accepts workers.)
 
-5. **Create debug users and test data (optional, for testing):**
+   **Terminal 2 – start Flask (connects to existing Ray head):**
    ```bash
-   python3 backend/create_debug_user.py
-   python3 backend/test/add_sample_project.py
+   ./scripts/start-flask-with-ray.sh
    ```
+   Or manually: `export RAY_ADDRESS=127.0.0.1:6379 && python3 -m flask --app backend.app run --host 0.0.0.0 --port 5001`
 
-6. **Run the Flask backend server:**
+   **Single-command option:** If you prefer one terminal and no `RAY_ADDRESS` set, run:
    ```bash
-   python3 -m flask --app backend.app run --host 0.0.0.0 --port 5000
+   unset RAY_ADDRESS
+   python3 -m flask --app backend.app run --reload --host 0.0.0.0 --port 5001
    ```
+   The backend will start a Ray head automatically when needed (may require Ray to be on PATH).
 
-   The backend API will be available at `http://localhost:5000`
-
-   **Note:** Keep this terminal running! The server must stay running for the frontend to work.
+   The backend API will be available at `http://localhost:5001`
 
 ### Frontend Setup
 
@@ -65,6 +67,7 @@ The system is built on **Ray**, enabling scalable task distribution, progress tr
    - Enter project title and description
    - Upload a Python script (must contain a `main(row)` function)
    - Upload a CSV or JSON dataset
+   - Optionally set **replication factor** (how many times each task is run for verification; default 2) and **max verification attempts** (how many times to re-submit unverified tasks; default 2) via the form or API.
    - Click "Submit Project"
 
 2. **Monitor Status:**

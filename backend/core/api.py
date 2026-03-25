@@ -804,7 +804,9 @@ class ConstellationAPI:
             max_verification_attempts: int = 2,
             researcher_id: str = None,
             title: str = None,
-            description: str = None
+            description: str = None,
+            replication_factor: int = 2,
+            max_verification_attempts: int = 2,
     ) -> int:
         """
         Full pipeline for researcher-uploaded projects.
@@ -886,12 +888,12 @@ class ConstellationAPI:
         shutil.copyfile(code_path, stored_code_path)
         shutil.copyfile(dataset_path, stored_dataset_path)
         
-        # Update project with stored paths
-        project.code_s3_path = stored_code_path
-        project.dataset_s3_path = stored_dataset_path
-        with get_session() as session:
-            session.merge(project)
-            session.commit()
+        # # Update project with stored paths
+        # project.code_s3_path = stored_code_path
+        # project.dataset_s3_path = stored_dataset_path
+        # with get_session() as session:
+        #     session.merge(project)
+        #     session.commit()
 
         # ---------------------------------------------------------
         # 5. Create Run and Tasks in DB
@@ -982,11 +984,14 @@ class ConstellationAPI:
         ]
 
         # submit tasks to Ray
-        futures = self.server.submit_tasks(payloads)
+        execution = self.server.submit_tasks_with_verification(payloads)
+        verification_status = execution["verification_status"]
+
         # store futures in memory
-        self.futures[job_id] = futures
+        self.futures[job_id] = execution.get("futures", [])
 
         # store metadata in DB
+        save_job(job_id=job_id, data={"num_chunks": len(payloads)}, status=verification_status)
         # save_job(job_id=job_id, data=payloads, status="submitted")
         # FIXME: payloads contains a bunch of binary so may want to rethink
         # save_job(job_id=job_id, data={"num_chunks": len(payloads)}, status="submitted")
@@ -1217,3 +1222,44 @@ class ConstellationAPI:
         print(f"[ConstellationAPI] Verifying results for job: {job_id}")
         # TODO: Add redundancy check
         return True
+    
+    def _persist_verification_results(self, run_id, project_id, execution):
+        """
+        Store all verification attempts into TaskResult table and
+        return both the overall verification_status and the number of
+        distinct tasks that produced results.
+        """
+
+        verification_status = execution["verification_status"]
+        attempts = execution["attempts"]
+        seen_task_ids = set()
+
+        with get_session() as session:
+            for attempt_id, attempt_results in enumerate(attempts, start=1):
+                for ray_result in attempt_results:
+                    task_id = ray_result.get("task_id")
+                    if task_id:
+                        seen_task_ids.add(task_id)
+
+                    node_id = ray_result.get("node_id")
+                    worker = session.query(Worker).filter_by(ray_node_id=node_id).first()
+                    worker_id = worker.worker_id if worker else "worker-unknown"
+
+                    tr = TaskResult(
+                        task_id=task_id,
+                        run_id=run_id,
+                        project_id=project_id,
+                        worker_id=worker_id,
+                        attempt_id=attempt_id,
+                        verification_status=verification_status,
+                        result_data=ray_result.get("results"),
+                        result_hash=ray_result.get("result_hash"),
+                        runtime_seconds=ray_result.get("runtime_seconds"),
+                        completed_at=datetime.utcnow()
+                    )
+                    session.add(tr)
+
+            session.commit()
+
+        completed_count = len(seen_task_ids)
+        return verification_status, completed_count

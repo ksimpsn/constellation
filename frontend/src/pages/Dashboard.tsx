@@ -1,6 +1,7 @@
 import ConstellationStarfieldBackground from "../components/ConstellationStarfieldBackground";
 import FlowNav from "../components/FlowNav";
 import { Link } from "react-router-dom";
+import GradientBackground from "../components/GradientBackground";
 
 export default function Dashboard() {
   return (

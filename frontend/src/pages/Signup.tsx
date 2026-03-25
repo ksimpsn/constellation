@@ -86,7 +86,7 @@ const Signup: React.FC = () => {
       if (error.message?.includes('Failed to fetch') || error.name === 'TypeError') {
         setMessage(`Cannot connect to server. Please make sure the backend is running on ${API_BASE_URL}`);
       } else {
-        setMessage(`Signup failed: ${error.message || 'Please try again'}`);
+        alert(`Error: ${data.error}`);
       }
     } finally {
       setLoading(false);
