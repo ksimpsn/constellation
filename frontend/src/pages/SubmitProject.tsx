@@ -96,7 +96,6 @@ export default function SubmitProject() {
 
   const checkStatus = async () => {
     if (jobId == null) return;
-    const base = getApiUrl();
     try {
       const response = await fetch(`${API_BASE_URL}/status/${jobId}`);
       const result = await response.json();
@@ -112,7 +111,6 @@ export default function SubmitProject() {
 
   const handleGetResults = async () => {
     if (jobId == null) return;
-    const base = getApiUrl();
     try {
       const response = await fetch(`${API_BASE_URL}/results/${jobId}`);
       const result = await response.json().catch(() => ({}));
