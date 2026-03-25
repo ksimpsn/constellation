@@ -125,13 +125,16 @@ Do this on **every machine** (researcher and all volunteers).
 
 ---
 
-## 3. Create Demo Users
+## 3. Create Demo Users (API or Frontend)
 
 Users are stored in the shared AWS RDS, so you only need to create them once (from any machine).
 
-### 3.1 Create a Researcher
+### 3.1 Option A: Create Users via API (curl)
+
+Create at least one researcher and one volunteer:
 
 ```bash
+# Researcher
 curl -X POST http://127.0.0.1:5001/api/signup \
   -H "Content-Type: application/json" \
   -d '{
@@ -139,11 +142,8 @@ curl -X POST http://127.0.0.1:5001/api/signup \
     "email": "researcher@example.com",
     "role": "researcher"
   }'
-```
 
-### 3.2 Create a Volunteer
-
-```bash
+# Volunteer
 curl -X POST http://127.0.0.1:5001/api/signup \
   -H "Content-Type: application/json" \
   -d '{
@@ -154,6 +154,25 @@ curl -X POST http://127.0.0.1:5001/api/signup \
 ```
 
 Create additional volunteer accounts for each volunteer machine if desired. A `409` response means the user already exists — that is fine.
+
+### 3.2 Option B: Create Users via Frontend (Signup Page)
+
+If you prefer not to use curl:
+
+1. Start the frontend (see section 7.1).
+2. Open `http://localhost:5173/signup`.
+3. Create the researcher account:
+   - Enter name/email/password.
+   - Select **Researcher** role.
+   - Submit.
+4. Create volunteer account(s):
+   - Repeat signup with different email(s).
+   - Select **Volunteer** role.
+   - Submit.
+
+Notes:
+- If you need one account to do both actions, select both roles during signup.
+- If signup returns `409`, the account already exists. Use `/login` instead.
 
 ---
 
@@ -319,7 +338,20 @@ For the `test-square-demo` (10 rows, chunk_size=10, replication_factor=2):
 
 ## 7. Frontend‑Assisted Demo
 
-### 7.1 Start the Frontend (Researcher's Machine)
+### 7.1 Start the Frontend (Researcher and Volunteer Machines)
+
+The frontend talks to `VITE_API_URL` (default: `http://localhost:5001`).
+
+- On the **researcher's machine**, default is usually fine.
+- On **volunteer machines**, point frontend to the researcher's Flask backend.
+
+Example (`frontend/.env.local`):
+
+```bash
+VITE_API_URL=http://10.0.0.5:5001
+```
+
+Then start frontend on each machine where you want browser access:
 
 ```bash
 cd frontend
@@ -331,7 +363,7 @@ Open `http://localhost:5173/`.
 
 ### 7.2 Researcher Flow (Browser)
 
-1. **Sign up / Log in** at `/signup` or `/login`.
+1. **Sign up / Log in** at `/signup` or `/login` (or use users created in section 3).
 2. **Submit a project** at the Submit page:
    - Upload `sample-projects/test-square/project.py` and `dataset.csv`.
    - Set chunk size, replication factor, etc.
@@ -340,9 +372,16 @@ Open `http://localhost:5173/`.
    - Watch tasks go from queued → running → completed.
    - See connected worker count increase as volunteers join.
 
-### 7.3 Volunteer Flow (Terminal)
+### 7.3 Volunteer Flow (Browser Preferred, API Fallback)
 
-Volunteers still use the API to join (frontend "contribute" button can call this endpoint):
+#### Browser path (recommended)
+
+1. On the volunteer machine, start frontend with `VITE_API_URL=http://<RESEARCHER_IP>:5001` (section 7.1).
+2. Open `http://localhost:5173/` and **log in as a volunteer**.
+3. Open the browse/contribute page and join the target project.
+4. The frontend calls `POST /api/workers/connect`, which starts `ray start --address=<head_ip>:6379` on the volunteer machine.
+
+#### API fallback (equivalent action)
 
 ```bash
 curl -X POST http://<RESEARCHER_IP>:5001/api/workers/connect \
@@ -354,7 +393,7 @@ curl -X POST http://<RESEARCHER_IP>:5001/api/workers/connect \
   }'
 ```
 
-Or, if the frontend has a "Contribute CPU" page, clicking the button for a specific project will call this endpoint with the `project_id` and the logged‑in volunteer's credentials.
+Both approaches hit the same backend endpoint and produce the same worker-join behavior.
 
 ---
 

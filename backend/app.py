@@ -1016,7 +1016,7 @@ def register_worker_endpoint():
 def get_researcher_stats(researcher_id):
     """GET /api/researcher/<researcher_id>/stats — profile aggregate stats."""
     try:
-        from backend.core.database import Project, Run, Task, TaskResult, Worker
+        from backend.core.database import Task, TaskResult, Worker
         from sqlalchemy import distinct
 
         user = get_user_by_id(researcher_id)
@@ -1028,54 +1028,31 @@ def get_researcher_stats(researcher_id):
                 "error": f"User {researcher_id} does not have 'researcher' role"
             }), 403
 
-        with get_session() as session:
-            projects = session.query(Project).filter_by(
-                researcher_id=researcher_id,
-                status="active"
-            ).all()
+        projects = get_researcher_projects_with_stats(researcher_id)
+        total_projects = len(projects)
+        completed_projects = sum(1 for p in projects if (p.get("progress") or 0) >= 100)
 
-            total_projects = len(projects)
-            completed_projects = 0
-            all_contributors = set()
-
-            for project in projects:
-                runs = session.query(Run).filter_by(project_id=project.project_id).all()
-                total_tasks = 0
-                completed_tasks = 0
-
-                tasks = session.query(Task).join(Run).filter(
-                    Run.project_id == project.project_id
-                ).all()
-
-                for task in tasks:
-                    total_tasks += 1
-                    if task.status == "completed":
-                        completed_tasks += 1
-
-                if total_tasks > 0 and completed_tasks >= total_tasks:
-                    completed_projects += 1
-
+        project_ids = [str(p.get("id")) for p in projects if p.get("id") is not None]
+        total_contributors = 0
+        if project_ids:
+            with get_session() as session:
                 contributor_rows = (
                     session.query(distinct(Worker.user_id))
                     .join(Task, Task.assigned_worker_id == Worker.worker_id)
                     .join(TaskResult, TaskResult.task_id == Task.task_id)
                     .filter(
-                        TaskResult.project_id == project.project_id,
+                        TaskResult.project_id.in_(project_ids),
                         Worker.user_id.isnot(None),
                     )
                     .all()
                 )
-                for contrib in contributor_rows:
-                    if contrib[0]:
-                        all_contributors.add(contrib[0])
+                total_contributors = len([row[0] for row in contributor_rows if row[0]])
 
-            total_contributors = len(all_contributors)
-
-            return jsonify({
-                "totalProjects": total_projects,
-                "completedProjects": completed_projects,
-                "totalContributors": total_contributors
-            }), 200
+        return jsonify({
+            "totalProjects": total_projects,
+            "completedProjects": completed_projects,
+            "totalContributors": total_contributors
+        }), 200
 
     except Exception as e:
         logging.error(f"[ERROR] Error in get_researcher_stats endpoint: {e}")
@@ -1160,16 +1137,48 @@ def connect_worker():
                 "error": f"Failed to join Ray cluster at {head_node_ip}: {str(e)}"
             }), 500
 
-        # Register worker in local DB
+        import time as _time
+        _time.sleep(2)
+
+        # Discover the Ray node ID for the worker that just joined.
+        local_ip = Cluster._get_local_ip()
+        ray_node_id = None
+        cpu_cores = None
+        memory_gb = None
+        if ray.is_initialized():
+            for node in ray.nodes():
+                if not node.get("Alive", False):
+                    continue
+                res = node.get("Resources") or {}
+                if res.get("node:__internal_head__"):
+                    continue
+                node_addr = node.get("NodeManagerAddress", "")
+                if node_addr in (local_ip, "127.0.0.1", head_node_ip):
+                    ray_node_id = node.get("NodeID")
+                    cpu_cores = int(res.get("CPU", 0)) or None
+                    mem = res.get("memory", 0)
+                    memory_gb = round(mem / (1024**3), 2) if mem else None
+                    break
+
         worker = register_worker(
             worker_id=f"worker-{uuid.uuid4()}",
             worker_name=worker_name,
             user_id=user_id,
-            ip_address=Cluster._get_local_ip(),
+            ip_address=local_ip,
+            cpu_cores=cpu_cores,
+            memory_gb=memory_gb,
+            ray_node_id=ray_node_id,
             user_email=getattr(user, "email", None),
         )
 
-        logging.info(f"[INFO] Volunteer {user_id} joined cluster at {head_node_ip}")
+        logging.info(
+            f"[INFO] Volunteer {user_id} joined cluster at {head_node_ip} "
+            f"(ray_node_id={ray_node_id})"
+        )
+
+        dispatched = api.try_dispatch_queued_runs()
+        if dispatched:
+            logging.info(f"[INFO] Dispatched {dispatched} queued run(s) after volunteer join")
 
         return jsonify({
             "worker_id": worker.worker_id,
@@ -1177,6 +1186,7 @@ def connect_worker():
             "user_id": user_id,
             "email": user.email,
             "head_node_ip": head_node_ip,
+            "ray_node_id": ray_node_id,
             "message": "Worker joined the project's Ray cluster successfully"
         }), 200
 

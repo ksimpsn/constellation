@@ -1113,12 +1113,16 @@ def get_researcher_projects_with_stats(researcher_id: str) -> list:
 
             runs = session.query(Run).filter_by(project_id=pid).all()
             total_runs = len(runs)
+            latest_run = (
+                max(runs, key=lambda r: (r.updated_at or r.created_at or datetime.min))
+                if runs
+                else None
+            )
 
             all_tasks = session.query(Task).join(Run).filter(Run.project_id == pid).all()
             total_tasks = len(all_tasks)
             completed_tasks = sum(1 for t in all_tasks if t.status == "completed")
             failed_tasks = sum(1 for t in all_tasks if t.status == "failed")
-
             progress = int((completed_tasks / total_tasks * 100)) if total_tasks > 0 else 0
 
             # Get unique contributors at user level (one user may own multiple workers).
@@ -1127,8 +1131,8 @@ def get_researcher_projects_with_stats(researcher_id: str) -> list:
                 .join(Task, Task.assigned_worker_id == Worker.worker_id)
                 .join(TaskResult, TaskResult.task_id == Task.task_id)
                 .filter(
-                    TaskResult.project_id == project.project_id,
-                    Worker.user_id.isnot(None)
+                    TaskResult.project_id == pid,
+                    Worker.user_id.isnot(None),
                 )
                 .all()
             )
@@ -1140,14 +1144,13 @@ def get_researcher_projects_with_stats(researcher_id: str) -> list:
                 .join(Task, Worker.worker_id == Task.assigned_worker_id)
                 .join(Run, Task.run_id == Run.run_id)
                 .filter(
-                    Run.project_id == project.project_id,
+                    Run.project_id == pid,
                     Task.status.in_(["assigned", "running"]),
-                    Worker.user_id.isnot(None)
+                    Worker.user_id.isnot(None),
                 )
                 .all()
             )
             active_contributors = len([u[0] for u in active_task_users if u[0]])
-
             completed_contributors = total_contributors if progress >= 100 else None
 
             avg_task_time = session.query(func.avg(TaskResult.runtime_seconds)).filter(
@@ -1169,39 +1172,59 @@ def get_researcher_projects_with_stats(researcher_id: str) -> list:
                 if run.updated_at and (latest_updated is None or run.updated_at > latest_updated):
                     latest_updated = run.updated_at
 
-            title = getattr(project, "title", None) or getattr(project, "name", None)
+            raw_tags = getattr(project, "tags", None)
+            if raw_tags is None:
+                tag_list = []
+            elif isinstance(raw_tags, list):
+                tag_list = raw_tags
+            elif isinstance(raw_tags, str):
+                try:
+                    decoded = json.loads(raw_tags)
+                    tag_list = decoded if isinstance(decoded, list) else [str(decoded)]
+                except Exception:
+                    tag_list = [t.strip() for t in raw_tags.split(",") if t.strip()]
+            else:
+                tag_list = []
+
+            title = getattr(project, "title", None) or getattr(project, "name", None) or f"Project {pid}"
             description = getattr(project, "description", None) or ""
             created_at = getattr(project, "created_at", None) or getattr(project, "date_created", None)
 
-            result.append({
-                "id": project.project_id,
-                "researcherId": project.researcher_id,
-                "title": project.title,
-                "description": project.description or "",
-                "status": project.status,
-                "datasetType": project.dataset_type,
-                "funcName": project.func_name,
-                "chunkSize": project.chunk_size,
-                "replicationFactor": project.replication_factor,
-                "maxVerificationAttempts": project.max_verification_attempts,
-                "tags": tag_list,
-                "codePath": project.code_s3_path or "",
-                "datasetPath": project.dataset_s3_path or "",
-                "progress": progress,
-                "resultUrl": result_url,
-                "totalContributors": total_contributors,
-                "activeContributors": active_contributors,
-                "completedContributors": completed_contributors,
-                "totalTasks": total_tasks,
-                "completedTasks": completed_tasks,
-                "failedTasks": failed_tasks,
-                "createdAt": created_at.isoformat() if hasattr(created_at, "isoformat") and created_at else None,
-                "updatedAt": latest_updated.isoformat() if hasattr(latest_updated, "isoformat") and latest_updated else None,
-                "totalRuns": total_runs,
-                "averageTaskTime": round(avg_task_time, 1) if avg_task_time else None,
-                "latestRunId": latest_run.run_id if latest_run else None,
-                "latestRunStatus": latest_run.status if latest_run else None,
-            })
+            result.append(
+                {
+                    "id": pid,
+                    "researcherId": getattr(project, "researcher_id", None),
+                    "title": title,
+                    "description": description,
+                    "status": getattr(project, "status", None) or "incomplete",
+                    "datasetType": getattr(project, "dataset_type", None),
+                    "funcName": getattr(project, "func_name", None) or "main",
+                    "chunkSize": getattr(project, "chunk_size", None),
+                    "replicationFactor": getattr(project, "replication_factor", None) or 2,
+                    "maxVerificationAttempts": (
+                        getattr(project, "max_verification_attempts", None)
+                        or getattr(project, "max_attempts", None)
+                        or 2
+                    ),
+                    "tags": tag_list,
+                    "codePath": getattr(project, "code_s3_path", None) or "",
+                    "datasetPath": getattr(project, "dataset_s3_path", None) or "",
+                    "progress": progress,
+                    "resultUrl": result_url,
+                    "totalContributors": total_contributors,
+                    "activeContributors": active_contributors,
+                    "completedContributors": completed_contributors,
+                    "totalTasks": total_tasks,
+                    "completedTasks": completed_tasks,
+                    "failedTasks": failed_tasks,
+                    "createdAt": created_at.isoformat() if hasattr(created_at, "isoformat") and created_at else None,
+                    "updatedAt": latest_updated.isoformat() if hasattr(latest_updated, "isoformat") and latest_updated else None,
+                    "totalRuns": total_runs,
+                    "averageTaskTime": round(avg_task_time, 1) if avg_task_time else None,
+                    "latestRunId": latest_run.run_id if latest_run else None,
+                    "latestRunStatus": latest_run.status if latest_run else None,
+                }
+            )
 
     return result
 

@@ -46,11 +46,21 @@ class Cluster:
                     return node.get("NodeManagerAddress", self._get_local_ip())
             return self._get_local_ip()
 
-        local_ip = self._get_local_ip()
+        # Allow manual override for tricky local networking (VPNs, multiple interfaces).
+        local_ip = os.environ.get("RAY_NODE_IP") or self._get_local_ip()
 
-        subprocess.run(["ray", "stop"], capture_output=True, timeout=10)
+        subprocess.run(
+            ["ray", "stop"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=10,
+        )
         time.sleep(1)
 
+        env = os.environ.copy()
+        env["RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER"] = "1"
+
+        # DEVNULL prevents daemon children from holding pipes open,
+        # which caused subprocess.run to hang waiting for EOF.
         subprocess.run(
             [
                 "ray", "start", "--head",
@@ -61,9 +71,10 @@ class Cluster:
                 "--max-worker-port=20020",
             ],
             check=True,
-            capture_output=True,
-            text=True,
-            timeout=15,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=45,
+            env=env,
         )
         time.sleep(2)
 
@@ -95,8 +106,8 @@ class Cluster:
         subprocess.run(
             ["ray", "start", f"--address={head_address}"],
             check=True,
-            capture_output=True,
-            text=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             timeout=30,
             env=env,
         )
