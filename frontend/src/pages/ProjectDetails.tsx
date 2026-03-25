@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import { useGoBack } from '../hooks/useGoBack';
 import { Delaunay } from 'd3-delaunay';
 import FlowNav from '../components/FlowNav';
 import ConstellationStarfieldBackground from '../components/ConstellationStarfieldBackground';
@@ -93,6 +94,7 @@ const defaultProject = {
 };
 
 export default function ProjectDetails() {
+  const goBack = useGoBack();
   const { projectName } = useParams<{ projectName: string }>();
   const project = projectData[projectName || ''] ?? defaultProject;
   const tasks = project.completedTasks;
@@ -176,12 +178,13 @@ export default function ProjectDetails() {
       <FlowNav />
       <div className="relative z-10 h-screen flex flex-col overflow-hidden px-4 sm:px-6 pt-16 sm:pt-20 pb-4 max-w-6xl mx-auto w-full">
         <div className="flex items-start justify-between gap-4 shrink-0 mb-3">
-          <Link
-            to="/dashboard"
-            className="inline-flex items-center gap-2 text-white/80 hover:text-white no-underline text-base font-medium px-4 py-2.5 rounded-lg border border-white/40 hover:border-white/60 transition-colors"
+          <button
+            type="button"
+            onClick={goBack}
+            className="inline-flex items-center gap-2 text-white/80 hover:text-white text-base font-medium px-4 py-2.5 rounded-lg border border-white/40 hover:border-white/60 transition-colors bg-transparent cursor-pointer font-inherit"
           >
-            ← Back to Dashboard
-          </Link>
+            ← Back
+          </button>
         </div>
 
         <header className="shrink-0 mb-3">

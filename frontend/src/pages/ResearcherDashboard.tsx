@@ -1,5 +1,6 @@
 import ConstellationStarfieldBackground from "../components/ConstellationStarfieldBackground";
 import FlowNav from "../components/FlowNav";
+import PageBackButton from "../components/PageBackButton";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL, getBackendPort } from "../api/config";
@@ -108,6 +109,9 @@ export default function ResearcherDashboard() {
             }
           `}
         </style>
+        <div className="mb-6">
+          <PageBackButton />
+        </div>
         <h1 className="text-4xl font-bold text-white/90 mb-10">
           My Researcher Dashboard
         </h1>

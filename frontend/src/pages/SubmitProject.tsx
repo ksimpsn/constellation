@@ -1,13 +1,15 @@
 import ConstellationStarfieldBackground from "../components/ConstellationStarfieldBackground";
 import FlowNav from "../components/FlowNav";
 import { useState, useEffect, useRef } from "react";
-import { Link, Navigate } from "react-router-dom";
+import { Navigate } from "react-router-dom";
+import { useGoBack } from "../hooks/useGoBack";
 import { useAuth } from "../context/AuthContext";
 import { hasResearcherRole } from "../auth/session";
 
 import { API_BASE_URL } from "../api/config";
 
 export default function SubmitProject() {
+  const goBack = useGoBack();
   const { user } = useAuth();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -341,9 +343,13 @@ export default function SubmitProject() {
         </div>
 
         <div className="mt-10">
-          <Link to="/" className="text-lg text-white/70 hover:text-white transition-colors no-underline">
-            ← Back to Home
-          </Link>
+          <button
+            type="button"
+            onClick={goBack}
+            className="text-lg text-white/70 hover:text-white transition-colors bg-transparent border-0 cursor-pointer font-inherit p-0"
+          >
+            ← Back
+          </button>
         </div>
       </div>
     </ConstellationStarfieldBackground>

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import ConstellationStarfieldBackground from '../components/ConstellationStarfieldBackground';
 import FlowNav from '../components/FlowNav';
+import PageBackButton from '../components/PageBackButton';
 
 import { API_BASE_URL } from "../api/config";
 import { useAuth } from '../context/AuthContext';
@@ -79,7 +80,10 @@ const Login: React.FC = () => {
   return (
     <ConstellationStarfieldBackground>
       <FlowNav />
-      <div className="relative z-10 flex flex-col items-center justify-center min-h-screen px-6 py-24">
+      <div className="relative z-10 flex flex-col items-center justify-center min-h-screen px-6 py-24 w-full">
+        <div className="w-full max-w-[600px] mb-6 self-center">
+          <PageBackButton />
+        </div>
         <h1 className="text-4xl md:text-5xl font-bold text-white/90 mb-8">Log In to Constellation</h1>
         <form onSubmit={handleSubmit} className="w-full max-w-[600px] p-8 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
           <div className="mb-5">
