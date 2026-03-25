@@ -641,10 +641,21 @@ class ConstellationAPI:
                     volunteer_workers.append(worker)
             return volunteer_workers
 
+    @staticmethod
+    def _worker_name_key(worker: Worker) -> str:
+        """
+        Stable identity key for replica-placement uniqueness.
+        Prefer worker_name, with worker_id fallback for empty names.
+        """
+        worker_name = (worker.worker_name or "").strip()
+        if worker_name:
+            return worker_name
+        return f"worker-id:{worker.worker_id}"
+
     def _dispatch_run_to_volunteers(self, run_id: str, payloads: list[dict], fn_bytes) -> list[ray.ObjectRef]:
         """
-        Submit payloads to volunteer nodes, guaranteeing distinct nodes per replica of
-        the same task_index.
+        Submit payloads to volunteer nodes, guaranteeing distinct worker_name values
+        per replica of the same task_index whenever possible.
 
         When num_nodes < replication_factor, only the first num_nodes replicas of each
         task are submitted now; the remainder are stored in self.pending_replicas[run_id]
@@ -659,12 +670,18 @@ class ConstellationAPI:
         if not volunteer_workers:
             return []
 
-        node_id_to_worker = {w.ray_node_id: w for w in volunteer_workers if w.ray_node_id}
-        node_ids = list(node_id_to_worker.keys())
-        if not node_ids:
+        worker_entries = sorted(
+            [(w.ray_node_id, w) for w in volunteer_workers if w.ray_node_id],
+            key=lambda item: (
+                self._worker_name_key(item[1]),
+                item[1].worker_id,
+                item[0],
+            ),
+        )
+        if not worker_entries:
             return []
-
-        num_nodes = len(node_ids)
+        node_id_to_worker = {node_id: worker for node_id, worker in worker_entries}
+        num_workers = len(worker_entries)
 
         # Group and sort replicas by task_index so we can assign each to a distinct node.
         from collections import defaultdict
@@ -678,13 +695,24 @@ class ConstellationAPI:
         to_defer:  list[dict] = []
 
         for task_index, replicas in by_task.items():
-            for i, payload in enumerate(replicas):
-                if i < num_nodes:
-                    # Offset by task_index so tasks don't all pile onto node 0.
-                    node_id = node_ids[(task_index + i) % num_nodes]
-                    to_submit.append((payload, node_id))
-                else:
+            used_worker_names: set[str] = set()
+            for replica_index, payload in enumerate(replicas):
+                chosen_node_id = None
+                for offset in range(num_workers):
+                    # Offset by task_index/replica_index so tasks don't always start from worker 0.
+                    node_id, worker = worker_entries[(task_index + replica_index + offset) % num_workers]
+                    worker_name_key = self._worker_name_key(worker)
+                    if worker_name_key in used_worker_names:
+                        continue
+                    chosen_node_id = node_id
+                    used_worker_names.add(worker_name_key)
+                    break
+
+                if chosen_node_id is None:
                     to_defer.append(payload)
+                    continue
+
+                to_submit.append((payload, chosen_node_id))
 
         now = datetime.utcnow()
         with get_session() as session:
@@ -757,9 +785,9 @@ class ConstellationAPI:
         """
         Submit deferred replicas to newly available volunteer nodes.
 
-        For each deferred replica, query which Ray node IDs are already assigned to
-        other replicas of the same task_index, then pick a volunteer node that is NOT
-        in that set.  If no such node exists yet the replica stays deferred.
+        For each deferred replica, query which worker_name values are already assigned
+        to other replicas of the same task_index, then pick a volunteer worker with a
+        different name. If no such worker exists yet, the replica stays deferred.
 
         Returns the total number of replicas dispatched.
         """
@@ -768,10 +796,17 @@ class ConstellationAPI:
         if not volunteer_workers:
             return 0
 
-        node_id_to_worker = {w.ray_node_id: w for w in volunteer_workers if w.ray_node_id}
-        available_node_ids = list(node_id_to_worker.keys())
-        if not available_node_ids:
+        worker_entries = sorted(
+            [(w.ray_node_id, w) for w in volunteer_workers if w.ray_node_id],
+            key=lambda item: (
+                self._worker_name_key(item[1]),
+                item[1].worker_id,
+                item[0],
+            ),
+        )
+        if not worker_entries:
             return 0
+        node_id_to_worker = {node_id: worker for node_id, worker in worker_entries}
 
         total_dispatched = 0
 
@@ -790,37 +825,43 @@ class ConstellationAPI:
             if not fn_bytes:
                 continue
 
-            # Build a map: task_index → set of ray_node_ids already assigned to that task.
+            # Build a map: task_index → set of worker_name keys already assigned to that task.
             from collections import defaultdict
-            used_nodes_by_task: dict[int, set[str]] = defaultdict(set)
+            used_worker_names_by_task: dict[int, set[str]] = defaultdict(set)
             with get_session() as session:
                 rows = (
-                    session.query(Task.task_index, Worker.ray_node_id)
+                    session.query(Task.task_index, Worker.worker_name, Worker.worker_id)
                     .join(Worker, Task.assigned_worker_id == Worker.worker_id)
                     .filter(
                         Task.run_id == run_id,
                         Task.status.in_(["assigned", "running", "completed"]),
-                        Worker.ray_node_id.isnot(None),
                     )
                     .all()
                 )
-            for task_index, ray_node_id in rows:
-                used_nodes_by_task[task_index].add(ray_node_id)
+            for task_index, worker_name, worker_id in rows:
+                name_key = (worker_name or "").strip() or f"worker-id:{worker_id}"
+                used_worker_names_by_task[task_index].add(name_key)
 
             to_submit: list[tuple[dict, str]] = []
             still_deferred: list[dict] = []
 
             for payload in deferred:
                 task_index = payload["task_index"]
-                used = used_nodes_by_task[task_index]
-                free = [nid for nid in available_node_ids if nid not in used]
-                if free:
-                    chosen = free[0]
-                    to_submit.append((payload, chosen))
-                    # Mark the node as used for the next deferred replica of the same task.
-                    used_nodes_by_task[task_index].add(chosen)
-                else:
+                used_names = used_worker_names_by_task[task_index]
+                chosen_node_id = None
+                for node_id, worker in worker_entries:
+                    name_key = self._worker_name_key(worker)
+                    if name_key in used_names:
+                        continue
+                    chosen_node_id = node_id
+                    used_names.add(name_key)
+                    break
+
+                if chosen_node_id is None:
                     still_deferred.append(payload)
+                    continue
+
+                to_submit.append((payload, chosen_node_id))
 
             if to_submit:
                 now = datetime.utcnow()

@@ -467,10 +467,33 @@ def create_task_result(task_id: str, run_id: str, project_id: str, worker_id: st
 
 def register_worker(worker_id: str, worker_name: str, user_id: str = None,
                     ip_address: str = None, cpu_cores: int = None,
-                    memory_gb: float = None, ray_node_id: str = None) -> Worker:
+                    memory_gb: float = None, ray_node_id: str = None,
+                    user_email: str = None) -> Worker:
     """Register or update a worker."""
     with SessionLocal() as session:
         worker = session.query(Worker).filter_by(worker_id=worker_id).first()
+
+        # Resolve target identity email first; this is the canonical worker identity.
+        target_email = (user_email or "").strip().lower()
+        if not target_email and user_id:
+            user = get_user_by_id(user_id)
+            resolved_email = getattr(user, "email", None) if user else None
+            target_email = (resolved_email or "").strip().lower()
+
+        if not worker and target_email:
+            # Reuse row only when associated user email matches.
+            candidates = session.query(Worker).filter(Worker.user_id.isnot(None)).all()
+            for candidate in candidates:
+                existing_user = get_user_by_id(candidate.user_id)
+                existing_email = getattr(existing_user, "email", None) if existing_user else None
+                if (existing_email or "").strip().lower() == target_email:
+                    worker = candidate
+                    break
+
+        if not worker and not target_email and ray_node_id:
+            # Legacy fallback (no email context): reuse by Ray node id.
+            worker = session.query(Worker).filter_by(ray_node_id=ray_node_id).first()
+
         if worker:
             # Update existing worker
             worker.worker_name = worker_name
@@ -497,6 +520,20 @@ def register_worker(worker_id: str, worker_name: str, user_id: str = None,
                 last_heartbeat=datetime.utcnow(),
             )
             session.add(worker)
+
+        # Ensure a Ray node is owned by only one worker row at a time to avoid
+        # ambiguous node_id -> worker attribution in task result recording.
+        if ray_node_id:
+            others = (
+                session.query(Worker)
+                .filter(Worker.ray_node_id == ray_node_id, Worker.worker_id != worker.worker_id)
+                .all()
+            )
+            for other in others:
+                other.status = "offline"
+                other.ray_node_id = None
+                other.updated_at = datetime.utcnow()
+
         session.commit()
         session.refresh(worker)
         return worker

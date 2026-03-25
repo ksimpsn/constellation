@@ -933,32 +933,17 @@ def register_worker_endpoint():
         resources = matching_node.get("Resources", {})
         cpu_cores = int(resources.get("CPU", 0)) if resources.get("CPU") else None
         memory_gb = (resources.get("memory", 0) / (1024**3)) if resources.get("memory") else None
-        with get_session() as session:
-            from backend.core.database import Worker
-            existing = session.query(Worker).filter_by(ray_node_id=node_id).first()
-            if existing:
-                existing.worker_name = worker_name
-                existing.user_id = user_id
-                existing.ip_address = client_ip
-                existing.cpu_cores = cpu_cores
-                existing.memory_gb = memory_gb
-                existing.last_heartbeat = datetime.utcnow()
-                existing.status = "online"
-                session.commit()
-                session.refresh(existing)
-                worker = existing
-                worker_id = existing.worker_id
-            else:
-                worker_id = f"worker-{uuid.uuid4()}"
-                worker = register_worker(
-                    worker_id=worker_id,
-                    worker_name=worker_name,
-                    user_id=user_id,
-                    ip_address=client_ip,
-                    cpu_cores=cpu_cores,
-                    memory_gb=memory_gb,
-                    ray_node_id=node_id
-                )
+        worker = register_worker(
+            worker_id=f"worker-{uuid.uuid4()}",
+            worker_name=worker_name,
+            user_id=user_id,
+            ip_address=client_ip,
+            cpu_cores=cpu_cores,
+            memory_gb=memory_gb,
+            ray_node_id=node_id,
+            user_email=getattr(user, "email", None),
+        )
+        worker_id = worker.worker_id
         return jsonify({
             "worker_id": worker_id,
             "status": "registered",
@@ -1358,19 +1343,18 @@ def connect_worker():
             cpu_cores = int(resources.get("CPU", 0)) if resources else None
             memory_gb = resources.get("memory", 0) / (1024**3) if resources.get("memory") else None
 
-            # Generate worker_id
-            worker_id = f"worker-{uuid.uuid4()}"
-
             # Register worker in database
             worker = register_worker(
-                worker_id=worker_id,
+                worker_id=f"worker-{uuid.uuid4()}",
                 worker_name=worker_name,
                 user_id=user_id,
                 ip_address=ip_address,
                 cpu_cores=cpu_cores,
                 memory_gb=memory_gb,
-                ray_node_id=ray_node_id
+                ray_node_id=ray_node_id,
+                user_email=getattr(user, "email", None),
             )
+            worker_id = worker.worker_id
 
             logging.info(f"[INFO] Registered worker {worker_id} for user {user_id}")
             dispatched_runs = api.try_dispatch_queued_runs()
