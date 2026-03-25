@@ -149,12 +149,13 @@ class TaskResult(Base):
     task_id = Column(String, ForeignKey("tasks.task_id"), nullable=False, index=True)
     run_id = Column(String, nullable=False, index=True)  # Denormalized for analytics
     project_id = Column(String, nullable=False, index=True)  # Denormalized for analytics
+    worker_id = Column(String, nullable=True, index=True)  # Which worker produced this result (nullable: one result per replica, not per worker)
     result_data = Column(JSON, nullable=False)  # JSON result payload
     runtime_seconds = Column(Float, nullable=True)
     memory_used_mb = Column(Float, nullable=True)
     completed_at = Column(DateTime, nullable=False, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    
+
     attempt_id = Column(Integer, nullable=False, default=0)
 
     result_hash = Column(String(128), nullable=True, index=True)

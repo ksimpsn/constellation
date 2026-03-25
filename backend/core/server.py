@@ -244,6 +244,58 @@ class Cluster:
             raise RuntimeError("[ERROR] Ray backend not initialized. Call start_cluster first.")
         return ray.get(futures)
     
+    def _get_volunteer_nodes(self) -> list:
+        """Return node IDs of all live nodes advertising the volunteer_worker resource."""
+        try:
+            return [
+                n["NodeID"]
+                for n in ray.nodes()
+                if n.get("Alive") and n.get("Resources", {}).get("volunteer_worker", 0) > 0
+            ]
+        except Exception:
+            return []
+
+    def _node_assignments_for_attempt(
+        self, num_tasks: int, attempt_index: int, replication_factor: int = 2
+    ) -> list | None:
+        """
+        Return per-task node IDs so replicas of the same task land on different workers.
+
+        Strategy: round-robin across live volunteer nodes offset by `attempt_index`.
+        For attempt 0 task i → nodes[i % N]; for attempt 1 task i → nodes[(i+1) % N], etc.
+
+        Returns None when fewer than 2 volunteer nodes are available (Ray picks freely).
+
+        When replication_factor > num_nodes, distinct-worker guarantees only hold for the
+        first num_nodes replicas; beyond that, collisions are unavoidable and a warning is
+        logged. e.g. 2 nodes + replication_factor=3 → attempts 0 and 2 share the same node
+        for every task.
+        """
+        nodes = self._get_volunteer_nodes()
+        num_nodes = len(nodes)
+
+        if num_nodes < 2:
+            logging.warning(
+                f"[VERIFICATION] Only {num_nodes} volunteer node(s) available; "
+                "cannot guarantee distinct workers per replica — tasks will be scheduled freely."
+            )
+            return None
+
+        if replication_factor > num_nodes:
+            max_collisions = replication_factor - num_nodes
+            logging.warning(
+                f"[VERIFICATION] replication_factor={replication_factor} exceeds available "
+                f"volunteer nodes ({num_nodes}). Up to {max_collisions} replica(s) of each task "
+                "will share a worker. Add more volunteer nodes to eliminate collisions."
+            )
+
+        assignments = [nodes[(i + attempt_index) % num_nodes] for i in range(num_tasks)]
+        logging.info(
+            f"[VERIFICATION] Attempt {attempt_index}: assigning {num_tasks} task(s) "
+            f"across {num_nodes} node(s) (round-robin offset={attempt_index})"
+        )
+        return assignments
+
     def _hash_results(self, results):
         """
         Deterministic hash of task results for verification.
@@ -363,7 +415,10 @@ class Cluster:
         all_attempts = []
         for r in range(replication_factor):
             logging.info(f"[VERIFICATION] Running Uploaded Attempt {r + 1}/{replication_factor}")
-            futures = self.submit_uploaded_tasks(data, func_bytes)
+            target_node_ids = self._node_assignments_for_attempt(
+                len(data), attempt_index=r, replication_factor=replication_factor
+            )
+            futures = self.submit_uploaded_tasks(data, func_bytes, target_node_ids=target_node_ids)
             results = ray.get(futures)
             all_attempts.append(results)
 
@@ -385,7 +440,12 @@ class Cluster:
                 )
                 rerun_attempts = []
                 for r in range(replication_factor):
-                    rerun_futures = self.submit_uploaded_tasks(unverified_payloads, func_bytes)
+                    target_node_ids = self._node_assignments_for_attempt(
+                        len(unverified_payloads), attempt_index=r, replication_factor=replication_factor
+                    )
+                    rerun_futures = self.submit_uploaded_tasks(
+                        unverified_payloads, func_bytes, target_node_ids=target_node_ids
+                    )
                     rerun_attempts.append(ray.get(rerun_futures))
                 rerun_final, still_unverified = self._verify_replicated_results(
                     rerun_attempts, replication_factor

@@ -58,6 +58,9 @@ class ConstellationAPI:
         self.run_fn_bytes: dict[str, bytes] = {}
         # In-memory queue for runs waiting on volunteer workers.
         self.queued_runs: dict[str, dict] = {}
+        # Deferred replica payloads: replicas that could not be assigned to a
+        # distinct node at dispatch time. Keyed by run_id.
+        self.pending_replicas: dict[str, list[dict]] = {}
         # Track runs currently being finalized to avoid duplicate processing.
         self._runs_finalizing: set[str] = set()
         self._lock = threading.RLock()
@@ -152,7 +155,14 @@ class ConstellationAPI:
 
             with self._lock:
                 self.futures[run_id] = list(not_done)
-                should_finalize = len(not_done) == 0 and run_id not in self._runs_finalizing
+                # Don't finalize while deferred replicas are still waiting to be
+                # dispatched — those futures haven't been added yet.
+                has_pending_replicas = bool(self.pending_replicas.get(run_id))
+                should_finalize = (
+                    len(not_done) == 0
+                    and not has_pending_replicas
+                    and run_id not in self._runs_finalizing
+                )
                 if should_finalize:
                     self._runs_finalizing.add(run_id)
 
@@ -632,7 +642,16 @@ class ConstellationAPI:
             return volunteer_workers
 
     def _dispatch_run_to_volunteers(self, run_id: str, payloads: list[dict], fn_bytes) -> list[ray.ObjectRef]:
-        """Submit queued payloads using hard node-affinity to volunteer nodes."""
+        """
+        Submit payloads to volunteer nodes, guaranteeing distinct nodes per replica of
+        the same task_index.
+
+        When num_nodes < replication_factor, only the first num_nodes replicas of each
+        task are submitted now; the remainder are stored in self.pending_replicas[run_id]
+        and dispatched automatically as more volunteer nodes join.
+
+        Returns futures for the tasks that were submitted immediately.
+        """
         if fn_bytes is None:
             raise RuntimeError(f"Missing serialized function bytes for run {run_id}")
         live_nodes = self._get_live_ray_nodes()
@@ -640,34 +659,68 @@ class ConstellationAPI:
         if not volunteer_workers:
             return []
 
-        node_ids = [worker.ray_node_id for worker in volunteer_workers if worker.ray_node_id]
+        node_id_to_worker = {w.ray_node_id: w for w in volunteer_workers if w.ray_node_id}
+        node_ids = list(node_id_to_worker.keys())
         if not node_ids:
             return []
 
-        target_node_ids = [node_ids[idx % len(node_ids)] for idx in range(len(payloads))]
+        num_nodes = len(node_ids)
 
+        # Group and sort replicas by task_index so we can assign each to a distinct node.
+        from collections import defaultdict
+        by_task: dict[int, list[dict]] = defaultdict(list)
+        for payload in payloads:
+            by_task[payload["task_index"]].append(payload)
+        for replicas in by_task.values():
+            replicas.sort(key=lambda p: p["replica_index"])
+
+        to_submit: list[tuple[dict, str]] = []   # (payload, target_node_id)
+        to_defer:  list[dict] = []
+
+        for task_index, replicas in by_task.items():
+            for i, payload in enumerate(replicas):
+                if i < num_nodes:
+                    # Offset by task_index so tasks don't all pile onto node 0.
+                    node_id = node_ids[(task_index + i) % num_nodes]
+                    to_submit.append((payload, node_id))
+                else:
+                    to_defer.append(payload)
+
+        now = datetime.utcnow()
         with get_session() as session:
-            for idx, payload in enumerate(payloads):
-                task_id = payload.get("task_id")
-                task = session.query(Task).filter_by(task_id=task_id).first()
+            for payload, node_id in to_submit:
+                task = session.query(Task).filter_by(task_id=payload["task_id"]).first()
                 if not task:
                     continue
-                assigned_worker = volunteer_workers[idx % len(volunteer_workers)]
-                task.assigned_worker_id = assigned_worker.worker_id
+                worker = node_id_to_worker.get(node_id)
+                if worker:
+                    task.assigned_worker_id = worker.worker_id
                 task.status = "assigned"
-                task.assigned_at = datetime.utcnow()
-                task.updated_at = datetime.utcnow()
+                task.assigned_at = now
+                task.updated_at = now
             session.commit()
 
-        futures = self.server.submit_uploaded_tasks(
-            payloads,
-            fn_bytes,
-            target_node_ids=target_node_ids
-        )
+        submit_payloads  = [p for p, _ in to_submit]
+        submit_node_ids  = [n for _, n in to_submit]
+        futures = self.server.submit_uploaded_tasks(submit_payloads, fn_bytes, target_node_ids=submit_node_ids)
+
+        if to_defer:
+            with self._lock:
+                existing = self.pending_replicas.get(run_id, [])
+                self.pending_replicas[run_id] = existing + to_defer
+            logging.info(
+                f"[DISPATCH] Run {run_id}: submitted {len(to_submit)} replica(s) immediately, "
+                f"deferred {len(to_defer)} replica(s) until more volunteer nodes join."
+            )
+
         return futures
 
     def try_dispatch_queued_runs(self) -> int:
-        """Try dispatching all queued runs that are waiting for volunteer workers."""
+        """
+        Dispatch all queued runs waiting for volunteer workers, then attempt to
+        send any deferred replicas for partially-dispatched runs to newly joined nodes.
+        Returns the total number of runs/replicas dispatched.
+        """
         self.sync_ray_workers_to_db()
         dispatched_count = 0
         queued_run_ids = list(self.queued_runs.keys())
@@ -695,7 +748,119 @@ class ConstellationAPI:
             dispatched_count += 1
             logging.info(f"[INFO] Dispatched queued run {run_id} to volunteer workers.")
 
+        # Also try to assign any deferred replicas from partially-dispatched runs.
+        dispatched_count += self._dispatch_pending_replicas()
+
         return dispatched_count
+
+    def _dispatch_pending_replicas(self) -> int:
+        """
+        Submit deferred replicas to newly available volunteer nodes.
+
+        For each deferred replica, query which Ray node IDs are already assigned to
+        other replicas of the same task_index, then pick a volunteer node that is NOT
+        in that set.  If no such node exists yet the replica stays deferred.
+
+        Returns the total number of replicas dispatched.
+        """
+        live_nodes = self._get_live_ray_nodes()
+        volunteer_workers = self._get_connected_volunteer_workers(live_nodes=live_nodes)
+        if not volunteer_workers:
+            return 0
+
+        node_id_to_worker = {w.ray_node_id: w for w in volunteer_workers if w.ray_node_id}
+        available_node_ids = list(node_id_to_worker.keys())
+        if not available_node_ids:
+            return 0
+
+        total_dispatched = 0
+
+        with self._lock:
+            pending_run_ids = list(self.pending_replicas.keys())
+
+        for run_id in pending_run_ids:
+            with self._lock:
+                deferred = list(self.pending_replicas.get(run_id, []))
+            if not deferred:
+                with self._lock:
+                    self.pending_replicas.pop(run_id, None)
+                continue
+
+            fn_bytes = self.run_fn_bytes.get(run_id)
+            if not fn_bytes:
+                continue
+
+            # Build a map: task_index → set of ray_node_ids already assigned to that task.
+            from collections import defaultdict
+            used_nodes_by_task: dict[int, set[str]] = defaultdict(set)
+            with get_session() as session:
+                rows = (
+                    session.query(Task.task_index, Worker.ray_node_id)
+                    .join(Worker, Task.assigned_worker_id == Worker.worker_id)
+                    .filter(
+                        Task.run_id == run_id,
+                        Task.status.in_(["assigned", "running", "completed"]),
+                        Worker.ray_node_id.isnot(None),
+                    )
+                    .all()
+                )
+            for task_index, ray_node_id in rows:
+                used_nodes_by_task[task_index].add(ray_node_id)
+
+            to_submit: list[tuple[dict, str]] = []
+            still_deferred: list[dict] = []
+
+            for payload in deferred:
+                task_index = payload["task_index"]
+                used = used_nodes_by_task[task_index]
+                free = [nid for nid in available_node_ids if nid not in used]
+                if free:
+                    chosen = free[0]
+                    to_submit.append((payload, chosen))
+                    # Mark the node as used for the next deferred replica of the same task.
+                    used_nodes_by_task[task_index].add(chosen)
+                else:
+                    still_deferred.append(payload)
+
+            if to_submit:
+                now = datetime.utcnow()
+                with get_session() as session:
+                    for payload, node_id in to_submit:
+                        task = session.query(Task).filter_by(task_id=payload["task_id"]).first()
+                        if not task:
+                            continue
+                        worker = node_id_to_worker.get(node_id)
+                        if worker:
+                            task.assigned_worker_id = worker.worker_id
+                        task.status = "assigned"
+                        task.assigned_at = now
+                        task.updated_at = now
+                    session.commit()
+
+                submit_payloads = [p for p, _ in to_submit]
+                submit_node_ids  = [n for _, n in to_submit]
+                new_futures = self.server.submit_uploaded_tasks(
+                    submit_payloads, fn_bytes, target_node_ids=submit_node_ids
+                )
+
+                with self._lock:
+                    existing = self.futures.get(run_id, [])
+                    self.futures[run_id] = existing + new_futures
+
+                total_dispatched += len(new_futures)
+                logging.info(
+                    f"[DISPATCH] Run {run_id}: dispatched {len(new_futures)} deferred replica(s) "
+                    f"to new volunteer node(s); {len(still_deferred)} still waiting."
+                )
+
+            with self._lock:
+                if still_deferred:
+                    self.pending_replicas[run_id] = still_deferred
+                else:
+                    self.pending_replicas.pop(run_id, None)
+                    logging.info(f"[DISPATCH] Run {run_id}: all deferred replicas now dispatched.")
+
+        return total_dispatched
 
     def _expected_verified_results_count(self, run_id: str) -> int:
         """Number of logical chunk results expected for a run."""
@@ -801,24 +966,31 @@ class ConstellationAPI:
         logging.info(f"[INFO] Submitted JSON project as job {job_id}")
         return job_id
 
-    def _load_csv(self, path: str):
-        if not os.path.isfile(path):
-            raise FileNotFoundError(f"[ERROR] CSV file not found: {path}")
+    def _read_path(self, path: str) -> str:
+        """Return file contents as a string, supporting both local paths and s3:// URIs."""
+        if path.startswith("s3://"):
+            import boto3, io
+            # s3://bucket/key
+            parts = path[len("s3://"):].split("/", 1)
+            bucket, key = parts[0], parts[1]
+            s3 = boto3.client("s3")
+            obj = s3.get_object(Bucket=bucket, Key=key)
+            return obj["Body"].read().decode("utf-8")
+        else:
+            if not os.path.isfile(path):
+                raise FileNotFoundError(f"[ERROR] File not found: {path}")
+            with open(path, "r", encoding="utf-8") as f:
+                return f.read()
 
-        rows = []
-        with open(path, "r", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                rows.append(row)
-        return rows
+    def _load_csv(self, path: str):
+        import io
+        content = self._read_path(path)
+        reader = csv.DictReader(io.StringIO(content))
+        return list(reader)
 
     def _load_json(self, path: str):
-        if not os.path.isfile(path):
-            raise FileNotFoundError(f"[ERROR] JSON file not found: {path}")
-
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-
+        content = self._read_path(path)
+        data = json.loads(content)
         return data if isinstance(data, list) else [data]
 
     def load_user_function(self, code_path: str, func_name: str = "main"):
