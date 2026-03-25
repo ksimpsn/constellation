@@ -1063,7 +1063,8 @@ def link_aws_project_contributor(project_id: str, user_id: str) -> bool:
 def create_project(researcher_id: str, title: str, description: str,
                    code_path: str, dataset_path: str, dataset_type: str,
                    func_name: str = "main", chunk_size: int = 1000,
-                   replication_factor: int = 2, max_verification_attempts: int = 2, num_chunks: int = 0):
+                   replication_factor: int = 2, max_verification_attempts: int = 2,
+                   num_chunks: int = 0, ip_address: str = None):
     """
     Create a new project. When AWS_DATABASE_URL is set, creates in RDS and uploads code/dataset to S3.
     Returns a project-like object (with project_id, code_s3_path, dataset_s3_path, etc.).
@@ -1084,6 +1085,7 @@ def create_project(researcher_id: str, title: str, description: str,
             s3_upload_fn=_get_s3_client().upload_file,
             bucket_name=BUCKET_NAME,
             num_chunks=num_chunks,
+            ip_address=ip_address,
         )
     raise RuntimeError("AWS database not configured. Set AWS_DATABASE_URL to create projects.")
 

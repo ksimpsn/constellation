@@ -49,30 +49,48 @@ class ConstellationAPI:
     """
 
     def __init__(self):
-        self.server = Cluster() # start_cluster, submit_tasks, get_results
-        self.server.start_cluster()
-        # Map run_id to Ray futures (since ObjectRefs cannot be stored in DB)
-        self.futures: dict[str, List[ray.ObjectRef]] = {}  # run_id -> List[ray.ObjectRef]
-        # Map legacy job_id (integer) to run_id (string) for backward compatibility
+        self.server = Cluster()
+        # Ray is NOT started here — call start_ray_head() or connect_to_ray()
+        # when actually needed (e.g. project submission, volunteer connect).
+        self.futures: dict[str, List[ray.ObjectRef]] = {}
         self.job_id_to_run_id: dict[int, str] = {}
         self.run_id_to_job_id: dict[str, int] = {}
         self.run_fn_bytes: dict[str, bytes] = {}
-        # In-memory queue for runs waiting on volunteer workers.
         self.queued_runs: dict[str, dict] = {}
-        # Deferred replica payloads: replicas that could not be assigned to a
-        # distinct node at dispatch time. Keyed by run_id.
         self.pending_replicas: dict[str, list[dict]] = {}
-        # Track runs currently being finalized to avoid duplicate processing.
         self._runs_finalizing: set[str] = set()
         self._lock = threading.RLock()
-        self.counter = 0  # for legacy job_id compatibility
+        self.counter = 0
+        self._background_worker = None  # started lazily after Ray connects
+        print("[ConstellationAPI] Initialized API layer (Ray deferred).")
+
+    # ------------------------------------------------------------------
+    # Lazy Ray lifecycle
+    # ------------------------------------------------------------------
+
+    def is_ray_connected(self) -> bool:
+        return self.server.is_connected()
+
+    def start_ray_head(self) -> str:
+        """Start a Ray head on this machine. Returns the head IP address."""
+        ip = self.server.start_head()
+        self._ensure_background_worker()
+        return ip
+
+    def connect_to_ray(self, head_address: str):
+        """Connect this process as a Ray driver to an existing head."""
+        self.server.connect_as_driver(head_address)
+        self._ensure_background_worker()
+
+    def _ensure_background_worker(self):
+        if self._background_worker is not None:
+            return
         self._background_worker = threading.Thread(
             target=self._background_result_processor,
             name="constellation-result-processor",
             daemon=True,
         )
         self._background_worker.start()
-        print("[ConstellationAPI] Initialized API layer.")
 
     def get_run_progress(self, run_id):
         """
@@ -84,7 +102,7 @@ class ConstellationAPI:
             return None
         total = run.total_tasks or 0
         futures = self.futures.get(run_id, [])
-        if not futures:
+        if not futures or not ray.is_initialized():
             return (run.completed_tasks, total)
         try:
             done, _ = ray.wait(futures, num_returns=len(futures), timeout=0)
@@ -95,6 +113,9 @@ class ConstellationAPI:
         """Continuously ingest finished Ray tasks and finalize runs."""
         while True:
             try:
+                if not ray.is_initialized():
+                    time.sleep(2.0)
+                    continue
                 self.try_dispatch_queued_runs()
                 self._process_runs_once()
             except Exception as e:
@@ -750,6 +771,8 @@ class ConstellationAPI:
         send any deferred replicas for partially-dispatched runs to newly joined nodes.
         Returns the total number of runs/replicas dispatched.
         """
+        if not ray.is_initialized():
+            return 0
         self.sync_ray_workers_to_db()
         dispatched_count = 0
         queued_run_ids = list(self.queued_runs.keys())
@@ -1089,6 +1112,7 @@ class ConstellationAPI:
             researcher_id: str = None,
             title: str = None,
             description: str = None,
+            head_ip: str = None,
     ) -> int:
         """
         Full pipeline for researcher-uploaded projects.
@@ -1152,14 +1176,15 @@ class ConstellationAPI:
             researcher_id=researcher_id,
             title=title,
             description=description or "",
-            code_path=code_path,  # Will be S3 path later
-            dataset_path=dataset_path,  # Will be S3 path later
+            code_path=code_path,
+            dataset_path=dataset_path,
             dataset_type=file_type,
             func_name=func_name,
             chunk_size=chunk_size,
             replication_factor=replication_factor,
             max_verification_attempts=max_verification_attempts,
             num_chunks=len(chunks),
+            ip_address=head_ip,
         )
         
         # Copy files to project directory, named by project_id (same hash as folder / results_<run_id>.json)

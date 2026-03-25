@@ -393,6 +393,7 @@ def create_aws_project(
     s3_upload_fn=None,
     bucket_name: str = None,
     num_chunks: int = 0,
+    ip_address: str = None,
 ) -> SimpleNamespace:
     """
     Create project in RDS and optionally upload code/dataset to S3.
@@ -411,6 +412,7 @@ def create_aws_project(
             chunks_completed=0,
             replication_factor=replication_factor,
             max_attempts=max_verification_attempts,
+            ip_address=ip_address,
         )
         session.add(p)
         session.flush()
@@ -442,6 +444,37 @@ def create_aws_project(
         replication_factor=replication_factor,
         max_verification_attempts=max_verification_attempts,
     )
+
+
+def update_aws_project_ip(project_id, ip_address: str) -> bool:
+    """Store or update the Ray head IP address for a project."""
+    if not is_aws_db_configured():
+        return False
+    try:
+        pid = int(project_id)
+    except (TypeError, ValueError):
+        return False
+    with get_aws_session() as session:
+        p = session.query(AWSProject).filter_by(project_id=pid).first()
+        if not p:
+            return False
+        p.ip_address = ip_address
+        return True
+
+
+def get_aws_project_ip(project_id) -> Optional[str]:
+    """Retrieve the Ray head IP address for a project."""
+    if not is_aws_db_configured():
+        return None
+    try:
+        pid = int(project_id)
+    except (TypeError, ValueError):
+        return None
+    with get_aws_session() as session:
+        p = session.query(AWSProject).filter_by(project_id=pid).first()
+        if not p:
+            return None
+        return p.ip_address
 
 
 def update_aws_project_chunks(project_id, chunks_completed: int = None, total_chunks: int = None) -> bool:

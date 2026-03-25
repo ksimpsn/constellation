@@ -25,7 +25,7 @@ from backend.core.database import (
     normalize_roles_input,
     set_user_roles,
 )
-from backend.core.database_aws import init_aws_db
+from backend.core.database_aws import init_aws_db, get_aws_project_ip, update_aws_project_ip
 from backend.core.server import Cluster
 import os
 import uuid
@@ -185,7 +185,15 @@ def submit_job():
     except (TypeError, ValueError):
         max_verification_attempts = 2
 
-    # ✨ CALL THE CORRECT API FUNCTION (tie project + run to this researcher)
+    # Start Ray head on the researcher's machine (idempotent if already running)
+    try:
+        head_ip = api.start_ray_head()
+    except Exception as e:
+        logging.error(f"[ERROR] Failed to start Ray head: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Failed to start Ray head node: {str(e)}"}), 500
+
     out = api.submit_uploaded_project(
         code_path=py_path,
         dataset_path=data_path,
@@ -197,6 +205,7 @@ def submit_job():
         replication_factor=replication_factor,
         max_verification_attempts=max_verification_attempts,
         researcher_id=user_id,
+        head_ip=head_ip,
     )
     job_id, run_id, project_id, total_tasks = out
 
@@ -206,6 +215,7 @@ def submit_job():
         "run_id": run_id,
         "project_id": project_id,
         "total_tasks": total_tasks,
+        "head_ip": head_ip,
     }), 200
 
 @app.route("/status/<int:job_id>", methods=["GET"])
@@ -1078,24 +1088,19 @@ def get_researcher_stats(researcher_id):
 def connect_worker():
     """
     Endpoint: POST /api/workers/connect
-    Purpose: Allow volunteers to connect their machines as workers to the Ray cluster.
+    Purpose: Volunteer joins a project's Ray cluster as a worker node.
+
+    The head IP is looked up from the AWS projects table (set when the
+    researcher submitted the project). Pass project_id so the endpoint
+    knows which cluster to join. Optionally pass head_node_ip to override.
 
     Request body:
     {
         "user_id": "user-123",          // optional if email is provided
         "email": "user@example.com",    // optional if user_id is provided
         "worker_name": "MyLaptop",
-        "head_node_ip": "192.168.1.100"
-    }
-
-    Response:
-    {
-        "worker_id": "worker-abc123",
-        "status": "connected",
-        "user_id": "user-123",
-        "email": "user@example.com",
-        "ray_node_id": "ray-node-xyz",
-        "message": "Worker connected successfully"
+        "project_id": 42               // used to look up head IP from AWS
+        "head_node_ip": "10.0.0.5"     // optional override
     }
     """
     try:
@@ -1106,15 +1111,15 @@ def connect_worker():
         user_id = data.get("user_id")
         email = data.get("email")
         worker_name = data.get("worker_name")
+        project_id = data.get("project_id")
         head_node_ip = data.get("head_node_ip")
 
-        # Validate required fields
-        if (not user_id and not email) or not worker_name or not head_node_ip:
+        if (not user_id and not email) or not worker_name:
             return jsonify({
-                "error": "Missing required fields: provide user_id or email, plus worker_name and head_node_ip"
+                "error": "Missing required fields: provide user_id or email, plus worker_name"
             }), 400
 
-        # Resolve user by user_id or email
+        # Resolve user
         user = None
         if user_id:
             user = get_user_by_id(user_id)
@@ -1126,95 +1131,54 @@ def connect_worker():
                 return jsonify({"error": f"User with email {email} not found"}), 404
             user_id = user.user_id
 
-        # If both identifiers are provided, ensure they refer to the same user
         if email and user and user.email != email:
             return jsonify({
                 "error": "Provided user_id and email do not match the same user"
             }), 400
 
-        # Validate user has 'volunteer' role
         if not user_has_role(user_id, "volunteer"):
             return jsonify({
                 "error": f"User {user_id} does not have 'volunteer' role. Current role: {user.role}"
             }), 403
 
-        # Connect to Ray head node
-        # Note: This connection happens on the head node's machine when the endpoint is called
-        # For true distributed setup, the volunteer would need to run Ray locally and connect
-        # For now, we'll initialize Ray connection and get node info
-        try:
-            # Format head address: Ray uses port 10001 for client connections
-            if ":" not in head_node_ip:
-                head_address = f"ray://{head_node_ip}:10001"
-            else:
-                # If port is provided, use it
-                head_address = f"ray://{head_node_ip}"
-
-            # Check if Ray is already initialized (might be on head node)
-            if not ray.is_initialized():
-                # Initialize Ray connection to head node
-                # Note: This will connect to the head node's Ray cluster
-                ray.init(address=head_address, ignore_reinit_error=True)
-                logging.info(f"[INFO] Connected to Ray head node at {head_address}")
-            else:
-                logging.info("[INFO] Ray already initialized")
-
-            # Get Ray runtime context to identify this node
-            runtime_context = ray.get_runtime_context()
-            ray_node_id = runtime_context.get_node_id()
-            ray_worker_id = runtime_context.get_worker_id()
-
-            # Get node information
-            nodes = ray.nodes()
-            current_node = None
-            for node in nodes:
-                if node.get("NodeID") == ray_node_id:
-                    current_node = node
-                    break
-
-            # Extract node information
-            ip_address = current_node.get("NodeManagerAddress") if current_node else head_node_ip
-            resources = current_node.get("Resources", {}) if current_node else {}
-            cpu_cores = int(resources.get("CPU", 0)) if resources else None
-            memory_gb = resources.get("memory", 0) / (1024**3) if resources.get("memory") else None
-
-            # Register worker in database
-            worker = register_worker(
-                worker_id=f"worker-{uuid.uuid4()}",
-                worker_name=worker_name,
-                user_id=user_id,
-                ip_address=ip_address,
-                cpu_cores=cpu_cores,
-                memory_gb=memory_gb,
-                ray_node_id=ray_node_id,
-                user_email=getattr(user, "email", None),
-            )
-            worker_id = worker.worker_id
-
-            logging.info(f"[INFO] Registered worker {worker_id} for user {user_id}")
-            dispatched_runs = api.try_dispatch_queued_runs()
-            if dispatched_runs:
-                logging.info(f"[INFO] Dispatched {dispatched_runs} queued run(s) after worker connect")
-
+        # Resolve head IP: explicit override > AWS lookup
+        if not head_node_ip and project_id:
+            head_node_ip = get_aws_project_ip(project_id)
+        if not head_node_ip:
             return jsonify({
-                "worker_id": worker_id,
-                "status": "connected",
-                "user_id": user_id,
-                "email": user.email,
-                "ray_node_id": ray_node_id,
-                "ray_worker_id": ray_worker_id,
-                "ip_address": ip_address,
-                "queued_runs_dispatched": dispatched_runs,
-                "message": "Worker connected successfully"
-            }), 200
+                "error": "Cannot determine head node IP. Provide project_id (with a running head) or head_node_ip."
+            }), 400
 
+        # Join the cluster as a Ray worker (subprocess on this machine)
+        try:
+            Cluster.join_as_worker(head_node_ip)
         except Exception as e:
-            logging.error(f"[ERROR] Failed to connect to Ray head node: {e}")
+            logging.error(f"[ERROR] Failed to join Ray cluster at {head_node_ip}: {e}")
             import traceback
             traceback.print_exc()
             return jsonify({
-                "error": f"Failed to connect to Ray head node at {head_node_ip}: {str(e)}"
+                "error": f"Failed to join Ray cluster at {head_node_ip}: {str(e)}"
             }), 500
+
+        # Register worker in local DB
+        worker = register_worker(
+            worker_id=f"worker-{uuid.uuid4()}",
+            worker_name=worker_name,
+            user_id=user_id,
+            ip_address=Cluster._get_local_ip(),
+            user_email=getattr(user, "email", None),
+        )
+
+        logging.info(f"[INFO] Volunteer {user_id} joined cluster at {head_node_ip}")
+
+        return jsonify({
+            "worker_id": worker.worker_id,
+            "status": "connected",
+            "user_id": user_id,
+            "email": user.email,
+            "head_node_ip": head_node_ip,
+            "message": "Worker joined the project's Ray cluster successfully"
+        }), 200
 
     except Exception as e:
         logging.error(f"[ERROR] Error in connect_worker endpoint: {e}")
@@ -1227,131 +1191,48 @@ def connect_worker():
 def start_head():
     """
     Endpoint: POST /api/cluster/start-head
-    Purpose: Allow researcher to start the Ray head node with remote connections enabled.
+    Purpose: Explicitly start the Ray head node on this machine.
 
     Request body (optional):
     {
-        "researcher_id": "user-456"  // Optional: validate researcher role
-    }
-
-    Response:
-    {
-        "status": "started",
-        "head_node_ip": "192.168.1.100",
-        "ray_port": 6379,
-        "message": "Head node started. Workers can connect to this IP."
+        "researcher_id": "user-456",
+        "project_id": 42          // if provided, stores the IP in AWS
     }
     """
     try:
         data = request.get_json() or {}
         researcher_id = data.get("researcher_id")
+        project_id = data.get("project_id")
 
-        # Validate researcher role if researcher_id is provided
-        # Note: researcher_id is optional - if not provided, head node will start without validation
         if researcher_id:
             user = get_user_by_id(researcher_id)
-            if not user:
-                logging.warning(f"[WARNING] User {researcher_id} not found, but continuing without validation")
-                # Don't fail - allow head node to start without user validation for testing
-                # return jsonify({"error": f"User {researcher_id} not found"}), 404
-            elif not user_has_role(researcher_id, "researcher"):
+            if user and not user_has_role(researcher_id, "researcher"):
                 return jsonify({
                     "error": f"User {researcher_id} does not have 'researcher' role. Current role: {user.role}"
                 }), 403
 
-        # Get local IP address
-        def get_local_ip():
-            """Get local IP address."""
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            try:
-                s.connect(('8.8.8.8', 80))
-                ip = s.getsockname()[0]
-            except:
-                ip = '127.0.0.1'
-            finally:
-                s.close()
-            return ip
+        head_ip = api.start_ray_head()
 
-        local_ip = get_local_ip()
+        if project_id:
+            update_aws_project_ip(project_id, head_ip)
 
-        # Check if Ray is already initialized
-        if ray.is_initialized():
-            # If already initialized, check if it's in head mode
-            # For now, we'll just return the current status
-            logging.info("[INFO] Ray already initialized, returning current head node info")
-            nodes = ray.nodes()
-            return jsonify({
-                "status": "already_running",
-                "head_node_ip": local_ip,
-                "ray_port": 6379,
-                "connected_nodes": len(nodes),
-                "message": "Head node is already running. Workers can connect to this IP."
-            }), 200
+        nodes = ray.nodes() if ray.is_initialized() else []
+        resources = ray.cluster_resources() if ray.is_initialized() else {}
 
-        # Start Ray head node
-        try:
-            # Initialize Ray head node with remote connections enabled
-            # Note: The server.py start_cluster() method needs to support mode="head"
-            # For now, we'll initialize directly here
-            cluster = Cluster()
-
-            # Try to start cluster in head mode
-            # If start_cluster doesn't support mode parameter yet, we'll initialize directly
-            try:
-                # Attempt to call with mode parameter (if supported)
-                cluster.start_cluster(mode="head")
-            except TypeError:
-                # Fallback: initialize Ray directly as head node
-                logging.info("[INFO] Starting Ray head node directly (start_cluster doesn't support mode yet)")
-                cluster.context = ray.init(address="auto", _node_ip_address="0.0.0.0", port=6379)
-                logging.info("[INFO] Ray head node started on port 6379 (allowing remote connections)")
-
-            # Get cluster information
-            resources = ray.cluster_resources()
-            nodes = ray.nodes()
-
-            # Check if head node accepts remote connections
-            remote_ready = False
-            head_node_address = None
-            for node in nodes:
-                if node.get("Alive", False):
-                    head_node_address = node.get("NodeManagerAddress", "unknown")
-                    # Check if listening on 0.0.0.0 or external IP (not just 127.0.0.1)
-                    if head_node_address == "0.0.0.0" or (head_node_address != "127.0.0.1" and head_node_address != local_ip):
-                        remote_ready = True
-                    break
-
-            logging.info(f"[INFO] Head node started successfully at {local_ip}:6379")
-            logging.info(f"[INFO] {len(nodes)} Ray node(s) connected")
-            if remote_ready:
-                logging.info("[INFO] Head node is ready for remote worker connections")
-            else:
-                logging.warning("[WARNING] Head node may not accept remote connections. For same-machine demo use scripts/start-ray-head.sh (uses --node-ip-address=127.0.0.1).")
-
-            return jsonify({
-                "status": "started",
-                "head_node_ip": local_ip,
-                "ray_port": 6379,
-                "connected_nodes": len(nodes),
-                "remote_ready": remote_ready,
-                "head_node_address": head_node_address,
-                "resources": {
-                    "cpu": resources.get("CPU", 0),
-                    "memory_gb": resources.get("memory", 0) / (1024**3) if resources.get("memory") else 0
-                },
-                "message": f"Head node started. Workers can connect to {local_ip}:6379" if remote_ready else f"Head node started at {local_ip}:6379, but may not accept remote connections. Start Ray manually for full remote support."
-            }), 200
-
-        except Exception as e:
-            logging.error(f"[ERROR] Failed to start Ray head node: {e}")
-            import traceback
-            traceback.print_exc()
-            return jsonify({
-                "error": f"Failed to start Ray head node: {str(e)}"
-            }), 500
+        return jsonify({
+            "status": "started",
+            "head_node_ip": head_ip,
+            "ray_port": 6379,
+            "connected_nodes": len(nodes),
+            "resources": {
+                "cpu": resources.get("CPU", 0),
+                "memory_gb": resources.get("memory", 0) / (1024**3) if resources.get("memory") else 0
+            },
+            "message": f"Head node running at {head_ip}:6379. Volunteers can now join."
+        }), 200
 
     except Exception as e:
-        logging.error(f"[ERROR] Error in start_head endpoint: {e}")
+        logging.error(f"[ERROR] start_head: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
