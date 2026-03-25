@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import ConstellationStarfieldBackground from '../components/ConstellationStarfieldBackground';
 import FlowNav from '../components/FlowNav';
+import { useGoBack } from '../hooks/useGoBack';
 
 const highlights = [
   {
@@ -26,6 +27,7 @@ const highlights = [
 ];
 
 export default function Security() {
+  const goBack = useGoBack();
   return (
     <ConstellationStarfieldBackground>
       <FlowNav />
@@ -82,12 +84,13 @@ export default function Security() {
 
           {/* Back link */}
           <div className="mt-10 text-center">
-            <Link
-              to="/why"
-              className="text-sm text-white/60 hover:text-white/90 transition-colors"
+            <button
+              type="button"
+              onClick={goBack}
+              className="text-sm text-white/60 hover:text-white/90 transition-colors bg-transparent border-0 cursor-pointer font-inherit p-0"
             >
-              ← Why Constellation?
-            </Link>
+              ← Back
+            </button>
           </div>
         </div>
       </div>

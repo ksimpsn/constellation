@@ -2,6 +2,7 @@ import ConstellationStarfieldBackground from "../components/ConstellationStarfie
 import FlowNav from "../components/FlowNav";
 import { useState, useMemo, useRef, useEffect } from "react";
 import { Link } from "react-router-dom";
+import { useGoBack } from "../hooks/useGoBack";
 import { API_BASE_URL } from "../api/config";
 
 interface LearnMoreLink {
@@ -182,6 +183,7 @@ const sampleProjects: Project[] = [
 ];
 
 export default function BrowseProjects() {
+  const goBack = useGoBack();
   const [search, setSearch] = useState("");
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   const [filterOpen, setFilterOpen] = useState(false);
@@ -481,9 +483,13 @@ export default function BrowseProjects() {
         </div>
 
         <div className="pt-4 border-t border-white/10 flex flex-wrap gap-4">
-          <Link to="/dashboard" className="text-white/70 hover:text-white transition-colors no-underline">
-            ← Back to Dashboard
-          </Link>
+          <button
+            type="button"
+            onClick={goBack}
+            className="text-white/70 hover:text-white transition-colors bg-transparent border-0 cursor-pointer font-inherit p-0"
+          >
+            ← Back
+          </button>
           <Link to="/" className="text-white/70 hover:text-white transition-colors no-underline">
             Home
           </Link>

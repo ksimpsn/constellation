@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import ConstellationStarfieldBackground from '../components/ConstellationStarfieldBackground';
 import FlowNav from '../components/FlowNav';
+import { useGoBack } from '../hooks/useGoBack';
 import { sections, accentBorder } from '../data/whySections';
 
 const accentIconRing: Record<string, string> = {
@@ -16,6 +17,7 @@ const accentIconBg: Record<string, string> = {
 
 export default function Why() {
   const [openId, setOpenId] = useState<string | null>(null);
+  const goBack = useGoBack();
 
   return (
     <ConstellationStarfieldBackground>
@@ -174,12 +176,13 @@ export default function Why() {
           </div>
 
           <div className="mt-10 text-center">
-            <Link
-              to="/"
-              className="text-sm text-white/50 hover:text-white/85 transition-colors underline underline-offset-4 decoration-white/20 hover:decoration-white/40"
+            <button
+              type="button"
+              onClick={goBack}
+              className="text-sm text-white/50 hover:text-white/85 transition-colors underline underline-offset-4 decoration-white/20 hover:decoration-white/40 bg-transparent border-0 cursor-pointer font-inherit p-0"
             >
-              Back to home
-            </Link>
+              ← Back
+            </button>
           </div>
         </div>
       </div>

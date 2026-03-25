@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import ConstellationStarfieldBackground from '../components/ConstellationStarfieldBackground';
 import FlowNav from '../components/FlowNav';
+import PageBackButton from '../components/PageBackButton';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../api/config';
 import { hasResearcherRole, hasVolunteerRole } from '../auth/session';
@@ -97,6 +98,9 @@ export default function Settings() {
     <ConstellationStarfieldBackground>
       <FlowNav />
       <div className="relative z-10 px-6 pt-24 pb-16 max-w-[800px] mx-auto w-full flex flex-col gap-8">
+        <div>
+          <PageBackButton />
+        </div>
         <h1 className="text-4xl font-bold text-white/90 mb-2 text-center">Account Settings</h1>
 
         {submitRequiresResearcher && user && (
