@@ -1,5 +1,6 @@
 import ConstellationStarfieldBackground from "../components/ConstellationStarfieldBackground";
 import FlowNav from "../components/FlowNav";
+import PageBackButton from "../components/PageBackButton";
 import { Link } from "react-router-dom";
 
 export default function Dashboard() {
@@ -7,7 +8,10 @@ export default function Dashboard() {
     <ConstellationStarfieldBackground>
       <FlowNav />
       <div className="relative z-10 px-6 pt-24 pb-16 max-w-6xl mx-auto w-full min-h-screen">
-        <h1 className="text-4xl font-bold text-white/90 mb-10">My Dashboard</h1>
+        <div className="mb-6">
+          <PageBackButton />
+        </div>
+        <h1 className="text-4xl font-bold text-white/90 mb-10">My Volunteer Dashboard</h1>
 
         <div className="mb-8">
           <Link

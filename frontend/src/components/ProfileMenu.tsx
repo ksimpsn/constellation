@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useView } from "../context/ViewContext";
+import { useAuth } from "../context/AuthContext";
 import "./ProfileMenu.css";
 
 export default function ProfileMenu() {
@@ -11,6 +12,7 @@ export default function ProfileMenu() {
   const navigate = useNavigate();
   const location = useLocation();
   const { isResearcher, setView } = useView();
+  const { logout } = useAuth();
 
   // Check if we're on home page (don't show switch buttons on home)
   const isHomePage = location.pathname === '/';
@@ -121,6 +123,21 @@ export default function ProfileMenu() {
             Settings
           </div>
 
+          <div className="dropdown-divider"></div>
+
+          <div
+            className="dropdown-item logout"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setOpen(false);
+              logout();
+              navigate("/");
+            }}
+          >
+            Log out
+          </div>
+
           {/* Switch view - only show if not on home page */}
           {!isHomePage && (
             <>
@@ -138,10 +155,6 @@ export default function ProfileMenu() {
               </div>
             </>
           )}
-
-          <div className="dropdown-divider"></div>
-
-          <div className="dropdown-item logout">Log Out</div>
         </div>,
         document.body
       )}

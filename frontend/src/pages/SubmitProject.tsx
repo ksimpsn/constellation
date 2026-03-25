@@ -1,12 +1,16 @@
 import ConstellationStarfieldBackground from "../components/ConstellationStarfieldBackground";
 import FlowNav from "../components/FlowNav";
 import { useState, useEffect, useRef } from "react";
-import { Link } from "react-router-dom";
+import { Navigate } from "react-router-dom";
+import { useGoBack } from "../hooks/useGoBack";
+import { useAuth } from "../context/AuthContext";
+import { hasResearcherRole } from "../auth/session";
 
-// Backend runs on 5001 by default; allow override via VITE_API_URL
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5001";
+import { API_BASE_URL } from "../api/config";
 
 export default function SubmitProject() {
+  const goBack = useGoBack();
+  const { user } = useAuth();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [pyFile, setPyFile] = useState<File | null>(null);
@@ -25,6 +29,10 @@ export default function SubmitProject() {
   const pollingIntervalRef = useRef<number | null>(null);
 
   const handleSubmit = async () => {
+    if (!user || !hasResearcherRole(user.role)) {
+      setMessage("Only accounts with the researcher role can submit projects.");
+      return;
+    }
     if (!title.trim()) {
       setMessage("Please enter a project title.");
       return;
@@ -56,6 +64,7 @@ export default function SubmitProject() {
     formData.append("chunk_size", String(Math.floor(rowsPerTask)));
     formData.append("replication_factor", String(Math.floor(replicationFactor)));
     formData.append("max_verification_attempts", String(Math.floor(maxVerificationAttempts)));
+    formData.append("user_id", user.user_id);
 
     try {
       const response = await fetch(`${API_BASE_URL}/submit`, {
@@ -142,6 +151,14 @@ export default function SubmitProject() {
       }
     }
   }, [jobId, jobStatus]); // Re-run when jobId or jobStatus changes
+
+  if (!user) {
+    return <Navigate to="/login" replace state={{ from: "/submit" }} />;
+  }
+
+  if (!hasResearcherRole(user.role)) {
+    return <Navigate to="/settings" replace state={{ submitRequiresResearcher: true }} />;
+  }
 
   const inputStyle = {
     marginTop: "8px",
@@ -325,9 +342,13 @@ export default function SubmitProject() {
         </div>
 
         <div className="mt-10">
-          <Link to="/" className="text-lg text-white/70 hover:text-white transition-colors no-underline">
-            ← Back to Home
-          </Link>
+          <button
+            type="button"
+            onClick={goBack}
+            className="text-lg text-white/70 hover:text-white transition-colors bg-transparent border-0 cursor-pointer font-inherit p-0"
+          >
+            ← Back
+          </button>
         </div>
       </div>
     </ConstellationStarfieldBackground>

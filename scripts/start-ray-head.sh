@@ -9,11 +9,31 @@ cd "$(dirname "$0")/.."
 
 export RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=1
 
-# On EC2, the public IP is NAT'd and not bound to any local interface.
-# Always bind to the private IP detected from the network interface.
-# External workers connect via the public IP; the head binds to the private IP.
-NODE_IP=$(hostname -I | awk '{print $1}')
-# NODE_IP="127.0.0.1"
+detect_node_ip() {
+    local ip=""
+
+    # Linux path
+    ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+    if [ -n "$ip" ]; then
+        echo "$ip"
+        return
+    fi
+
+    # macOS common interfaces
+    for iface in en0 en1; do
+        ip=$(ipconfig getifaddr "$iface" 2>/dev/null || true)
+        if [ -n "$ip" ]; then
+            echo "$ip"
+            return
+        fi
+    done
+
+    # Safe fallback for same-machine demos
+    echo "127.0.0.1"
+}
+
+# Allow manual override, otherwise auto-detect.
+NODE_IP="${RAY_NODE_IP:-$(detect_node_ip)}"
 
 # Clear any leftover Ray session (avoids "Session name ... does not match persisted value")
 ray stop 2>/dev/null || true

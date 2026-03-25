@@ -1,5 +1,6 @@
 import ConstellationStarfieldBackground from "../components/ConstellationStarfieldBackground";
 import FlowNav from "../components/FlowNav";
+import PageBackButton from "../components/PageBackButton";
 
 
 export default function Leaderboard() {
@@ -102,6 +103,9 @@ export default function Leaderboard() {
     <ConstellationStarfieldBackground>
       <FlowNav />
       <div className="relative z-10 px-6 pt-24 pb-16 max-w-7xl mx-auto w-full">
+        <div className="mb-6">
+          <PageBackButton />
+        </div>
         {/* Hero */}
         <div className="text-center mb-14">
           <div className="inline-flex items-center gap-2 text-amber-300/95 text-sm font-medium mb-3 tracking-wider uppercase">

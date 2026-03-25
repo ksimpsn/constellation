@@ -28,6 +28,7 @@ from backend.core.server import Cluster
 
 from backend.core.database import (
     get_session,
+    # Legacy functions (for backward compatibility)
     Job, save_job, update_job, get_job,
     # New schema models and functions
     Run, Task, TaskResult, Worker, WorkerHeartbeat,
@@ -1143,10 +1144,10 @@ class ConstellationAPI:
         # Default researcher_id if not provided (for backward compatibility)
         if not researcher_id:
             researcher_id = "user-default"  # TODO: Get from auth context
-        
+
         if not title:
             title = f"Project {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        
+
         project = create_project(
             researcher_id=researcher_id,
             title=title,
@@ -1185,7 +1186,7 @@ class ConstellationAPI:
         with get_session() as session:
             session.merge(run)
             session.commit()
-        
+
         # Create Task records for each chunk replica.
         tasks = []
         for idx, chunk in enumerate(chunks):
@@ -1213,7 +1214,7 @@ class ConstellationAPI:
         self.job_id_to_run_id[legacy_job_id] = run.run_id
         self.run_id_to_job_id[run.run_id] = legacy_job_id
         self.run_fn_bytes[run.run_id] = fn_bytes
-        
+
         # ---------------------------------------------------------
         # 7. Sync workers and dispatch to volunteers (or queue)
         # ---------------------------------------------------------
@@ -1359,7 +1360,7 @@ class ConstellationAPI:
         """
         Returns the current status of the job/run.
         Status could be: submitted, running, complete, failed, etc.
-        
+
         Args:
             job_id: Legacy integer job_id (will map to run_id internally)
         """
@@ -1367,13 +1368,13 @@ class ConstellationAPI:
 
         # Map legacy job_id to run_id
         run_id = self.job_id_to_run_id.get(job_id)
-        
+
         # Fallback to legacy Job table for backward compatibility
         if not run_id:
             legacy_job = get_job(job_id)
             if legacy_job and legacy_job.data and isinstance(legacy_job.data, dict):
                 run_id = legacy_job.data.get("run_id")
-        
+
         # Use new Run table if we have run_id
         if run_id:
             self.try_dispatch_queued_runs()
@@ -1386,7 +1387,7 @@ class ConstellationAPI:
             if current_status == "completed":
                 return "complete"
             return current_status
-        
+
         # Fallback to legacy Job table
         legacy_job = get_job(job_id)
         if not legacy_job:
@@ -1416,23 +1417,23 @@ class ConstellationAPI:
         """
         Retrieve results for a completed job/run.
         Blocks until results are ready.
-        
+
         Args:
             job_id: Legacy integer job_id (will map to run_id internally)
         """
         from datetime import datetime
-        
+
         logging.info(f"[ConstellationAPI] Fetching results for job_id={job_id}")
 
         # Map legacy job_id to run_id
         run_id = self.job_id_to_run_id.get(job_id)
-        
+
         # Fallback to legacy Job table
         if not run_id:
             legacy_job = get_job(job_id)
             if legacy_job and legacy_job.data and isinstance(legacy_job.data, dict):
                 run_id = legacy_job.data.get("run_id")
-        
+
         # Use new Run table if we have run_id
         if run_id:
             self.try_dispatch_queued_runs()
@@ -1664,21 +1665,24 @@ class ConstellationAPI:
         print(f"[ConstellationAPI] Verifying results for job: {job_id}")
         # TODO: Add redundancy check
         return True
-    
+
     def _persist_verification_results(self, run_id, project_id, execution):
         """
-        Store verification attempts into TaskResult and synchronize Task/Run progress.
+        Store all verification attempts into TaskResult table and
+        return both the overall verification_status and the number of
+        distinct tasks that produced results.
         """
 
         verification_status = execution["verification_status"]
         attempts = execution["attempts"]
+        seen_task_ids = set()
 
         with get_session() as session:
             for attempt_id, attempt_results in enumerate(attempts, start=1):
                 for ray_result in attempt_results:
                     task_id = ray_result.get("task_id")
-                    if not task_id:
-                        continue
+                    if task_id:
+                        seen_task_ids.add(task_id)
 
                     node_id = ray_result.get("node_id")
                     worker = session.query(Worker).filter_by(ray_node_id=node_id).first()
@@ -1726,4 +1730,5 @@ class ConstellationAPI:
 
             session.commit()
 
-        return verification_status
+        completed_count = len(seen_task_ids)
+        return verification_status, completed_count

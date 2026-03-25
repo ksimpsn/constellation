@@ -5,6 +5,7 @@ Constellation Database Models (SQLite for runs, tasks, workers, results).
   See backend/core/database_aws.py.
 - SQLite (this module): runs, tasks, workers, task_results, worker_heartbeats, jobs
 """
+from __future__ import annotations
 
 from sqlalchemy import create_engine, Column, Integer, String, Text, Float, DateTime, ForeignKey, Index, UniqueConstraint, text
 from sqlalchemy.ext.declarative import declarative_base
@@ -15,7 +16,6 @@ from datetime import datetime
 import uuid
 import hashlib
 import json
-import boto3
 
 # Create SQLite database (local file: constellation.db)
 DATABASE_URL = "sqlite:///constellation.db"
@@ -26,7 +26,18 @@ SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
 BUCKET_NAME = "constellation-bucket-005988779256-us-east-1-an"
-s3 = boto3.client("s3")
+
+_s3_client = None
+
+
+def _get_s3_client():
+    """Lazy boto3 client so Flask can import without boto3; install for S3 uploads."""
+    global _s3_client
+    if _s3_client is None:
+        import boto3
+
+        _s3_client = boto3.client("s3")
+    return _s3_client
 
 # ============================================================================
 # SQLite tables: runs, tasks, workers, task_results, worker_heartbeats, jobs
@@ -203,6 +214,56 @@ class WorkerHeartbeat(Base):
 # Database Initialization and Session Management
 # ============================================================================
 
+def _migrate_sqlite_table_columns(table_name: str, additions: list) -> None:
+    """
+    Add missing columns on SQLite (legacy constellation.db files).
+    additions: list of (column_name, sql_type_and_default_fragment).
+    """
+    try:
+        insp = inspect(engine)
+        if table_name not in insp.get_table_names():
+            return
+        cols = {c["name"] for c in insp.get_columns(table_name)}
+        for name, ddl in additions:
+            if name in cols:
+                continue
+            try:
+                with engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {name} {ddl}"))
+                cols.add(name)
+                print(f"[init_db] Added column {table_name}.{name}")
+            except Exception as e:
+                print(f"[init_db] {table_name}.{name}: {e}")
+    except Exception as e:
+        print(f"[init_db] migrate {table_name}: {e}")
+
+
+def _migrate_sqlite_legacy_schema():
+    """Bring older SQLite files in line with current models."""
+    _migrate_sqlite_table_columns(
+        "projects",
+        [
+            ("func_name", "TEXT NOT NULL DEFAULT 'main'"),
+            ("chunk_size", "INTEGER NOT NULL DEFAULT 1000"),
+            ("replication_factor", "INTEGER NOT NULL DEFAULT 2"),
+            ("max_verification_attempts", "INTEGER NOT NULL DEFAULT 2"),
+            ("status", "TEXT NOT NULL DEFAULT 'active'"),
+            ("tags", "JSON"),
+        ],
+    )
+    _migrate_sqlite_table_columns(
+        "tasks",
+        [
+            ("replica_index", "INTEGER NOT NULL DEFAULT 0"),
+            ("retry_count", "INTEGER NOT NULL DEFAULT 0"),
+            ("error_message", "TEXT"),
+            ("raw_result_data", "JSON"),
+            ("raw_runtime_seconds", "FLOAT"),
+            ("updated_at", "DATETIME"),
+        ],
+    )
+
+
 def init_db():
     """Create all tables and apply lightweight SQLite schema migrations."""
     Base.metadata.create_all(bind=engine)
@@ -341,6 +402,121 @@ def delete_job(job_id):
 # User, researcher, project, project_user live in AWS RDS — see database_aws.py
 # ============================================================================
 
+def normalize_roles_input(role=None, roles=None) -> str:
+    """
+    Build a canonical role string: 'researcher', 'volunteer', or 'researcher,volunteer'.
+    Accepts legacy single `role` or `roles` as a list or comma-separated string.
+    Maps 'contributor' to 'volunteer'. Raises ValueError if nothing valid remains.
+    """
+    parts: list[str] = []
+    if roles is not None:
+        if isinstance(roles, str):
+            parts.extend(roles.split(","))
+        else:
+            for item in roles:
+                parts.append(str(item))
+    elif role is not None:
+        parts.append(str(role))
+    seen: list[str] = []
+    for p in parts:
+        r = p.strip().lower()
+        if r == "contributor":
+            r = "volunteer"
+        if r not in ("researcher", "volunteer"):
+            continue
+        if r not in seen:
+            seen.append(r)
+    if not seen:
+        raise ValueError("At least one role is required (researcher and/or volunteer)")
+    seen.sort(key=lambda x: 0 if x == "researcher" else 1)
+    return ",".join(seen)
+
+
+def set_user_roles(user_id: str, role_string: str) -> User | None:
+    """Replace the user's role field (e.g. 'researcher,volunteer')."""
+    with SessionLocal() as session:
+        user = session.query(User).filter_by(user_id=user_id).first()
+        if not user:
+            return None
+        user.role = role_string
+        session.commit()
+        session.refresh(user)
+        return user
+
+
+def create_user(email: str, name: str, role: str = "volunteer", metadata: dict = None) -> User:
+    """Create a new user."""
+    with SessionLocal() as session:
+        user = User(user_id=user_id, email=email, name=name, role=role, user_metadata=metadata or {})
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+        return user, None
+
+
+def get_user_by_email(email: str) -> User:
+    """Get user by email."""
+    with SessionLocal() as session:
+        return session.query(User).filter_by(email=email).first()
+
+
+def get_user_by_id(user_id: str) -> User:
+    """Get user by ID."""
+    with SessionLocal() as session:
+        return session.query(User).filter_by(user_id=user_id).first()
+
+
+def user_has_role(user_id: str, role: str) -> bool:
+    """Check if user has a specific role."""
+    user = get_user_by_id(user_id)
+    if not user:
+        return False
+    # Role can be 'researcher', 'volunteer', or 'researcher,volunteer'
+    rset = {x.strip() for x in (user.role or "").split(",") if x.strip()}
+    return role in rset
+
+def create_project(researcher_id: str, title: str, description: str,
+                   code_path: str, dataset_path: str, dataset_type: str,
+                   func_name: str = "main", chunk_size: int = 1000,
+                   replication_factor: int = 2,
+                   max_verification_attempts: int = 2,
+                   tags: list = None) -> Project:
+    """Create a new project."""
+
+    with SessionLocal() as session:
+        project = Project(
+            researcher_id=researcher_id,
+            title=title,
+            description=description,
+            dataset_type=dataset_type,
+            func_name=func_name,
+            chunk_size=chunk_size,
+            replication_factor=replication_factor,
+            max_verification_attempts=max_verification_attempts,
+            tags=tags or [],
+        )
+        session.add(project)
+        session.flush()  # Assign project_id (from default) before using it for S3 keys
+
+        code_key = f"{project.project_id}/code.py"
+        _get_s3_client().upload_file(code_path, BUCKET_NAME, code_key)
+        project.code_s3_path = f"s3://{BUCKET_NAME}/{code_key}"
+
+        dataset_key = f"{project.project_id}/dataset.{dataset_type}"
+        _get_s3_client().upload_file(dataset_path, BUCKET_NAME, dataset_key)
+        project.dataset_s3_path = f"s3://{BUCKET_NAME}/{dataset_key}"
+
+        session.commit()
+        session.refresh(project)
+        return project
+
+
+def get_project(project_id: str) -> Project:
+    """Get project by ID."""
+    with SessionLocal() as session:
+        return session.query(Project).filter_by(project_id=project_id).first()
+
+
 def create_run(project_id: str, total_tasks: int = 0) -> Run:
     """Create a new run."""
     with SessionLocal() as session:
@@ -436,20 +612,15 @@ def update_task(task_id: str, **kwargs) -> bool:
         return True
 
 
-def create_task_result(task_id: str, run_id: str, project_id: str, worker_id: str,
+def create_task_result(task_id: str, run_id: str, project_id: str,
                        result_data: dict, runtime_seconds: float = None,
-                       memory_used_mb: float = None,
-                       verification_attempt: int = 1,
-                       verification_status: str = None) -> TaskResult:
-    """Create a task result."""
-    result_hash = _hash_result(result_data)
-
+                       memory_used_mb: float = None) -> TaskResult:
+    """Create a task result. Worker is implied via Task.assigned_worker_id."""
     with SessionLocal() as session:
         result = TaskResult(
             task_id=task_id,
             run_id=run_id,
             project_id=project_id,
-            worker_id=worker_id,
             result_data=result_data,
             runtime_seconds=runtime_seconds,
             memory_used_mb=memory_used_mb,
@@ -600,6 +771,102 @@ def get_available_workers(limit: int = None) -> list:
             return volunteer_workers[:limit]
         return volunteer_workers
 
+def create_task_result(task_id: str, run_id: str, project_id: str, worker_id: str,
+                       result_data: dict, runtime_seconds: float = None,
+                       memory_used_mb: float = None,
+                       verification_attempt: int = 1,
+                       verification_status: str = None) -> TaskResult:
+
+    result_hash = _hash_result(result_data)
+
+    with SessionLocal() as session:
+        result = TaskResult(
+            task_id=task_id,
+            run_id=run_id,
+            project_id=project_id,
+            worker_id=worker_id,
+            result_data=result_data,
+            runtime_seconds=runtime_seconds,
+            memory_used_mb=memory_used_mb,
+            result_hash=result_hash,
+            verification_attempt=verification_attempt,
+            verification_status=verification_status,
+            completed_at=datetime.utcnow()
+        )
+
+        session.add(result)
+        session.commit()
+        session.refresh(result)
+        return result
+
+def _hash_result(result_data):
+    serialized = json.dumps(result_data, sort_keys=True, default=str)
+    return hashlib.sha256(serialized.encode()).hexdigest()
+
+def get_all_projects(researcher_id: str = None, limit: int = None) -> list:
+    """List all projects, optionally filtered by researcher_id."""
+    with SessionLocal() as session:
+        query = session.query(Project).filter(Project.status == "active")
+        if researcher_id:
+            query = query.filter(Project.researcher_id == researcher_id)
+        query = query.order_by(Project.created_at.desc())
+        if limit:
+            query = query.limit(limit)
+        return query.all()
+
+
+def get_runs_for_project(project_id: str, limit: int = None) -> list:
+    """List runs for a project, newest first."""
+    with SessionLocal() as session:
+        query = session.query(Run).filter(Run.project_id == project_id).order_by(Run.created_at.desc())
+        if limit:
+            query = query.limit(limit)
+        return query.all()
+
+
+def get_tasks_for_run(run_id: str) -> list:
+    """List all tasks for a run (for dashboard)."""
+    with SessionLocal() as session:
+        return session.query(Task).filter(Task.run_id == run_id).order_by(Task.task_index).all()
+
+
+def get_run_worker_count(run_id: str) -> int:
+    """Count distinct workers that have been assigned tasks in this run."""
+    with SessionLocal() as session:
+        from sqlalchemy import func
+        count = session.query(func.count(func.distinct(Task.assigned_worker_id))).filter(
+            Task.run_id == run_id,
+            Task.assigned_worker_id.isnot(None)
+        ).scalar()
+        return count or 0
+
+
+def get_all_workers() -> list:
+    """List all workers (for dashboard)."""
+    with SessionLocal() as session:
+        return session.query(Worker).order_by(Worker.last_heartbeat.desc()).all()
+
+
+def get_task_results_for_run(run_id: str) -> list:
+    """Get all task results for a run, ordered by task_index (for download). Returns list of dicts."""
+    with SessionLocal() as session:
+        rows = (
+            session.query(TaskResult, Task.task_index)
+            .join(Task, TaskResult.task_id == Task.task_id)
+            .filter(TaskResult.run_id == run_id)
+            .order_by(Task.task_index)
+            .all()
+        )
+        return [
+            {
+                "task_id": tr.task_id,
+                "task_index": idx,
+                "result_data": tr.result_data,
+                "runtime_seconds": tr.runtime_seconds,
+                "completed_at": tr.completed_at.isoformat() if tr.completed_at else None,
+            }
+            for tr, idx in rows
+        ]
 
 def _hash_result(result_data):
     serialized = json.dumps(result_data, sort_keys=True, default=str)
@@ -758,6 +1025,41 @@ def create_user(user_id: str, email: str, name: str, role: str = "volunteer", me
         return None, str(e)
 
 
+def set_user_roles(user_id: str, role_string: str):
+    """Update user roles in AWS-backed auth store."""
+    from backend.core.database_aws import is_aws_db_configured, set_aws_user_roles
+    if not is_aws_db_configured():
+        return None
+    return set_aws_user_roles(user_id, role_string)
+
+
+def link_aws_project_contributor(project_id: str, user_id: str) -> bool:
+    """
+    Link a contributor (user_id) to an AWS project in project_users.
+    Safe no-op when AWS DB is not configured or project_id is not an AWS numeric id.
+    """
+    from backend.core.database_aws import (
+        is_aws_db_configured,
+        add_aws_project_user,
+    )
+
+    if not user_id or not is_aws_db_configured():
+        return False
+
+    try:
+        aws_project_id = int(str(project_id))
+    except (TypeError, ValueError):
+        # Local/non-AWS project ids are not linkable in AWS project_users.
+        return False
+
+    try:
+        add_aws_project_user(aws_project_id, user_id)
+        return True
+    except Exception:
+        # Never fail task/result flow due to AWS linkage issues.
+        return False
+
+
 def create_project(researcher_id: str, title: str, description: str,
                    code_path: str, dataset_path: str, dataset_type: str,
                    func_name: str = "main", chunk_size: int = 1000,
@@ -820,7 +1122,8 @@ def get_researcher_projects_with_stats(researcher_id: str) -> list:
             # Get unique contributors at user level (one user may own multiple workers).
             completed_task_users = (
                 session.query(distinct(Worker.user_id))
-                .join(TaskResult, Worker.worker_id == TaskResult.worker_id)
+                .join(Task, Task.assigned_worker_id == Worker.worker_id)
+                .join(TaskResult, TaskResult.task_id == Task.task_id)
                 .filter(
                     TaskResult.project_id == project.project_id,
                     Worker.user_id.isnot(None)
@@ -869,9 +1172,19 @@ def get_researcher_projects_with_stats(researcher_id: str) -> list:
             created_at = getattr(project, "created_at", None) or getattr(project, "date_created", None)
 
             result.append({
-                "id": pid,
-                "title": title or "",
-                "description": description,
+                "id": project.project_id,
+                "researcherId": project.researcher_id,
+                "title": project.title,
+                "description": project.description or "",
+                "status": project.status,
+                "datasetType": project.dataset_type,
+                "funcName": project.func_name,
+                "chunkSize": project.chunk_size,
+                "replicationFactor": project.replication_factor,
+                "maxVerificationAttempts": project.max_verification_attempts,
+                "tags": tag_list,
+                "codePath": project.code_s3_path or "",
+                "datasetPath": project.dataset_s3_path or "",
                 "progress": progress,
                 "resultUrl": result_url,
                 "totalContributors": total_contributors,
@@ -884,79 +1197,98 @@ def get_researcher_projects_with_stats(researcher_id: str) -> list:
                 "updatedAt": latest_updated.isoformat() if hasattr(latest_updated, "isoformat") and latest_updated else None,
                 "totalRuns": total_runs,
                 "averageTaskTime": round(avg_task_time, 1) if avg_task_time else None,
+                "latestRunId": latest_run.run_id if latest_run else None,
+                "latestRunStatus": latest_run.status if latest_run else None,
             })
 
     return result
 
 
-def get_top_contributors(limit: int = 10) -> list:
+def list_browse_projects(limit: int = 200) -> list:
     """
-    Rank by distinct projects contributed (TaskResult). Names from AWS users when configured.
+    Active projects for the public browse page (title, description, tags, researcher name).
     """
-    from backend.core.database_aws import is_aws_db_configured, get_aws_user_by_id
+    import json
 
     with SessionLocal() as session:
-        from sqlalchemy import func, distinct
-
         rows = (
-            session.query(
-                Worker.user_id,
-                Worker.worker_name,
-                func.count(distinct(TaskResult.project_id)).label("projects_contributed"),
-            )
-            .join(TaskResult, Worker.worker_id == TaskResult.worker_id)
-            .group_by(Worker.worker_id, Worker.user_id, Worker.worker_name)
-            .order_by(func.count(distinct(TaskResult.project_id)).desc())
+            session.query(Project, User.name)
+            .join(User, Project.researcher_id == User.user_id)
+            .filter(Project.status == "active")
+            .order_by(Project.created_at.desc())
             .limit(limit)
             .all()
         )
+        out = []
+        for project, researcher_name in rows:
+            raw = project.tags
+            if raw is None:
+                tag_list = []
+            elif isinstance(raw, list):
+                tag_list = raw
+            elif isinstance(raw, str):
+                try:
+                    tag_list = json.loads(raw)
+                except Exception:
+                    tag_list = []
+            else:
+                tag_list = []
+            out.append({
+                "id": project.project_id,
+                "title": project.title,
+                "description": (project.description or "")[:500],
+                "longDescription": project.description or "",
+                "tags": tag_list,
+                "researcherName": researcher_name,
+                "whyJoin": [],
+                "learnMore": [],
+            })
+        return out
 
-    out = []
-    for user_id, worker_name, projects_contributed in rows:
-        name = worker_name
-        if user_id and is_aws_db_configured():
-            u = get_aws_user_by_id(user_id)
-            if u and getattr(u, "name", None):
-                name = u.name
-        out.append({"name": name or str(user_id or "Unknown"), "projects_contributed": projects_contributed})
-    return out
 
-
-def link_aws_project_contributor(project_id, volunteer_user_id: str) -> None:
+def list_browse_projects(limit: int = 200) -> list:
     """
-    Idempotent: add volunteer username to AWS project_users when they ran work on a project.
+    Get top contributors ranked by number of projects they've contributed to.
+    Only includes workers that have completed at least one task and have associated users.
 
-    Ray never calls assign_task(); use this when saving TaskResult / verification rows
-    once we know worker.user_id (requires workers to register via /api/workers/register).
+    Returns a list of dictionaries with contributor data:
+    [
+        {
+            "name": "John Doe",
+            "projects_contributed": 5
+        },
+        ...
+    ]
     """
-    if not volunteer_user_id:
-        return
-    try:
-        from backend.core.database_aws import is_aws_db_configured, add_aws_project_user
+    with SessionLocal() as session:
+        from sqlalchemy import func, distinct
 
-        if not is_aws_db_configured():
-            return
-        add_aws_project_user(int(project_id), volunteer_user_id)
-    except Exception:
-        pass
+        # Get workers with their associated users, ranked by number of distinct projects contributed to
+        # Only count completed tasks (from TaskResult table)
+        contributors = session.query(
+            User.name,
+            func.count(distinct(TaskResult.project_id)).label('projects_contributed')
+        ).join(
+            Worker, User.user_id == Worker.user_id
+        ).join(
+            Task, Task.assigned_worker_id == Worker.worker_id
+        ).join(
+            TaskResult, TaskResult.task_id == Task.task_id
+        ).group_by(
+            User.user_id, User.name
+        ).order_by(
+            func.count(distinct(TaskResult.project_id)).desc()
+        ).limit(limit).all()
 
+        # Format the results
+        result = []
+        for contributor in contributors:
+            result.append({
+                "name": contributor.name,
+                "projects_contributed": contributor.projects_contributed
+            })
 
-def add_project_user(project_id: int, username: str) -> None:
-    """Link a volunteer (users.username) to a project in AWS project_users."""
-    from backend.core.database_aws import is_aws_db_configured, add_aws_project_user
-
-    if not is_aws_db_configured():
-        raise RuntimeError("AWS database not configured. Set AWS_DATABASE_URL.")
-    add_aws_project_user(project_id, username)
-
-
-def list_project_users(project_id: int) -> list:
-    """Usernames on project_users for this project."""
-    from backend.core.database_aws import is_aws_db_configured, get_aws_project_users
-
-    if not is_aws_db_configured():
-        return []
-    return get_aws_project_users(project_id)
+        return result
 
 
 # Simple test connection function

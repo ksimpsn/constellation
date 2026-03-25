@@ -2,17 +2,22 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import ConstellationStarfieldBackground from '../components/ConstellationStarfieldBackground';
 import FlowNav from '../components/FlowNav';
+import PageBackButton from '../components/PageBackButton';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5001";
+import { API_BASE_URL } from "../api/config";
+import { useAuth } from '../context/AuthContext';
+import { getPostAuthRedirectPath } from '../auth/session';
 
 const Signup: React.FC = () => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState('');
+  const [wantResearcher, setWantResearcher] = useState(false);
+  const [wantVolunteer, setWantVolunteer] = useState(false);
   const [reasons, setReasons] = useState<string[]>([]);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { login } = useAuth();
 
   const reasonOptions = [
     'Collaborate on research projects',
@@ -32,8 +37,16 @@ const Signup: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!wantResearcher && !wantVolunteer) {
+      setMessage('Error: Select at least one role (Researcher and/or Volunteer).');
+      return;
+    }
     setLoading(true);
     setMessage('');
+
+    const roles: string[] = [];
+    if (wantResearcher) roles.push('researcher');
+    if (wantVolunteer) roles.push('volunteer');
 
     try {
       const response = await fetch(`${API_BASE_URL}/api/signup`, {
@@ -41,7 +54,7 @@ const Signup: React.FC = () => {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ name, email, role, reasons }),
+        body: JSON.stringify({ name, email, roles, reasons }),
       });
 
       if (!response.ok) {
@@ -58,14 +71,15 @@ const Signup: React.FC = () => {
       }
 
       const data = await response.json();
+      login({
+        user_id: data.user_id,
+        email: data.email,
+        name,
+        role: data.role,
+      });
       setMessage('Signup successful! Redirecting...');
-      // Redirect based on role
       setTimeout(() => {
-        if (data.role === 'researcher') {
-          navigate('/researcher-profile');
-        } else {
-          navigate('/profile');
-        }
+        navigate(getPostAuthRedirectPath(data.role));
       }, 1500);
     } catch (error: any) {
       console.error('Signup error:', error);
@@ -73,7 +87,7 @@ const Signup: React.FC = () => {
       if (error.message?.includes('Failed to fetch') || error.name === 'TypeError') {
         setMessage(`Cannot connect to server. Please make sure the backend is running on ${API_BASE_URL}`);
       } else {
-        setMessage(`Signup failed: ${error.message || 'Please try again'}`);
+        alert(`Error: ${data.error}`);
       }
     } finally {
       setLoading(false);
@@ -94,7 +108,10 @@ const Signup: React.FC = () => {
   return (
     <ConstellationStarfieldBackground>
       <FlowNav />
-      <div className="relative z-10 flex flex-col items-center justify-center min-h-screen px-6 py-24">
+      <div className="relative z-10 flex flex-col items-center justify-center min-h-screen px-6 py-24 w-full">
+        <div className="w-full max-w-[600px] mb-6 self-center">
+          <PageBackButton />
+        </div>
         <h1 className="text-4xl md:text-5xl font-bold text-white/90 mb-8">Sign Up for Constellation</h1>
         <form onSubmit={handleSubmit} className="w-full max-w-[600px] p-8 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10">
           <div className="mb-5">
@@ -122,18 +139,30 @@ const Signup: React.FC = () => {
             />
           </div>
           <div className="mb-5">
-            <label htmlFor="role" className="text-white/80 text-sm font-medium">Role</label>
-            <select
-              id="role"
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              required
-              style={{ ...inputStyle, color: role ? 'white' : 'rgba(255,255,255,0.5)' }}
-            >
-              <option value="">Select your role</option>
-              <option value="researcher">Researcher</option>
-              <option value="contributor">Contributor</option>
-            </select>
+            <span className="text-white/80 text-sm font-medium block mb-2">Roles (select all that apply)</span>
+            <p className="text-white/50 text-xs m-0 mb-3">
+              You can post projects as a researcher, contribute compute as a volunteer, or both. You can add another role later in Settings.
+            </p>
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 text-white/80 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={wantResearcher}
+                  onChange={() => setWantResearcher((v) => !v)}
+                  className="accent-purple-400"
+                />
+                <span>Researcher — submit and manage projects</span>
+              </label>
+              <label className="flex items-center gap-2 text-white/80 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={wantVolunteer}
+                  onChange={() => setWantVolunteer((v) => !v)}
+                  className="accent-purple-400"
+                />
+                <span>Volunteer — browse and run tasks for projects</span>
+              </label>
+            </div>
           </div>
           <div className="mb-6">
             <label className="text-white/80 text-sm font-medium block mb-2">Why are you using Constellation? (Select all that apply)</label>

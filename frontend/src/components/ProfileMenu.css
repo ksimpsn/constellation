@@ -81,10 +81,15 @@
     margin: 6px 0;
   }
 
-  /* Log out item */
-  .logout {
-    color: #b00020;
-    font-weight: 500;
+  /* Log out item — keep red on hover (default .dropdown-item hover is gray) */
+  .profile-dropdown .dropdown-item.logout {
+    color: #c62828;
+    font-weight: 600;
+  }
+
+  .profile-dropdown .dropdown-item.logout:hover {
+    background: #ffebee;
+    color: #b71c1c;
   }
 
   /* Switch profile item */

@@ -13,10 +13,17 @@ Later, it will connect to:
 from flask import Flask, request, jsonify, Response
 from backend.core.api import ConstellationAPI
 from backend.core.database import (
+    get_user_by_id,
+    user_has_role,
+    register_worker,
+    get_session,
+    get_researcher_projects_with_stats,
+    create_user,
+    get_user_by_email,
     init_db,
-    get_user_by_id, user_has_role, register_worker, get_session, get_researcher_projects_with_stats, create_user, get_user_by_email, init_db, create_user,
-    get_project, get_run, get_all_projects, get_runs_for_project, get_tasks_for_run,
-    get_all_workers, get_task_results_for_run,
+    list_browse_projects,
+    normalize_roles_input,
+    set_user_roles,
 )
 from backend.core.database_aws import init_aws_db
 from backend.core.server import Cluster
@@ -82,9 +89,24 @@ def home():
         "endpoints": {
             "debug_researcher": "/api/researcher/debug-id",
             "researcher_projects": "/api/researcher/<researcher_id>/projects",
-            "debug_users": "/api/debug-users"
+            "debug_users": "/api/debug-users",
+            "browse_projects": "/api/projects/browse",
         }
     }), 200
+
+
+@app.route("/api/projects/browse", methods=["GET", "OPTIONS"])
+def browse_projects_list():
+    """Public list of active projects for the Browse Projects page."""
+    try:
+        projects = list_browse_projects()
+        return jsonify({"projects": projects}), 200
+    except Exception as e:
+        logging.error(f"[ERROR] browse_projects_list: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
 
 @app.route("/submit", methods=["OPTIONS"])
 def submit_options():
@@ -129,6 +151,14 @@ def submit_job():
     if not title or not py_file or not data_file:
         return jsonify({"error": "Missing required fields"}), 400
 
+    user_id = request.form.get("user_id")
+    if not user_id:
+        return jsonify({"error": "Sign in required to submit projects"}), 401
+    if not get_user_by_id(user_id):
+        return jsonify({"error": "Unknown user"}), 403
+    if not user_has_role(user_id, "researcher"):
+        return jsonify({"error": "Only accounts with the researcher role can submit projects"}), 403
+
     # Save temp files
     os.makedirs("tmp", exist_ok=True)
     py_path = os.path.join("tmp", py_file.filename)
@@ -155,7 +185,7 @@ def submit_job():
     except (TypeError, ValueError):
         max_verification_attempts = 2
 
-    # ✨ CALL THE CORRECT API FUNCTION
+    # ✨ CALL THE CORRECT API FUNCTION (tie project + run to this researcher)
     out = api.submit_uploaded_project(
         code_path=py_path,
         dataset_path=data_path,
@@ -166,6 +196,7 @@ def submit_job():
         chunk_size=chunk_size,
         replication_factor=replication_factor,
         max_verification_attempts=max_verification_attempts,
+        researcher_id=user_id,
     )
     job_id, run_id, project_id, total_tasks = out
 
@@ -243,55 +274,38 @@ def get_results(job_id):
         }), 500
 
 
-@app.route("/api/signup", methods=["POST", "OPTIONS"])
+@app.route("/api/signup", methods=["POST"])
 def signup():
     """
     Endpoint: POST /api/signup
-    Purpose: Create a new user account (volunteer or researcher).
-
-    Request body:
-    {
-        "name": "John Doe",
-        "email": "john@example.com",
-        "role": "volunteer" or "researcher",
-        "reasons": ["reason1", "reason2"]  # optional
-    }
-
-    Response:
-    {
-        "success": true,
-        "user_id": "user-xxx",
-        "message": "User created successfully"
-    }
+    Purpose: Register a new user (researcher and/or volunteer).
+    Request body: { "full_name", "email", "user_id", "role" } (role: researcher, volunteer, or researcher,volunteer)
     """
-    if request.method == "OPTIONS":
-        return "", 200
-
     try:
         data = request.get_json()
         if not data:
             return jsonify({"error": "Missing request body"}), 400
-
-        name = data.get("name")
+        full_name = data.get("full_name") or data.get("name")
         email = data.get("email")
         role = data.get("role")
+        roles = data.get("roles")
         reasons = data.get("reasons", [])
 
         # Validate required fields
-        if not name or not email or not role:
+        if not full_name or not email:
             return jsonify({
-                "error": "Missing required fields: name, email, and role are required"
+                "error": "Missing required fields: name and email are required"
             }), 400
 
-        # Validate role
-        if role not in ["volunteer", "researcher", "contributor"]:
+        if roles is None and not role:
             return jsonify({
-                "error": "Invalid role. Must be 'volunteer', 'researcher', or 'contributor'"
+                "error": "Missing roles: send 'roles' (array) or legacy 'role' (string)"
             }), 400
 
-        # Map "contributor" to "volunteer" (same thing)
-        if role == "contributor":
-            role = "volunteer"
+        try:
+            role_string = normalize_roles_input(role=role, roles=roles)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
 
         # Initialize database if needed
         init_db()
@@ -306,13 +320,13 @@ def signup():
             }), 409
 
         user_id = (request.get_json() or {}).get("user_id") or email.split("@")[0].replace(".", "_")
-        user, err = create_user(user_id=user_id, email=email, name=name, role=role)
+        user, err = create_user(user_id=user_id, email=email, name=full_name, role=role)
         if err:
             return jsonify({"error": err}), 409
         if not user:
             return jsonify({"error": "AWS database not configured. Set AWS_DATABASE_URL to create users."}), 503
 
-        logging.info(f"[INFO] Created new user: {user.user_id} ({role})")
+        logging.info(f"[INFO] Created new user: {user.user_id} ({role_string})")
 
         return jsonify({
             "success": True,
@@ -323,313 +337,68 @@ def signup():
         }), 201
 
     except Exception as e:
-        logging.error(f"[ERROR] Error in signup endpoint: {e}")
-        import traceback
-        traceback.print_exc()
+        logging.error(f"[ERROR] Signup: {e}")
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/login", methods=["POST", "OPTIONS"])
-def login():
+@app.route("/api/user/roles", methods=["PATCH", "OPTIONS"])
+def patch_user_roles():
     """
-    Endpoint: POST /api/login
-    Purpose: Authenticate a user by email and return user info.
-
-    Request body:
-    {
-        "email": "user@example.com"
-    }
-
-    Response:
-    {
-        "success": true,
-        "user_id": "user-xxx",
-        "email": "user@example.com",
-        "name": "User Name",
-        "role": "volunteer" or "researcher"
-    }
+    Update which roles an account has (researcher / volunteer / both).
+    Body: { "user_id": "...", "roles": ["researcher"] | ["volunteer"] | both }
     """
     if request.method == "OPTIONS":
         return "", 200
-
     try:
         data = request.get_json()
         if not data:
             return jsonify({"error": "Missing request body"}), 400
-
-        email = data.get("email")
-
-        if not email:
-            return jsonify({"error": "Email is required"}), 400
-
-        # Initialize database if needed
-        init_db()
-
-        # Find user by email
-        user = get_user_by_email(email)
+        user_id = data.get("user_id")
+        roles = data.get("roles")
+        if not user_id or roles is None:
+            return jsonify({"error": "user_id and roles are required"}), 400
+        try:
+            role_string = normalize_roles_input(roles=roles)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        user = set_user_roles(user_id, role_string)
         if not user:
-            return jsonify({
-                "error": "User not found. Please sign up first."
-            }), 404
-
-        logging.info(f"[INFO] User logged in: {user.user_id} ({user.role})")
-
+            return jsonify({"error": "User not found"}), 404
         return jsonify({
             "success": True,
             "user_id": user.user_id,
             "email": user.email,
             "name": user.name,
-            "role": user.role
+            "role": user.role,
         }), 200
-
     except Exception as e:
-        logging.error(f"[ERROR] Error in login endpoint: {e}")
-        import traceback
-        traceback.print_exc()
+        logging.error(f"[ERROR] patch_user_roles: {e}")
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/researcher/debug-id", methods=["GET", "OPTIONS"])
-def get_debug_researcher_id():
-    """
-    Endpoint: GET /api/researcher/debug-id
-    Purpose: Get the debug researcher user ID for testing.
-    Uses the same debug user system as DEBUG_USERS.md.
-    Returns the debug researcher user, or creates one if it doesn't exist.
-
-    This matches the debug users created by: python3 backend/create_debug_user.py
-
-    Response:
-    {
-        "researcher_id": "user-xxx",
-        "email": "debug-researcher@constellation.test",
-        "name": "Debug Researcher",
-        "role": "researcher"
-    }
-    """
+@app.route("/api/login", methods=["POST", "OPTIONS"])
+def login():
+    """POST /api/login — authenticate by email; body: { "email" }."""
+    if request.method == "OPTIONS":
+        return "", 200
     try:
-        from backend.core.database import get_user_by_email, create_user, init_db
-
-        # Initialize DB if needed
-        init_db()
-
-        # Get debug researcher (same email as in DEBUG_USERS.md and create_debug_user.py)
-        researcher_email = "debug-researcher@constellation.test"
-        researcher = get_user_by_email(researcher_email)
-
-        if not researcher:
-            researcher, err = create_user(
-                user_id="debug-researcher",
-                email=researcher_email,
-                name="Debug Researcher",
-                role="researcher",
-            )
-            if err:
-                return jsonify({"error": err}), 409
-            logging.info(f"[INFO] Created debug researcher: {researcher.user_id}")
-
-        return jsonify({
-            "researcher_id": researcher.user_id,
-            "email": researcher.email,
-            "name": researcher.name,
-            "role": researcher.role
-        }), 200
-
-    except Exception as e:
-        logging.error(f"[ERROR] Error in get_debug_researcher_id endpoint: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/api/debug-users", methods=["GET"])
-def get_debug_users():
-    """
-    Endpoint: GET /api/debug-users
-    Purpose: Get all debug users (matching DEBUG_USERS.md).
-    Returns all three debug users: volunteer, researcher, and both.
-
-    Response:
-    {
-        "volunteer": {
-            "user_id": "user-xxx",
-            "email": "debug-volunteer@constellation.test",
-            "name": "Debug Volunteer",
-            "role": "volunteer"
-        },
-        "researcher": {
-            "user_id": "user-xxx",
-            "email": "debug-researcher@constellation.test",
-            "name": "Debug Researcher",
-            "role": "researcher"
-        },
-        "both": {
-            "user_id": "user-xxx",
-            "email": "debug-both@constellation.test",
-            "name": "Debug Both",
-            "role": "researcher,volunteer"
-        }
-    }
-    """
-    try:
-        from backend.core.database import get_user_by_email, create_user, init_db
-
-        # Initialize DB if needed
-        init_db()
-
-        # Get or create all debug users (same as create_debug_user.py)
-        debug_users = {}
-
-        # Volunteer
-        volunteer_email = "debug-volunteer@constellation.test"
-        volunteer = get_user_by_email(volunteer_email)
-        if not volunteer:
-            volunteer, err = create_user(
-                user_id="debug-volunteer",
-                email=volunteer_email,
-                name="Debug Volunteer",
-                role="volunteer",
-            )
-            if err:
-                return jsonify({"error": err}), 409
-        debug_users["volunteer"] = {
-            "user_id": volunteer.user_id,
-            "email": volunteer.email,
-            "name": volunteer.name,
-            "role": volunteer.role
-        }
-
-        # Researcher
-        researcher_email = "debug-researcher@constellation.test"
-        researcher = get_user_by_email(researcher_email)
-        if not researcher:
-            researcher, err = create_user(
-                user_id="debug-researcher",
-                email=researcher_email,
-                name="Debug Researcher",
-                role="researcher",
-            )
-            if err:
-                return jsonify({"error": err}), 409
-        debug_users["researcher"] = {
-            "user_id": researcher.user_id,
-            "email": researcher.email,
-            "name": researcher.name,
-            "role": researcher.role
-        }
-
-        # Both
-        both_email = "debug-both@constellation.test"
-        both_user = get_user_by_email(both_email)
-        if not both_user:
-            both_user, err = create_user(
-                user_id="debug-both",
-                email=both_email,
-                name="Debug Both",
-                role="researcher,volunteer",
-            )
-            if err:
-                return jsonify({"error": err}), 409
-        debug_users["both"] = {
-            "user_id": both_user.user_id,
-            "email": both_user.email,
-            "name": both_user.name,
-            "role": both_user.role
-        }
-
-        return jsonify(debug_users), 200
-
-    except Exception as e:
-        logging.error(f"[ERROR] Error in get_debug_users endpoint: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/api/researcher/<researcher_id>/stats", methods=["GET", "OPTIONS"])
-def get_researcher_stats(researcher_id):
-    """
-    Endpoint: GET /api/researcher/<researcher_id>/stats
-    Purpose: Get aggregated statistics for a researcher profile.
-
-    Response:
-    {
-        "totalProjects": 5,
-        "completedProjects": 2,
-        "totalContributors": 150
-    }
-    """
-    try:
-        from backend.core.database import get_user_by_id, user_has_role, get_session
-        from backend.core.database import Project, Run, TaskResult
-        from sqlalchemy import func, distinct
-
-        # Validate user exists
-        user = get_user_by_id(researcher_id)
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Missing request body"}), 400
+        email = (data.get("email") or "").strip()
+        if not email:
+            return jsonify({"error": "email is required"}), 400
+        user = get_user_by_email(email)
         if not user:
-            return jsonify({"error": f"User {researcher_id} not found"}), 404
-
-        # Validate user has researcher role
-        if not user_has_role(researcher_id, "researcher"):
-            return jsonify({
-                "error": f"User {researcher_id} does not have 'researcher' role"
-            }), 403
-
-        with get_session() as session:
-            from backend.core.database import Task
-
-            # Get all projects for this researcher
-            projects = session.query(Project).filter_by(
-                researcher_id=researcher_id,
-                status="active"
-            ).all()
-
-            total_projects = len(projects)
-            completed_projects = 0
-
-            # Get unique contributors across all projects
-            all_contributors = set()
-
-            for project in projects:
-                # Check if project is completed (all tasks done)
-                runs = session.query(Run).filter_by(project_id=project.project_id).all()
-                total_tasks = 0
-                completed_tasks = 0
-
-                tasks = session.query(Task).join(Run).filter(
-                    Run.project_id == project.project_id
-                ).all()
-
-                for task in tasks:
-                    total_tasks += 1
-                    if task.status == "completed":
-                        completed_tasks += 1
-
-                if total_tasks > 0 and completed_tasks >= total_tasks:
-                    completed_projects += 1
-
-                # Get contributors for this project
-                contributors = session.query(distinct(TaskResult.worker_id)).filter(
-                    TaskResult.project_id == project.project_id,
-                    TaskResult.worker_id.isnot(None)
-                ).all()
-
-                for contrib in contributors:
-                    if contrib[0]:
-                        all_contributors.add(contrib[0])
-
-            total_contributors = len(all_contributors)
-
-            return jsonify({
-                "totalProjects": total_projects,
-                "completedProjects": completed_projects,
-                "totalContributors": total_contributors
-            }), 200
-
+            return jsonify({"error": "User not found"}), 404
+        return jsonify({
+            "user_id": user.user_id,
+            "email": user.email,
+            "name": user.name,
+            "role": user.role,
+        }), 200
     except Exception as e:
-        logging.error(f"[ERROR] Error in get_researcher_stats endpoint: {e}")
-        import traceback
-        traceback.print_exc()
+        logging.error(f"[ERROR] login: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -1137,7 +906,9 @@ def download_run_results(run_id):
     import json as json_module
     body = json_module.dumps(payload, indent=2)
     resp = Response(body, mimetype="application/json")
-    resp.headers["Content-Disposition"] = f'attachment; filename="results_{run_id}.json"'
+    resp.headers["Content-Disposition"] = (
+        f"attachment; filename=\"results_{run_id}.json\""
+    )
     return resp
 
 
@@ -1200,40 +971,104 @@ def register_worker_endpoint():
         resources = matching_node.get("Resources", {})
         cpu_cores = int(resources.get("CPU", 0)) if resources.get("CPU") else None
         memory_gb = (resources.get("memory", 0) / (1024**3)) if resources.get("memory") else None
-        with get_session() as session:
-            from backend.core.database import Worker
-            existing = session.query(Worker).filter_by(ray_node_id=node_id).first()
-            if existing:
-                existing.worker_name = worker_name
-                existing.user_id = user_id
-                existing.ip_address = client_ip
-                existing.cpu_cores = cpu_cores
-                existing.memory_gb = memory_gb
-                existing.last_heartbeat = datetime.utcnow()
-                existing.status = "online"
-                session.commit()
-                session.refresh(existing)
-                worker = existing
-                worker_id = existing.worker_id
-            else:
-                worker_id = f"worker-{uuid.uuid4()}"
-                worker = register_worker(
-                    worker_id=worker_id,
-                    worker_name=worker_name,
-                    user_id=user_id,
-                    ip_address=client_ip,
-                    cpu_cores=cpu_cores,
-                    memory_gb=memory_gb,
-                    ray_node_id=node_id
-                )
+
+        worker_id = f"worker-{uuid.uuid4()}"
+        ip_address = matching_node.get("NodeManagerAddress") or client_ip
+        register_worker(
+            worker_id=worker_id,
+            worker_name=worker_name,
+            user_id=user_id,
+            ip_address=ip_address,
+            cpu_cores=cpu_cores,
+            memory_gb=memory_gb,
+            ray_node_id=str(node_id) if node_id is not None else None,
+        )
+        dispatched_runs = api.try_dispatch_queued_runs()
+        if dispatched_runs:
+            logging.info(f"[INFO] Dispatched {dispatched_runs} queued run(s) after worker register")
+
         return jsonify({
             "worker_id": worker_id,
             "status": "registered",
-            "ray_node_id": node_id,
-            "message": "Worker registered successfully"
+            "ray_node_id": str(node_id) if node_id is not None else None,
+            "message": "Worker registered successfully",
+            "queued_runs_dispatched": dispatched_runs,
         }), 200
+
     except Exception as e:
-        logging.error(f"[ERROR] register_worker: {e}")
+        logging.error(f"[ERROR] register_worker_endpoint: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/researcher/<researcher_id>/stats", methods=["GET", "OPTIONS"])
+def get_researcher_stats(researcher_id):
+    """GET /api/researcher/<researcher_id>/stats — profile aggregate stats."""
+    try:
+        from backend.core.database import Project, Run, Task, TaskResult, Worker
+        from sqlalchemy import distinct
+
+        user = get_user_by_id(researcher_id)
+        if not user:
+            return jsonify({"error": f"User {researcher_id} not found"}), 404
+
+        if not user_has_role(researcher_id, "researcher"):
+            return jsonify({
+                "error": f"User {researcher_id} does not have 'researcher' role"
+            }), 403
+
+        with get_session() as session:
+            projects = session.query(Project).filter_by(
+                researcher_id=researcher_id,
+                status="active"
+            ).all()
+
+            total_projects = len(projects)
+            completed_projects = 0
+            all_contributors = set()
+
+            for project in projects:
+                runs = session.query(Run).filter_by(project_id=project.project_id).all()
+                total_tasks = 0
+                completed_tasks = 0
+
+                tasks = session.query(Task).join(Run).filter(
+                    Run.project_id == project.project_id
+                ).all()
+
+                for task in tasks:
+                    total_tasks += 1
+                    if task.status == "completed":
+                        completed_tasks += 1
+
+                if total_tasks > 0 and completed_tasks >= total_tasks:
+                    completed_projects += 1
+
+                contributor_rows = (
+                    session.query(distinct(Worker.user_id))
+                    .join(Task, Task.assigned_worker_id == Worker.worker_id)
+                    .join(TaskResult, TaskResult.task_id == Task.task_id)
+                    .filter(
+                        TaskResult.project_id == project.project_id,
+                        Worker.user_id.isnot(None),
+                    )
+                    .all()
+                )
+                for contrib in contributor_rows:
+                    if contrib[0]:
+                        all_contributors.add(contrib[0])
+
+            total_contributors = len(all_contributors)
+
+            return jsonify({
+                "totalProjects": total_projects,
+                "completedProjects": completed_projects,
+                "totalContributors": total_contributors
+            }), 200
+
+    except Exception as e:
+        logging.error(f"[ERROR] Error in get_researcher_stats endpoint: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500

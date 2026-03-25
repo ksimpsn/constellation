@@ -134,7 +134,6 @@ def create_test_projects():
                     task_id=task.task_id,
                     run_id=run.run_id,
                     project_id=project.project_id,
-                    worker_id=worker.worker_id,
                     result_data={"result": f"Task {i} completed", "value": i * 2},
                     runtime_seconds=runtime
                 )
@@ -220,7 +219,6 @@ def create_test_projects():
                     task_id=task.task_id,
                     run_id=run.run_id,
                     project_id=project.project_id,
-                    worker_id=worker.worker_id,
                     result_data={"result": f"Task {task_index} completed", "value": task_index * 2},
                     runtime_seconds=runtime
                 )

@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-
-const STORAGE_KEY = "constellation_view";
+import { useAuth } from "./AuthContext";
+import { hasResearcherRole, hasVolunteerRole, VIEW_MODE_STORAGE_KEY } from "../auth/session";
 
 export type ViewMode = "researcher" | "volunteer";
 
@@ -16,7 +16,7 @@ const ViewContext = createContext<ViewContextValue | null>(null);
 
 function readStoredView(): ViewMode {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
+    const stored = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
     if (stored === "researcher" || stored === "volunteer") return stored;
   } catch {
     // ignore
@@ -33,28 +33,79 @@ function isResearcherPath(pathname: string): boolean {
 }
 
 export function ViewProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [view, setViewState] = useState<ViewMode>(() => readStoredView());
 
+  // Logged-in users: single role forces view; both roles keep saved preference
+  useEffect(() => {
+    if (!user) return;
+    const hasR = hasResearcherRole(user.role);
+    const hasV = hasVolunteerRole(user.role);
+    let next: ViewMode;
+    if (hasR && !hasV) {
+      next = "researcher";
+    } else if (!hasR && hasV) {
+      next = "volunteer";
+    } else if (hasR && hasV) {
+      next = readStoredView();
+    } else {
+      next = "volunteer";
+    }
+    setViewState(next);
+    try {
+      localStorage.setItem(VIEW_MODE_STORAGE_KEY, next);
+    } catch {
+      // ignore
+    }
+  }, [user?.user_id, user?.role]);
+
+  // Keep menu context in sync when opening researcher vs volunteer routes directly (esp. dual-role)
+  useEffect(() => {
+    if (!user) return;
+    const hasR = hasResearcherRole(user.role);
+    const hasV = hasVolunteerRole(user.role);
+    let next: ViewMode | null = null;
+    if (isResearcherPath(location.pathname) && hasR) {
+      next = "researcher";
+    } else if (
+      (location.pathname === "/dashboard" || location.pathname === "/profile") &&
+      hasV
+    ) {
+      next = "volunteer";
+    }
+    if (next === null) return;
+    setViewState((prev) => {
+      if (prev === next) return prev;
+      try {
+        localStorage.setItem(VIEW_MODE_STORAGE_KEY, next);
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }, [location.pathname, user?.user_id, user?.role]);
+
   // Sync view from URL on first load when no stored preference (e.g. direct link to /researcher)
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
+    if (user) return;
+    const stored = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
     if (stored) return;
     const fromPath = isResearcherPath(location.pathname) ? "researcher" : "volunteer";
     setViewState((prev) => (fromPath !== prev ? fromPath : prev));
     try {
-      localStorage.setItem(STORAGE_KEY, fromPath);
+      localStorage.setItem(VIEW_MODE_STORAGE_KEY, fromPath);
     } catch {
       // ignore
     }
-  }, [location.pathname]);
+  }, [location.pathname, user]);
 
   const setView = useCallback(
     (next: ViewMode) => {
       setViewState(next);
       try {
-        localStorage.setItem(STORAGE_KEY, next);
+        localStorage.setItem(VIEW_MODE_STORAGE_KEY, next);
       } catch {
         // ignore
       }

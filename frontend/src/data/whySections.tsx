@@ -1,13 +1,14 @@
 export const sections = [
   {
     title: 'What is Distributed Computing?',
+    subtitle: 'Many machines working on one problem, together.',
     body: (
       <>
         <p className="mb-2">
           Distributed computing spreads a single large computational problem across many devices: laptops, desktops, phones, and even Raspberry Pis. Instead of one supercomputer running for years, you get millions of smaller machines each doing a tiny slice of the work and returning results to a central project.
         </p>
         <p className="mb-2">
-          This approach is ideal for tasks that can be split into independent chunks: simulating protein folding, searching for prime numbers, analyzing radio telescope data, or training machine-learning models. No single machine needs the full picture; the network assembles the results.
+          This approach is ideal for tasks that can be split into independent chunks: simulating protein folding, searching for prime numbers, analyzing radio telescope data, or training machine learning models. No single machine needs the full picture; the network assembles the results.
         </p>
         <p>
           The catch has always been getting enough people to participate and keep their devices available. That's where incentive design becomes critical.
@@ -19,10 +20,11 @@ export const sections = [
   },
   {
     title: 'What Works Today',
+    subtitle: 'Decades of proof from BOINC, Folding@home, and more.',
     body: (
       <>
         <p className="mb-2">
-          Platforms like <strong className="text-white/90">BOINC</strong> (Berkeley Open Infrastructure for Network Computing) and <strong className="text-white/90">Folding@home</strong> have been running for decades. They've contributed to published research in areas such as protein folding, disease modeling, climate prediction, and gravitational-wave detection. Researchers get compute they couldn't otherwise afford; volunteers get the satisfaction of contributing to science.
+          Platforms like <strong className="text-white/90">BOINC</strong> (Berkeley Open Infrastructure for Network Computing) and <strong className="text-white/90">Folding@home</strong> have been running for decades. They've contributed to published research in areas such as protein folding, disease modeling, climate prediction, and gravitational wave detection. Researchers get compute they couldn't otherwise afford; volunteers get the satisfaction of contributing to science.
         </p>
         <p>
           These projects prove that the technical model works: tasks can be split, sent to volunteers, and aggregated reliably. The bottleneck isn't the tech. It's sustaining participation at scale over many years without burning out the goodwill of volunteers.
@@ -34,6 +36,7 @@ export const sections = [
   },
   {
     title: 'The Limitation',
+    subtitle: 'Altruism is powerful, but hard to sustain at scale.',
     body: (
       <>
         <p className="mb-2">
@@ -52,6 +55,7 @@ export const sections = [
   },
   {
     title: 'The Constellation Approach',
+    subtitle: 'Same volunteer spirit, with incentives that last.',
     body: (
       <>
         <p className="mb-2">

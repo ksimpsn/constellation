@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import ConstellationStarfieldBackground from '../components/ConstellationStarfieldBackground';
 import FlowNav from '../components/FlowNav';
+import { useGoBack } from '../hooks/useGoBack';
 
 const zeroAccessItems = [
   'Files on your computer',
@@ -34,6 +35,7 @@ const weNeverCollect = [
 ];
 
 export default function SecurityResearch() {
+  const goBack = useGoBack();
   return (
     <ConstellationStarfieldBackground>
       <FlowNav />
@@ -41,12 +43,13 @@ export default function SecurityResearch() {
         <div className="max-w-3xl mx-auto w-full">
           {/* Back */}
           <div className="mb-8">
-            <Link
-              to="/security"
-              className="inline-flex items-center gap-2 text-sm text-white/70 hover:text-white transition-colors"
+            <button
+              type="button"
+              onClick={goBack}
+              className="inline-flex items-center gap-2 text-sm text-white/70 hover:text-white transition-colors bg-transparent border-0 cursor-pointer font-inherit p-0"
             >
-              <span aria-hidden>←</span> Privacy &amp; Security
-            </Link>
+              <span aria-hidden>←</span> Back
+            </button>
           </div>
 
           {/* Hero */}

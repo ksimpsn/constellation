@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import ConstellationLogo from "./ConstellationLogo";
 import { useView } from "../context/ViewContext";
+import { useAuth } from "../context/AuthContext";
+import { hasResearcherRole } from "../auth/session";
 
 // Security uses same page as home "Privacy & Security" link (/security), not /security-research
 const discoverLinks = [
@@ -10,36 +12,36 @@ const discoverLinks = [
   { path: "/security", label: "Privacy & Security" },
 ];
 
-const contributeVolunteer = [
+/** Public links for guests (no login required). Submit requires sign-in + researcher role. */
+const guestContributeLinks = [
   { path: "/browse", label: "Browse projects" },
-  { path: "/submit", label: "Submit a project" },
-];
-
-const contributeResearcher = [
-  { path: "/submit", label: "Submit a project" },
-  { path: "/browse", label: "Browse projects" },
+  { path: "/leaderboard", label: "Leaderboard" },
 ];
 
 export default function FlowNav() {
   const [open, setOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
-  const { view, isResearcher, setView } = useView();
-  const isHome = location.pathname === "/";
-  const isAuthPage = location.pathname === "/login" || location.pathname === "/signup";
-  const showAuthInMenu = isHome || isAuthPage;
-  const contributeLinks = isResearcher ? contributeResearcher : contributeVolunteer;
+  const { isResearcher: viewIsResearcher } = useView();
+  const { user, logout, isResearcher: accountIsResearcher, isVolunteer: accountIsVolunteer } = useAuth();
+  const hasBothRoles = Boolean(user) && accountIsResearcher && accountIsVolunteer;
+
+  /** Logged-in: everyone sees browse + leaderboard; submit only if account includes researcher (researcher-only or dual-role). */
+  const contributeLinks = user
+    ? [
+        { path: "/browse", label: "Browse projects" },
+        ...(hasResearcherRole(user.role)
+          ? [{ path: "/submit", label: "Submit a project" }]
+          : []),
+        { path: "/leaderboard", label: "Leaderboard" },
+      ]
+    : guestContributeLinks;
 
   useEffect(() => setOpen(false), [location.pathname]);
 
   const go = (path: string) => {
     navigate(path);
     setOpen(false);
-  };
-
-  const handleSwitchView = () => {
-    setOpen(false);
-    setView(isResearcher ? "volunteer" : "researcher");
   };
 
   return (
@@ -82,12 +84,12 @@ export default function FlowNav() {
             onClick={() => setOpen(false)}
           />
           <aside
-            className="fixed top-0 right-0 bottom-0 z-50 w-full max-w-sm flex flex-col bg-slate-900/95 backdrop-blur-xl border-l border-white/10 shadow-2xl animate-slide-in-right"
+            className="fixed top-0 right-0 bottom-0 z-50 w-full max-w-sm flex flex-col min-h-0 bg-slate-900/95 backdrop-blur-xl border-l border-white/10 shadow-2xl animate-slide-in-right"
             role="dialog"
             aria-label="Navigation menu"
           >
-            <div className="p-6 pt-14">
-              <div className="flex items-center justify-between mb-8">
+            <div className="shrink-0 pt-14 px-6 pb-3">
+              <div className="flex items-center justify-between">
                 <span className="text-lg font-semibold text-white/90">Menu</span>
                 <button
                   type="button"
@@ -100,8 +102,10 @@ export default function FlowNav() {
                   </svg>
                 </button>
               </div>
+            </div>
 
-              <nav className="flex flex-col gap-6">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain px-6 pb-8 touch-pan-y">
+              <nav className="flex flex-col gap-6 pb-2">
                 <div className="menu-stagger-1">
                   <p className="text-xs font-medium uppercase tracking-wider text-white/50 mb-2">Discover</p>
                   <ul className="space-y-0.5">
@@ -131,13 +135,16 @@ export default function FlowNav() {
 
                 <div className="menu-stagger-2">
                   <p className="text-xs font-medium uppercase tracking-wider text-white/50 mb-2">
-                    {isResearcher ? "Research" : "Contribute"}
+                    Contribute
                   </p>
                   <ul className="space-y-0.5">
                     {contributeLinks.map(({ path, label }) => {
-                      const active = location.pathname.startsWith(path);
+                      const active =
+                        path === "/leaderboard"
+                          ? location.pathname === "/leaderboard"
+                          : location.pathname.startsWith(path);
                       return (
-                        <li key={path}>
+                        <li key={`${path}-${label}`}>
                           <button
                             type="button"
                             onClick={() => go(path)}
@@ -153,91 +160,121 @@ export default function FlowNav() {
                   </ul>
                 </div>
 
-                <div className="menu-stagger-3">
-                  <p className="text-xs font-medium uppercase tracking-wider text-white/50 mb-2">
-                    You {isResearcher ? "(Researcher)" : "(Volunteer)"}
-                  </p>
-                  <ul className="space-y-0.5">
-                    {showAuthInMenu ? (
-                      <>
-                        <li>
-                          <button
-                            type="button"
-                            onClick={() => go("/login")}
-                            className="w-full text-left px-4 py-3 rounded-xl text-[15px] text-white/80 hover:bg-white/10 hover:text-white transition-colors"
-                          >
-                            Sign in
-                          </button>
-                        </li>
-                        <li>
-                          <button
-                            type="button"
-                            onClick={() => go("/signup")}
-                            className="w-full text-left px-4 py-3 rounded-xl text-[15px] font-medium text-white bg-white/20 hover:bg-white/25 border border-white/20 transition-colors"
-                          >
-                            Sign up
-                          </button>
-                        </li>
-                      </>
-                    ) : (
-                      <>
-                        <li>
-                          <button
-                            type="button"
-                            onClick={() => go(isResearcher ? "/researcher-profile" : "/profile")}
-                            className="w-full text-left px-4 py-3 rounded-xl text-[15px] text-white/80 hover:bg-white/10 hover:text-white transition-colors"
-                          >
-                            My profile
-                          </button>
-                        </li>
-                        <li>
-                          <button
-                            type="button"
-                            onClick={() => go(isResearcher ? "/researcher" : "/dashboard")}
-                            className="w-full text-left px-4 py-3 rounded-xl text-[15px] text-white/80 hover:bg-white/10 hover:text-white transition-colors"
-                          >
-                            My dashboard
-                          </button>
-                        </li>
-                        <li>
-                          <button
-                            type="button"
-                            onClick={() => go("/leaderboard")}
-                            className="w-full text-left px-4 py-3 rounded-xl text-[15px] text-white/80 hover:bg-white/10 hover:text-white transition-colors"
-                          >
-                            Leaderboard
-                          </button>
-                        </li>
-                        <li>
-                          <button
-                            type="button"
-                            onClick={() => go("/settings")}
-                            className="w-full text-left px-4 py-3 rounded-xl text-[15px] text-white/80 hover:bg-white/10 hover:text-white transition-colors"
-                          >
-                            Settings
-                          </button>
-                        </li>
-                        <li className="pt-2 border-t border-white/10">
-                          <button
-                            type="button"
-                            onClick={handleSwitchView}
-                            className="w-full text-left px-4 py-3 rounded-xl text-[15px] text-indigo-300 hover:bg-white/10 transition-colors"
-                          >
-                            Switch to {isResearcher ? "Volunteer" : "Researcher"}
-                          </button>
-                        </li>
-                        <li>
-                          <button
-                            type="button"
-                            className="w-full text-left px-4 py-3 rounded-xl text-[15px] text-red-300/90 hover:bg-red-500/10 transition-colors"
-                          >
-                            Log out
-                          </button>
-                        </li>
-                      </>
-                    )}
-                  </ul>
-                </div>
+                {user ? (
+                  <div className="menu-stagger-3">
+                    <p className="text-xs font-medium uppercase tracking-wider text-white/50 mb-2">
+                      You {hasBothRoles ? "(Researcher & volunteer)" : viewIsResearcher ? "(Researcher)" : "(Volunteer)"}
+                    </p>
+                    <ul className="space-y-0.5">
+                      {hasBothRoles ? (
+                        <>
+                          <li>
+                            <button
+                              type="button"
+                              onClick={() => go("/researcher-profile")}
+                              className="w-full text-left px-4 py-3 rounded-xl text-[15px] text-white/80 hover:bg-white/10 hover:text-white transition-colors"
+                            >
+                              Researcher profile
+                            </button>
+                          </li>
+                          <li>
+                            <button
+                              type="button"
+                              onClick={() => go("/profile")}
+                              className="w-full text-left px-4 py-3 rounded-xl text-[15px] text-white/80 hover:bg-white/10 hover:text-white transition-colors"
+                            >
+                              Volunteer profile
+                            </button>
+                          </li>
+                          <li>
+                            <button
+                              type="button"
+                              onClick={() => go("/researcher")}
+                              className="w-full text-left px-4 py-3 rounded-xl text-[15px] text-white/80 hover:bg-white/10 hover:text-white transition-colors"
+                            >
+                              Researcher dashboard
+                            </button>
+                          </li>
+                          <li>
+                            <button
+                              type="button"
+                              onClick={() => go("/dashboard")}
+                              className="w-full text-left px-4 py-3 rounded-xl text-[15px] text-white/80 hover:bg-white/10 hover:text-white transition-colors"
+                            >
+                              Volunteer dashboard
+                            </button>
+                          </li>
+                        </>
+                      ) : (
+                        <>
+                          <li>
+                            <button
+                              type="button"
+                              onClick={() => go(viewIsResearcher ? "/researcher-profile" : "/profile")}
+                              className="w-full text-left px-4 py-3 rounded-xl text-[15px] text-white/80 hover:bg-white/10 hover:text-white transition-colors"
+                            >
+                              My profile
+                            </button>
+                          </li>
+                          <li>
+                            <button
+                              type="button"
+                              onClick={() => go(viewIsResearcher ? "/researcher" : "/dashboard")}
+                              className="w-full text-left px-4 py-3 rounded-xl text-[15px] text-white/80 hover:bg-white/10 hover:text-white transition-colors"
+                            >
+                              My dashboard
+                            </button>
+                          </li>
+                        </>
+                      )}
+                      <li>
+                        <button
+                          type="button"
+                          onClick={() => go("/settings")}
+                          className="w-full text-left px-4 py-3 rounded-xl text-[15px] text-white/80 hover:bg-white/10 hover:text-white transition-colors"
+                        >
+                          Settings
+                        </button>
+                      </li>
+                      <li>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOpen(false);
+                            logout();
+                            navigate("/");
+                          }}
+                          className="w-full text-left px-4 py-3 rounded-xl text-[15px] font-medium text-red-400 hover:text-red-300 hover:bg-red-500/15 transition-colors"
+                        >
+                          Log out
+                        </button>
+                      </li>
+                    </ul>
+                  </div>
+                ) : (
+                  <div className="menu-stagger-3">
+                    <ul className="space-y-0.5 pt-2 border-t border-white/10">
+                      <li>
+                        <button
+                          type="button"
+                          onClick={() => go("/login")}
+                          className="w-full text-left px-4 py-3 rounded-xl text-[15px] text-white/80 hover:bg-white/10 hover:text-white transition-colors"
+                        >
+                          Sign in
+                        </button>
+                      </li>
+                      <li>
+                        <button
+                          type="button"
+                          onClick={() => go("/signup")}
+                          className="w-full text-left px-4 py-3 rounded-xl text-[15px] font-medium text-white bg-white/20 hover:bg-white/25 border border-white/20 transition-colors"
+                        >
+                          Sign up
+                        </button>
+                      </li>
+                    </ul>
+                  </div>
+                )}
               </nav>
             </div>
           </aside>

@@ -307,6 +307,77 @@ def create_aws_user(
     return SimpleNamespace(user_id=user_id, role=role, name=name or user_id, email=email)
 
 
+def set_aws_user_roles(user_id: str, role_string: str) -> Optional[SimpleNamespace]:
+    """
+    Ensure the user exists in AWS tables that correspond to role_string:
+    - volunteer -> users table
+    - researcher -> researchers table
+    Returns the unified user object, or None if user_id does not exist in either table.
+    """
+    if not is_aws_db_configured():
+        raise RuntimeError("AWS database not configured. Set AWS_DATABASE_URL.")
+
+    roles = {r.strip() for r in (role_string or "").split(",") if r.strip()}
+    if not roles:
+        raise ValueError("At least one role is required")
+
+    with get_aws_session() as session:
+        u = session.query(AWSUser).filter_by(username=user_id).first()
+        r = session.query(AWSResearcher).filter_by(username=user_id).first()
+        if not u and not r:
+            return None
+
+        base_name = (
+            (u.name if u and getattr(u, "name", None) else None)
+            or (r.name if r and getattr(r, "name", None) else None)
+            or user_id
+        )
+        base_email = (
+            (u.email if u and getattr(u, "email", None) else None)
+            or (r.email if r and getattr(r, "email", None) else None)
+            or ""
+        )
+        base_password = (
+            (u.hashed_password if u and getattr(u, "hashed_password", None) else None)
+            or (r.hashed_password if r and getattr(r, "hashed_password", None) else None)
+            or "CHANGE_ME"
+        )
+
+        if "volunteer" in roles:
+            if not u:
+                session.add(
+                    AWSUser(
+                        username=user_id,
+                        hashed_password=base_password,
+                        email=base_email,
+                        name=base_name,
+                    )
+                )
+            elif not u.email and base_email:
+                u.email = base_email
+                u.name = u.name or base_name
+        elif u:
+            session.delete(u)
+
+        if "researcher" in roles:
+            if not r:
+                session.add(
+                    AWSResearcher(
+                        username=user_id,
+                        hashed_password=base_password,
+                        email=base_email,
+                        name=base_name,
+                    )
+                )
+            elif not r.email and base_email:
+                r.email = base_email
+                r.name = r.name or base_name
+        elif r:
+            session.delete(r)
+
+    return get_aws_user_by_id(user_id)
+
+
 def create_aws_project(
     researcher_id: str,
     title: str,
