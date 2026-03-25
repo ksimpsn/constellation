@@ -3,8 +3,6 @@ import { useNavigate, Link } from 'react-router-dom';
 import ConstellationStarfieldBackground from '../components/ConstellationStarfieldBackground';
 import FlowNav from '../components/FlowNav';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
-
 const Login: React.FC = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -16,50 +14,11 @@ const Login: React.FC = () => {
     e.preventDefault();
     setLoading(true);
     setMessage('');
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ username, password }),
-      });
-
-      if (!response.ok) {
-        // Try to parse error message
-        let errorMsg = 'Login failed';
-        try {
-          const errorData = await response.json();
-          errorMsg = errorData.error || errorMsg;
-        } catch {
-          errorMsg = `Server error (${response.status})`;
-        }
-        setMessage(`Error: ${errorMsg}`);
-        return;
-      }
-
-      const data = await response.json();
-      setMessage('Login successful! Redirecting...');
-      // Redirect based on role
-      setTimeout(() => {
-        if (data.role === 'researcher') {
-          navigate('/researcher-profile');
-        } else {
-          navigate('/profile');
-        }
-      }, 1500);
-    } catch (error: any) {
-      console.error('Login error:', error);
-      // Check if it's a network error (backend not running)
-      if (error.message?.includes('Failed to fetch') || error.name === 'TypeError') {
-        setMessage(`Cannot connect to server. Please make sure the backend is running on ${API_BASE_URL}`);
-      } else {
-        setMessage(`Login failed: ${error.message || 'Please try again'}`);
-      }
-    } finally {
+    setMessage('Success! Redirecting...');
+    setTimeout(() => {
       setLoading(false);
-    }
+      navigate('/profile');
+    }, 700);
   };
 
   const inputStyle = {

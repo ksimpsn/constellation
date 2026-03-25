@@ -177,6 +177,29 @@ const sampleProjects: Project[] = [
       { label: "Energy storage & optimization", url: "https://www.energy.gov/oe/energy-storage" },
     ],
   },
+  {
+    id: 13,
+    title: "text processing",
+    description: "Distributed text processing workload for tokenization and feature extraction.",
+    tags: ["AI / ML"],
+    longDescription:
+      "This project processes text documents in parallel across volunteer devices. Each task performs tokenization, feature extraction, and lightweight similarity analysis, then returns aggregated outputs for research use.",
+    whyJoin: [
+      "Help run real text analysis tasks faster.",
+      "Great starter project for short CPU contributions.",
+      "Results are transparent and easy to inspect.",
+    ],
+    learnMore: [
+      {
+        label: "NLP basics",
+        url: "https://en.wikipedia.org/wiki/Natural_language_processing",
+      },
+      {
+        label: "TF-IDF overview",
+        url: "https://en.wikipedia.org/wiki/Tf%E2%80%93idf",
+      },
+    ],
+  },
 ];
 
 export default function BrowseProjects() {
@@ -406,7 +429,8 @@ export default function BrowseProjects() {
                           </div>
                         )}
                         <Link
-                          to={`/project/${encodeURIComponent(proj.title)}`}
+                          to="/dashboard"
+                          state={{ contributedProjectTitle: proj.title }}
                           className="inline-flex items-center justify-center gap-2 w-full px-4 py-3 rounded-lg bg-white/20 hover:bg-white/30 border border-white/30 text-white font-medium no-underline transition-all duration-200 text-sm mt-2"
                           onClick={(e) => e.stopPropagation()}
                         >

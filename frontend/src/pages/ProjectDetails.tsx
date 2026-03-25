@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useLocation, useParams, Link } from 'react-router-dom';
 import { Delaunay } from 'd3-delaunay';
 import FlowNav from '../components/FlowNav';
 import ConstellationStarfieldBackground from '../components/ConstellationStarfieldBackground';
@@ -82,6 +82,42 @@ const projectData: Record<
   'Quantum Chemistry Simulations': { name: 'Quantum Chemistry Simulations', progress: 8, completedTasks: [] },
   'Wildlife Migration Tracking': { name: 'Wildlife Migration Tracking', progress: 73, completedTasks: [] },
   'Renewable Grid Optimization': { name: 'Renewable Grid Optimization', progress: 44, completedTasks: [] },
+  'test_text_processing_project.py': {
+    name: 'test_text_processing_project.py',
+    progress: 100,
+    completedTasks: [
+      {
+        id: 1,
+        title: 'Doc batch A — tokenize + TF-IDF',
+        description:
+          'Lowercased + tokenized the document, computed an approximate TF-IDF vector (bounded to top terms), and saved TF-IDF summary values.',
+      },
+      {
+        id: 2,
+        title: 'Doc batch B — stats + similarity',
+        description:
+          'Computed text statistics (length/count/diversity), sampled tokens for similarity metrics, then generated bigrams and an overall complexity score.',
+      },
+    ],
+  },
+  'text processing': {
+    name: 'text processing',
+    progress: 100,
+    completedTasks: [
+      {
+        id: 1,
+        title: 'Doc batch A — tokenize + TF-IDF',
+        description:
+          'Lowercased + tokenized the document, computed an approximate TF-IDF vector (bounded to top terms), and saved TF-IDF summary values.',
+      },
+      {
+        id: 2,
+        title: 'Doc batch B — stats + similarity',
+        description:
+          'Computed text statistics (length/count/diversity), sampled tokens for similarity metrics, then generated bigrams and an overall complexity score.',
+      },
+    ],
+  },
 };
 
 // Default for unknown project
@@ -94,9 +130,17 @@ const defaultProject = {
 
 export default function ProjectDetails() {
   const { projectName } = useParams<{ projectName: string }>();
+  const location = useLocation();
+  const navState = location.state as
+    | { progressOverride?: number }
+    | undefined;
   const project = projectData[projectName || ''] ?? defaultProject;
   const tasks = project.completedTasks;
   const [hoveredTaskIndex, setHoveredTaskIndex] = useState<number | null>(null);
+  const [displayProgress, setDisplayProgress] = useState<number>(project.progress);
+
+  const isTextProcessingProject = projectName === 'test_text_processing_project.py' || projectName === 'text processing';
+  const progressOverride = navState?.progressOverride;
 
   const { starPositions, lines, numYourStars } = useMemo((): {
     starPositions: ConstellationStar[];
@@ -104,7 +148,7 @@ export default function ProjectDetails() {
     numYourStars: number;
   } => {
     const numYour = tasks.length;
-    const numOther = 32; // white stars = other people's tasks
+    const numOther = isTextProcessingProject ? 2 : 32; // white stars = other people's tasks
     const total = numYour + numOther;
 
     const seed = (projectName || '').split('').reduce((a, c) => a + c.charCodeAt(0), 0);
@@ -113,21 +157,32 @@ export default function ProjectDetails() {
       return x - Math.floor(x);
     };
 
-    // Your tasks (yellow) — cluster slightly left-of-center
-    const yourPositions = Array.from({ length: numYour }, (_, i) => ({
-      id: i,
-      x: 20 + rnd(i, 0, 0) * 55,
-      y: 20 + rnd(i, 1, 0) * 60,
-      isYours: true as const,
-    }));
+    // Your tasks (yellow) + other tasks (white):
+    // For the text-processing demo projects we intentionally swap the coordinate
+    // distributions so the "other two" star spots become yellow (indices 0..1).
+    const yourPositions = Array.from({ length: numYour }, (_, i) => {
+      const isSwapped = isTextProcessingProject;
+      const x = isSwapped ? 10 + rnd(i, 0, 100) * 80 : 20 + rnd(i, 0, 0) * 55;
+      const y = isSwapped ? 10 + rnd(i, 1, 100) * 80 : 20 + rnd(i, 1, 0) * 60;
+      return {
+        id: i,
+        x,
+        y,
+        isYours: true as const,
+      };
+    });
 
-    // Other people's tasks (white) — fill the rest of the sky
-    const otherPositions = Array.from({ length: numOther }, (_, i) => ({
-      id: numYour + i,
-      x: 10 + rnd(i, 0, 100) * 80,
-      y: 10 + rnd(i, 1, 100) * 80,
-      isYours: false as const,
-    }));
+    const otherPositions = Array.from({ length: numOther }, (_, i) => {
+      const isSwapped = isTextProcessingProject;
+      const x = isSwapped ? 20 + rnd(i, 0, 0) * 55 : 10 + rnd(i, 0, 100) * 80;
+      const y = isSwapped ? 20 + rnd(i, 1, 0) * 60 : 10 + rnd(i, 1, 100) * 80;
+      return {
+        id: numYour + i,
+        x,
+        y,
+        isYours: false as const,
+      };
+    });
 
     const positions = [...yourPositions, ...otherPositions];
 
@@ -167,9 +222,29 @@ export default function ProjectDetails() {
     return { starPositions: positions, lines: lineList, numYourStars: numYour };
   }, [projectName, tasks.length]);
 
-  const isComplete = project.progress === 100;
+  const isComplete = displayProgress === 100;
   const hasTasks = tasks.length > 0;
   const hasAnyStars = starPositions.length > 0;
+
+  useEffect(() => {
+    if (typeof progressOverride === 'number') {
+      setDisplayProgress(progressOverride);
+      return;
+    }
+
+    if (isTextProcessingProject) {
+      setDisplayProgress(0);
+      const t1 = window.setTimeout(() => setDisplayProgress(25), 1000);
+      const t2 = window.setTimeout(() => setDisplayProgress(50), 2000);
+      return () => {
+        window.clearTimeout(t1);
+        window.clearTimeout(t2);
+      };
+    }
+
+    setDisplayProgress(project.progress);
+    return;
+  }, [projectName, project.progress, isTextProcessingProject, progressOverride]);
 
   return (
     <ConstellationStarfieldBackground>
@@ -185,13 +260,13 @@ export default function ProjectDetails() {
         </div>
 
         <header className="shrink-0 mb-3">
-          <p className="text-xs uppercase tracking-[0.2em] text-white/50 mb-1">Your contribution</p>
+          <p className="text-xs uppercase tracking-[0.2em] text-white/50 mb-1">Contribution</p>
           <h1 className="text-2xl sm:text-3xl font-semibold text-white tracking-tight mt-0 mb-1">
             {project.name}
           </h1>
           <p className="text-white/60 text-sm">
             {hasTasks
-              ? `${tasks.length} task${tasks.length === 1 ? '' : 's'} completed by you — each star is one task.`
+              ? `${tasks.length} task${tasks.length === 1 ? '' : 's'} completed — each star is one task.`
               : 'Complete tasks to add stars to your constellation.'}
           </p>
         </header>
@@ -242,8 +317,8 @@ export default function ProjectDetails() {
                 {/* Stars in same coordinate system so lines meet them */}
                 {starPositions.map((star, i) => {
                   const isYours = star.isYours;
-                  const isHovered = isYours && hoveredTaskIndex === i;
-                  const isDimmed = hoveredTaskIndex !== null && !(isYours && hoveredTaskIndex === i);
+                  const isHovered = isYours && hoveredTaskIndex === star.id;
+                  const isDimmed = hoveredTaskIndex !== null && !(isYours && hoveredTaskIndex === star.id);
                   const r = isYours ? (isHovered ? 1.8 : 1.2) : 0.65;
                   const fill = isYours ? '#fef08a' : 'rgba(255,255,255,0.95)';
                   const filter = isYours ? 'url(#starGlowYellow)' : 'url(#starGlowWhite)';
@@ -255,8 +330,13 @@ export default function ProjectDetails() {
                       r={r}
                       fill={fill}
                       filter={filter}
-                      className="transition-all duration-300 pointer-events-none"
+                      className="transition-all duration-300 pointer-events-auto cursor-pointer"
                       style={{ opacity: isDimmed ? 0.25 : 1 }}
+                      onMouseEnter={() => {
+                        if (!isYours) return;
+                        setHoveredTaskIndex(star.id);
+                      }}
+                      onMouseLeave={() => setHoveredTaskIndex(null)}
                     />
                   );
                 })}
@@ -277,14 +357,14 @@ export default function ProjectDetails() {
               <div className="flex items-center gap-3 mb-2">
                 <span className="text-sm font-semibold text-white/90">Project progress</span>
                 <span className="text-2xl font-bold text-white tabular-nums ml-auto">
-                  {project.progress}%
+                  {displayProgress}%
                 </span>
               </div>
               <div className="h-3 rounded-full bg-white/15 overflow-hidden">
                 <div
                   className="h-full rounded-full transition-all duration-700 ease-out"
                   style={{
-                    width: `${project.progress}%`,
+                    width: `${displayProgress}%`,
                     background: isComplete
                       ? 'linear-gradient(90deg, rgba(52,211,153,0.85), rgba(110,231,183,0.85))'
                       : 'linear-gradient(90deg, #a78bfa, #818cf8)',
@@ -294,7 +374,7 @@ export default function ProjectDetails() {
               {isComplete ? (
                 <>
                   <p className="text-white/90 text-sm mt-4">
-                    You made this possible. You're a star!
+                    Contributors made this possible. Star status unlocked!
                   </p>
                   <Link
                     to={project.researchPaperUrl ?? '/browse'}
@@ -312,7 +392,7 @@ export default function ProjectDetails() {
 
             <div className="rounded-xl bg-white/[0.06] backdrop-blur-md border border-white/10 overflow-hidden shrink-0">
               <h2 className="text-sm font-semibold text-white/90 uppercase tracking-wider px-5 py-3.5 border-b border-white/10">
-                Tasks you completed
+                Tasks completed
               </h2>
               {hasTasks ? (
                 <ul className="list-none p-0 m-0 max-h-[180px] overflow-y-auto">

@@ -13,6 +13,7 @@ interface ResearcherStats {
 
 export default function ResearcherProfile() {
   const navigate = useNavigate();
+  const username = "vijaykumar";
   const [stats, setStats] = useState<ResearcherStats>({
     totalProjects: 0,
     completedProjects: 0,
@@ -93,8 +94,8 @@ export default function ResearcherProfile() {
                 <path d="M5 19c0-3.2 3-6 7-6s7 2.8 7 6" />
               </svg>
             </div>
-            <h2 className="text-2xl font-bold text-white/90 m-0">Dr. Jane Researcher</h2>
-            <p className="text-lg text-white/70 m-0">@researcher</p>
+            <h2 className="text-2xl font-bold text-white/90 m-0">Vijay Kumar</h2>
+            <p className="text-lg text-white/70 m-0">@{username}</p>
           </div>
 
           <div className="flex-1 flex flex-col gap-6 w-full">
@@ -102,19 +103,23 @@ export default function ResearcherProfile() {
               <h3 className="text-xl font-bold text-white/90 m-0 mb-5">Account Information</h3>
               <div className="flex justify-between items-center py-2.5 border-b border-white/10">
                 <span className="text-white/70 font-medium">Name</span>
-                <span className="text-white/90">Dr. Jane Researcher</span>
+                <span className="text-white/90">Vijay Kumar</span>
               </div>
               <div className="flex justify-between items-center py-2.5 border-b border-white/10">
                 <span className="text-white/70 font-medium">Username</span>
-                <span className="text-white/90">@researcher</span>
+                <span className="text-white/90">@{username}</span>
               </div>
               <div className="flex justify-between items-center py-2.5 border-b border-white/10">
+              <span className="text-white/70 font-medium">Email</span>
+              <span className="text-white/90">vijay.kumar@example.com</span>
+            </div>
+            <div className="flex justify-between items-center py-2.5 border-b border-white/10">
                 <span className="text-white/70 font-medium">Account Type</span>
                 <span className="text-white/90">Researcher</span>
               </div>
               <div className="flex justify-between items-center py-2.5">
                 <span className="text-white/70 font-medium">Member Since</span>
-                <span className="text-white/90">January 2024</span>
+              <span className="text-white/90">March 2026</span>
               </div>
             </div>
 

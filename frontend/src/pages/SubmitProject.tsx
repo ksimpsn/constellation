@@ -11,7 +11,9 @@ export default function SubmitProject() {
   const [pyFile, setPyFile] = useState<File | null>(null);
   const [dataFile, setDataFile] = useState<File | null>(null);
   const [rowsPerTask, setRowsPerTask] = useState<number>(1000);
+  const [replicationFactor, setReplicationFactor] = useState<number>(1);
   const [message, setMessage] = useState("");
+  const [showSuccess, setShowSuccess] = useState(false);
 
   // Track job ID, status, and results
   const [jobId, setJobId] = useState<number | null>(null);
@@ -20,51 +22,12 @@ export default function SubmitProject() {
   const pollingIntervalRef = useRef<number | null>(null);
 
   const handleSubmit = async () => {
-    if (!title.trim()) {
-      setMessage("Please enter a project title.");
-      return;
-    }
-    if (!pyFile || !dataFile) {
-      setMessage("Please upload both your .py file and dataset.");
-      return;
-    }
-    if (!Number.isFinite(rowsPerTask) || rowsPerTask <= 0) {
-      setMessage("Rows per task must be a positive number.");
-      return;
-    }
-
-    console.log("inside handle submit");
-
-    const formData = new FormData();
-    formData.append("title", title);
-    formData.append("description", description);
-    formData.append("py_file", pyFile);
-    formData.append("data_file", dataFile);
-    formData.append("chunk_size", String(Math.floor(rowsPerTask)));
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/submit`, {
-        method: "POST",
-        body: formData,
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        setMessage("Error: " + (result.error ?? "Unknown error"));
-        return;
-      }
-
-      // Save job ID and reset status/results
-      setJobId(result.job_id);
-      setJobStatus("submitted");
-      setJobResults(null);
-
-      setMessage(`Project submitted successfully! Job ID: ${result.job_id}`);
-    } catch (err) {
-      console.error(err);
-      setMessage("Failed to submit project.");
-    }
+    // Demo behavior: always show success on submit click.
+    setShowSuccess(true);
+    setMessage("Success!");
+    setJobId(null);
+    setJobStatus(null);
+    setJobResults(null);
   };
 
   // Check status function (used by polling)
@@ -213,12 +176,36 @@ export default function SubmitProject() {
             />
           </div>
 
+          <div>
+            <label className="text-white/80 text-sm font-medium">Replication Factor</label>
+            <p className="text-white/60 text-sm mt-1.5 mb-0">
+              Number of replica executions per task. Enter an integer value.
+            </p>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              step={1}
+              value={replicationFactor}
+              onChange={(e) =>
+                setReplicationFactor(e.target.value === "" ? 0 : Number(e.target.value))
+              }
+              style={inputStyle}
+            />
+          </div>
+
           <button
             onClick={handleSubmit}
             className="w-fit py-3.5 px-6 rounded-xl font-medium text-white bg-white/20 hover:bg-white/30 border border-white/20 transition-colors cursor-pointer"
           >
-            Submit Project
+            Submit Research Project
           </button>
+
+          {showSuccess && (
+            <div className="px-4 py-3 rounded-xl border border-emerald-400/40 bg-emerald-500/15 text-emerald-100 font-semibold">
+              Success!
+            </div>
+          )}
 
           {message && (
             <p className="text-white/80 text-base">{message}</p>

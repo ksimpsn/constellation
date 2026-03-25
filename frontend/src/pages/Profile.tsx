@@ -33,8 +33,8 @@ export default function Profile() {
                   <path d="M5 19c0-3.2 3-6 7-6s7 2.8 7 6" />
                 </svg>
               </div>
-              <h2 className="text-xl sm:text-2xl font-semibold text-white mb-1">John Doe</h2>
-              <p className="text-white/60 text-sm font-medium">@johndoe</p>
+              <h2 className="text-xl sm:text-2xl font-semibold text-white mb-1">Jane Doe</h2>
+              <p className="text-white/60 text-sm font-medium">@janedoe</p>
               <span className="inline-flex items-center gap-1.5 mt-3 px-3 py-1.5 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-200 text-xs font-medium">
                 Volunteer
               </span>
@@ -63,9 +63,9 @@ export default function Profile() {
             {/* Stats row */}
             <div className="grid grid-cols-3 gap-3 sm:gap-4">
               {[
-                { value: '12', label: 'Projects', accent: 'violet' },
-                { value: '47', label: 'Sessions', accent: 'emerald' },
-                { value: '3', label: 'Publications', accent: 'violet' },
+                { value: '0', label: 'Projects', accent: 'violet' },
+                { value: '0', label: 'Sessions', accent: 'emerald' },
+                { value: '0', label: 'Publications', accent: 'violet' },
               ].map(({ value, label, accent }) => (
                 <div
                   key={label}
@@ -95,10 +95,11 @@ export default function Profile() {
               </h3>
               <dl className="space-y-0">
                 {[
-                  { term: 'Name', value: 'John Doe' },
-                  { term: 'Username', value: '@johndoe' },
+                  { term: 'Name', value: 'Jane Doe' },
+                  { term: 'Username', value: '@janedoe' },
+                  { term: 'Email', value: 'jane.doe@example.com' },
                   { term: 'Account type', value: 'Volunteer' },
-                  { term: 'Member since', value: 'January 2024' },
+                  { term: 'Member since', value: 'March 2026' },
                 ].map(({ term, value }) => (
                   <div
                     key={term}
