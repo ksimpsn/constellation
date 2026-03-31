@@ -73,7 +73,7 @@ export default function Home() {
           <div className="flex flex-col items-center gap-4 sm:gap-5 w-full max-w-sm sm:max-w-none">
             {!isElectron && (
               <Link
-                to="/login"
+                to="/signup"
                 className="w-full sm:w-auto min-w-[12rem] px-8 py-3.5 rounded-2xl bg-white/12 backdrop-blur-md border border-white/25 text-white text-[0.9375rem] font-semibold tracking-wide hover:bg-white/18 hover:border-white/35 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] no-underline text-center shadow-[0_4px_24px_rgba(0,0,0,0.25)]"
               >
                 Join us

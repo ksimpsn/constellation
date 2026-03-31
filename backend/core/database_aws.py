@@ -101,7 +101,7 @@ class AWSProject(AWSBase):
     dataset_s3_path = Column(String(1000), nullable=True)
     dataset_type = Column(String(10), nullable=True)
     status = Column(String(20), nullable=True, default="pending")
-    
+
 
 class AWSProjectUser(AWSBase):
     """Table: project_users"""
@@ -196,6 +196,45 @@ def get_aws_user_by_email(email: str) -> Optional[SimpleNamespace]:
         role = ",".join(roles) if roles else "volunteer"
         name = getattr(u or r, "name", None) or user_id
         return SimpleNamespace(user_id=user_id, role=role, name=name, email=email)
+
+
+def get_aws_password_hash_by_email(email: str) -> Optional[str]:
+    """
+    Return stored password hash for a user email, if present.
+    Checks users and researchers tables; prefers non-empty hash.
+    """
+    if not is_aws_db_configured():
+        return None
+    with get_aws_session() as session:
+        u = session.query(AWSUser).filter_by(email=email).first()
+        r = session.query(AWSResearcher).filter_by(email=email).first()
+        candidates = [
+            getattr(u, "hashed_password", None) if u else None,
+            getattr(r, "hashed_password", None) if r else None,
+        ]
+        for cand in candidates:
+            if cand and str(cand).strip():
+                return str(cand).strip()
+    return None
+
+
+def set_aws_user_password_by_user_id(user_id: str, hashed_password: str) -> bool:
+    """Update password hash in users/researchers rows for the given user_id."""
+    if not is_aws_db_configured():
+        return False
+    if not user_id or not hashed_password:
+        return False
+
+    with get_aws_session() as session:
+        u = session.query(AWSUser).filter_by(username=user_id).first()
+        r = session.query(AWSResearcher).filter_by(username=user_id).first()
+        if not u and not r:
+            return False
+        if u:
+            u.hashed_password = hashed_password
+        if r:
+            r.hashed_password = hashed_password
+        return True
 
 
 def user_has_aws_role(user_id: str, role: str) -> bool:

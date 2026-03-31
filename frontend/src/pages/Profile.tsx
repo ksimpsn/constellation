@@ -1,14 +1,17 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import ConstellationStarfieldBackground from '../components/ConstellationStarfieldBackground';
 import FlowNav from '../components/FlowNav';
 import PageBackButton from '../components/PageBackButton';
 import { useAuth } from '../context/AuthContext';
 import { hasResearcherRole, hasVolunteerRole } from '../auth/session';
+import { API_BASE_URL } from '../api/config';
 
 export default function Profile() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const [volStats, setVolStats] = useState({ projectsContributed: 0, sessionsContributed: 0 });
+  const [loadingStats, setLoadingStats] = useState(true);
 
   useEffect(() => {
     if (!user) {
@@ -39,6 +42,31 @@ export default function Profile() {
   const roleLabel = user.role
     ? user.role.split(',').map((r) => r.trim()).join(' · ')
     : 'Volunteer';
+
+  useEffect(() => {
+    if (!user?.user_id) return;
+    let cancelled = false;
+    setLoadingStats(true);
+    fetch(`${API_BASE_URL}/api/volunteer/${encodeURIComponent(user.user_id)}/stats`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((data: { projectsContributed?: number; sessionsContributed?: number }) => {
+        if (cancelled) return;
+        setVolStats({
+          projectsContributed: Number(data.projectsContributed || 0),
+          sessionsContributed: Number(data.sessionsContributed || 0),
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setVolStats({ projectsContributed: 0, sessionsContributed: 0 });
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingStats(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.user_id]);
 
   return (
     <ConstellationStarfieldBackground>
@@ -97,8 +125,16 @@ export default function Profile() {
             {/* Stats row */}
             <div className="grid grid-cols-3 gap-3 sm:gap-4">
               {[
-                { value: '12', label: 'Projects', accent: 'violet' },
-                { value: '47', label: 'Sessions', accent: 'emerald' },
+                {
+                  value: loadingStats ? '...' : String(volStats.projectsContributed),
+                  label: 'Projects',
+                  accent: 'violet',
+                },
+                {
+                  value: loadingStats ? '...' : String(volStats.sessionsContributed),
+                  label: 'Sessions',
+                  accent: 'emerald',
+                },
                 { value: '3', label: 'Publications', accent: 'violet' },
               ].map(({ value, label, accent }) => (
                 <div

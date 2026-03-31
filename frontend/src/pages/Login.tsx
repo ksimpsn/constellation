@@ -27,7 +27,7 @@ const Login: React.FC = () => {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ email: email.trim() }),
+        body: JSON.stringify({ email: email.trim(), password }),
       });
 
       if (!response.ok) {
@@ -95,7 +95,7 @@ const Login: React.FC = () => {
               onChange={(e) => setEmail(e.target.value)}
               required
               style={inputStyle}
-              placeholder="Enter the email registered in the database"
+              placeholder="Enter your email"
             />
           </div>
           <div className="mb-5">
@@ -105,13 +105,12 @@ const Login: React.FC = () => {
               id="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              required
+              minLength={8}
               style={inputStyle}
-              placeholder="Optional (not verified by the API yet)"
+              placeholder="Enter your password"
               autoComplete="current-password"
             />
-            <p className="text-white/45 text-xs mt-2 m-0">
-              Sign-in uses your email to match an existing account. Password is ignored until the backend adds verification.
-            </p>
           </div>
           <button
             type="submit"

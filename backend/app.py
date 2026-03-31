@@ -46,7 +46,7 @@ app = Flask(__name__)
 # This fixes "failed to fetch" errors by allowing cross-origin requests
 CORS(app,
      origins="*",  # Allow all origins in development
-     methods=["GET", "POST", "OPTIONS", "PUT", "DELETE"],
+     methods=["GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE"],
      allow_headers=["Content-Type", "Authorization"],
      supports_credentials=False)
 
@@ -306,11 +306,16 @@ def signup():
         role = data.get("role")
         roles = data.get("roles")
         reasons = data.get("reasons", [])
+        password = (data.get("password") or "").strip()
 
         # Validate required fields
         if not full_name or not email:
             return jsonify({
                 "error": "Missing required fields: name and email are required"
+            }), 400
+        if len(password) < 8:
+            return jsonify({
+                "error": "Password must be at least 8 characters."
             }), 400
 
         if roles is None and not role:
@@ -336,7 +341,13 @@ def signup():
             }), 409
 
         user_id = (request.get_json() or {}).get("user_id") or email.split("@")[0].replace(".", "_")
-        user, err = create_user(user_id=user_id, email=email, name=full_name, role=role_string)
+        user, err = create_user(
+            user_id=user_id,
+            email=email,
+            name=full_name,
+            role=role_string,
+            password=password or None,
+        )
         if err:
             return jsonify({"error": err}), 409
         if not user:
@@ -392,21 +403,91 @@ def patch_user_roles():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/login", methods=["POST", "OPTIONS"])
-def login():
-    """POST /api/login — authenticate by email; body: { "email" }."""
+@app.route("/api/user/password", methods=["PATCH", "OPTIONS"])
+def patch_user_password():
+    """
+    Update account password.
+    Body: { "user_id": "...", "current_password": "...", "new_password": "..." }
+    """
     if request.method == "OPTIONS":
         return "", 200
     try:
+        from werkzeug.security import check_password_hash, generate_password_hash
+        from backend.core.database_aws import (
+            get_aws_password_hash_by_email,
+            set_aws_user_password_by_user_id,
+        )
+
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Missing request body"}), 400
+
+        user_id = (data.get("user_id") or "").strip()
+        current_password = str(data.get("current_password") or "")
+        new_password = str(data.get("new_password") or "")
+
+        if not user_id or not current_password or not new_password:
+            return jsonify({"error": "user_id, current_password, and new_password are required"}), 400
+        if len(new_password) < 8:
+            return jsonify({"error": "New password must be at least 8 characters."}), 400
+
+        user = get_user_by_id(user_id)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+
+        stored_hash = get_aws_password_hash_by_email(user.email)
+        requires_verification = bool(stored_hash) and stored_hash != "CHANGE_ME"
+        if requires_verification:
+            try:
+                if not check_password_hash(stored_hash, current_password):
+                    return jsonify({"error": "Current password is incorrect"}), 401
+            except Exception:
+                return jsonify({"error": "Current password is incorrect"}), 401
+
+        new_hash = generate_password_hash(new_password)
+        ok = set_aws_user_password_by_user_id(user_id, new_hash)
+        if not ok:
+            return jsonify({"error": "Could not update password"}), 500
+
+        return jsonify({"success": True, "message": "Password updated successfully"}), 200
+    except Exception as e:
+        logging.error(f"[ERROR] patch_user_password: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/login", methods=["POST", "OPTIONS"])
+def login():
+    """POST /api/login — authenticate by email/password; body: { "email", "password" }."""
+    if request.method == "OPTIONS":
+        return "", 200
+    try:
+        from werkzeug.security import check_password_hash
+        from backend.core.database_aws import get_aws_password_hash_by_email
+
         data = request.get_json()
         if not data:
             return jsonify({"error": "Missing request body"}), 400
         email = (data.get("email") or "").strip()
+        password = str(data.get("password") or "")
         if not email:
             return jsonify({"error": "email is required"}), 400
+        if not password:
+            return jsonify({"error": "password is required"}), 400
         user = get_user_by_email(email)
         if not user:
             return jsonify({"error": "User not found"}), 404
+
+        stored_hash = get_aws_password_hash_by_email(email)
+        # Legacy accounts may have placeholder password "CHANGE_ME";
+        # for those, accept any provided password until user sets one.
+        requires_verification = bool(stored_hash) and stored_hash != "CHANGE_ME"
+        if requires_verification:
+            try:
+                if not check_password_hash(stored_hash, password):
+                    return jsonify({"error": "Invalid email or password"}), 401
+            except Exception:
+                # If the stored value isn't a recognized hash format, treat as legacy.
+                pass
         return jsonify({
             "user_id": user.user_id,
             "email": user.email,
@@ -1106,6 +1187,133 @@ def get_researcher_stats(researcher_id):
 
     except Exception as e:
         logging.error(f"[ERROR] Error in get_researcher_stats endpoint: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/volunteer/<volunteer_id>/stats", methods=["GET", "OPTIONS"])
+def get_volunteer_stats(volunteer_id):
+    """GET /api/volunteer/<volunteer_id>/stats — volunteer profile aggregate stats."""
+    try:
+        from backend.core.database import TaskResult, Worker
+        from sqlalchemy import distinct
+
+        user = get_user_by_id(volunteer_id)
+        if not user:
+            return jsonify({"error": f"User {volunteer_id} not found"}), 404
+
+        if not user_has_role(volunteer_id, "volunteer"):
+            return jsonify({
+                "error": f"User {volunteer_id} does not have 'volunteer' role"
+            }), 403
+
+        with get_session() as session:
+            worker_ids = [
+                row[0]
+                for row in session.query(Worker.worker_id).filter(Worker.user_id == volunteer_id).all()
+            ]
+
+            if not worker_ids:
+                return jsonify({
+                    "projectsContributed": 0,
+                    "sessionsContributed": 0
+                }), 200
+
+            projects_contributed = (
+                session.query(distinct(TaskResult.project_id))
+                .filter(
+                    TaskResult.worker_id.in_(worker_ids),
+                    TaskResult.project_id.isnot(None),
+                )
+                .count()
+            )
+
+            sessions_contributed = (
+                session.query(TaskResult.task_result_id)
+                .filter(TaskResult.worker_id.in_(worker_ids))
+                .count()
+            )
+
+        return jsonify({
+            "projectsContributed": projects_contributed,
+            "sessionsContributed": sessions_contributed
+        }), 200
+
+    except Exception as e:
+        logging.error(f"[ERROR] Error in get_volunteer_stats endpoint: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/volunteer/<volunteer_id>/projects", methods=["GET", "OPTIONS"])
+def get_volunteer_projects(volunteer_id):
+    """GET /api/volunteer/<volunteer_id>/projects — projects this volunteer contributed to."""
+    try:
+        from backend.core.database import Run, TaskResult, Worker
+        from backend.core.database_aws import get_aws_project
+        from sqlalchemy import func
+
+        user = get_user_by_id(volunteer_id)
+        if not user:
+            return jsonify({"error": f"User {volunteer_id} not found"}), 404
+
+        if not user_has_role(volunteer_id, "volunteer"):
+            return jsonify({
+                "error": f"User {volunteer_id} does not have 'volunteer' role"
+            }), 403
+
+        with get_session() as session:
+            rows = (
+                session.query(
+                    TaskResult.project_id.label("project_id"),
+                    func.count(TaskResult.task_result_id).label("sessions_contributed"),
+                    func.max(TaskResult.completed_at).label("last_contribution_at"),
+                )
+                .join(Worker, Worker.worker_id == TaskResult.worker_id)
+                .filter(Worker.user_id == volunteer_id)
+                .group_by(TaskResult.project_id)
+                .order_by(func.max(TaskResult.completed_at).desc())
+                .all()
+            )
+
+            projects = []
+            for row in rows:
+                pid = str(row.project_id)
+                project = get_aws_project(pid)
+                latest_run = (
+                    session.query(Run)
+                    .filter(Run.project_id == pid)
+                    .order_by(Run.created_at.desc())
+                    .first()
+                )
+                progress = 0
+                status = "unknown"
+                if latest_run:
+                    total = latest_run.total_tasks or 0
+                    done = latest_run.completed_tasks or 0
+                    progress = int((done / total) * 100) if total > 0 else 0
+                    status = latest_run.status or "unknown"
+                    if status == "completed":
+                        progress = 100
+
+                projects.append({
+                    "project_id": pid,
+                    "title": getattr(project, "title", None) or f"Project {pid}",
+                    "description": getattr(project, "description", "") or "",
+                    "status": status,
+                    "progress": progress,
+                    "sessionsContributed": int(row.sessions_contributed or 0),
+                    "lastContributionAt": (
+                        row.last_contribution_at.isoformat() if row.last_contribution_at else None
+                    ),
+                })
+
+        return jsonify({"projects": projects}), 200
+
+    except Exception as e:
+        logging.error(f"[ERROR] Error in get_volunteer_projects endpoint: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500

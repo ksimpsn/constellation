@@ -1,51 +1,106 @@
+import { useEffect, useMemo, useState } from "react";
 import ConstellationStarfieldBackground from "../components/ConstellationStarfieldBackground";
 import FlowNav from "../components/FlowNav";
 import PageBackButton from "../components/PageBackButton";
+import { API_BASE_URL } from "../api/config";
 
+type Contributor = { username: string; value: number };
+
+type WorkerApiRow = {
+  worker_id?: string;
+  user_id?: string;
+  worker_name?: string;
+  tasks_completed?: number;
+  cpu_cores?: number;
+};
+
+function shuffled<T>(arr: T[]): T[] {
+  const out = [...arr];
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = out[i];
+    out[i] = out[j];
+    out[j] = tmp;
+  }
+  return out;
+}
 
 export default function Leaderboard() {
-  const mostProjects = [
-    { username: "Alex Chen", value: 18 },
-    { username: "Maya Patel", value: 16 },
-    { username: "Jordan Lee", value: 15 },
-    { username: "Sam Rodriguez", value: 14 },
-    { username: "Emily Nguyen", value: 13 },
-    { username: "Daniel Kim", value: 12 },
-    { username: "Priya Shah", value: 11 },
-    { username: "Michael Thompson", value: 10 },
-    { username: "Sophia Martinez", value: 9 },
-    { username: "Ethan Brooks", value: 8 },
-  ];
+  const [workers, setWorkers] = useState<WorkerApiRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const mostCompute = [
-    { username: "Daniel Kim", value: 182_400 },
-    { username: "Jordan Lee", value: 171_250 },
-    { username: "Alex Chen", value: 165_900 },
-    { username: "Maya Patel", value: 154_320 },
-    { username: "Michael Thompson", value: 142_880 },
-    { username: "Sam Rodriguez", value: 136_540 },
-    { username: "Emily Nguyen", value: 129_600 },
-    { username: "Priya Shah", value: 118_450 },
-    { username: "Ethan Brooks", value: 107_300 },
-    { username: "Sophia Martinez", value: 95_750 },
-  ];
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_BASE_URL}/api/workers`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((data: { workers?: WorkerApiRow[] }) => {
+        if (cancelled) return;
+        setWorkers(Array.isArray(data?.workers) ? data.workers : []);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        const msg = err instanceof Error ? err.message : "Failed to load workers";
+        setLoadError(msg);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  const mostTime = [
-    { username: "Maya Patel", value: 1_420 },
-    { username: "Alex Chen", value: 1_365 },
-    { username: "Emily Nguyen", value: 1_290 },
-    { username: "Jordan Lee", value: 1_215 },
-    { username: "Daniel Kim", value: 1_180 },
-    { username: "Sam Rodriguez", value: 1_090 },
-    { username: "Priya Shah", value: 1_010 },
-    { username: "Sophia Martinez", value: 945 },
-    { username: "Michael Thompson", value: 880 },
-    { username: "Ethan Brooks", value: 820 },
-  ];
+  const aggregates = useMemo(() => {
+    const byVolunteer = new Map<string, { username: string; projects: number; cores: number }>();
+    for (const w of workers) {
+      const key = (w.user_id || w.worker_name || w.worker_id || "").trim();
+      if (!key) continue;
+      const username = (w.worker_name || w.user_id || w.worker_id || "Volunteer").trim();
+      const prev = byVolunteer.get(key) || { username, projects: 0, cores: 0 };
+      prev.projects += Number(w.tasks_completed || 0);
+      prev.cores = Math.max(prev.cores, Number(w.cpu_cores || 0));
+      byVolunteer.set(key, prev);
+    }
+    return Array.from(byVolunteer.values());
+  }, [workers]);
+
+  const baseProjects = useMemo(
+    () =>
+      aggregates
+        .map((v) => ({ username: v.username, value: v.projects }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 10),
+    [aggregates]
+  );
+
+  const allZeroProjects = baseProjects.length > 0 && baseProjects.every((x) => x.value === 0);
+  const mostProjects = useMemo(
+    () => (allZeroProjects ? shuffled(baseProjects) : baseProjects),
+    [allZeroProjects, baseProjects]
+  );
+
+  const mostCompute = useMemo(
+    () =>
+      aggregates
+        .map((v) => ({ username: v.username, value: v.cores }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 10),
+    [aggregates]
+  );
+
+  const mostTime = useMemo(
+    () =>
+      aggregates
+        .map((v) => ({ username: v.username, value: v.projects }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 10),
+    [aggregates]
+  );
 
   const formatValue = (value: number, type: string) => {
-    if (type === "compute") return `${(value / 1000).toFixed(1)}K CPU hrs`;
-    if (type === "time") return `${value} min`;
+    if (type === "compute") return `${value} cores`;
+    if (type === "time") return `${value} tasks`;
     return `${value} projects`;
   };
 
@@ -123,9 +178,14 @@ export default function Leaderboard() {
           >
             Leaderboard
           </h1>
-          <p className="text-white/65 text-lg mt-3 max-w-xl mx-auto">
-            Celebrating the stars who power research forward
-          </p>
+          {allZeroProjects && (
+            <p className="text-white/50 text-sm mt-2 m-0">
+              All volunteers currently have 0 projects contributed, so podium order is randomized.
+            </p>
+          )}
+          {loadError && (
+            <p className="text-red-300 text-sm mt-2 m-0">Failed to load leaderboard data: {loadError}</p>
+          )}
         </div>
 
         {/* Podium highlight - top 3 across all categories */}
@@ -136,19 +196,19 @@ export default function Leaderboard() {
           <div className="flex justify-center items-end gap-4 md:gap-8 max-w-2xl mx-auto">
             <div className="flex flex-col items-center flex-1 max-w-[120px]">
               <span className="w-10 h-10 rounded-full bg-white/10 text-white/85 font-bold flex items-center justify-center text-lg mb-2">2</span>
-              <span className="text-white font-semibold text-center text-sm truncate w-full">{mostProjects[1]?.username}</span>
+              <span className="text-white font-semibold text-center text-sm truncate w-full">{mostProjects[1]?.username || "-"}</span>
               <div className="w-full h-16 mt-2 rounded-t-lg bg-white/10 border border-white/20 shadow-inner" />
               <span className="text-xs text-white/70 font-medium mt-1">2nd</span>
             </div>
             <div className="flex flex-col items-center flex-1 max-w-[140px]">
               <span className="w-12 h-12 rounded-full bg-white/10 text-white/85 font-bold flex items-center justify-center text-xl mb-2">1</span>
-              <span className="text-white font-bold text-center text-base truncate w-full">{mostProjects[0]?.username}</span>
+              <span className="text-white font-bold text-center text-base truncate w-full">{mostProjects[0]?.username || "-"}</span>
               <div className="w-full h-24 mt-2 rounded-t-lg bg-white/10 border border-white/20 shadow-inner" />
               <span className="text-xs text-white/70 font-semibold mt-1">1st</span>
             </div>
             <div className="flex flex-col items-center flex-1 max-w-[120px]">
               <span className="w-10 h-10 rounded-full bg-white/10 text-white/85 font-bold flex items-center justify-center text-lg mb-2">3</span>
-              <span className="text-white font-semibold text-center text-sm truncate w-full">{mostProjects[2]?.username}</span>
+              <span className="text-white font-semibold text-center text-sm truncate w-full">{mostProjects[2]?.username || "-"}</span>
               <div className="w-full h-12 mt-2 rounded-t-lg bg-white/10 border border-white/20" />
               <span className="text-xs text-white/70 font-medium mt-1">3rd</span>
             </div>
@@ -156,7 +216,10 @@ export default function Leaderboard() {
         </div>
 
         {/* Category columns */}
-        <div className="flex flex-wrap justify-center gap-6">
+        {loading ? (
+          <p className="text-white/60 text-center">Loading leaderboard...</p>
+        ) : (
+          <div className="flex flex-wrap justify-center gap-6">
           <ContributorList
             contributors={mostProjects}
             title="Most Projects"
@@ -171,11 +234,12 @@ export default function Leaderboard() {
           />
           <ContributorList
             contributors={mostTime}
-            title="Most Time"
+            title="Most Tasks Completed"
             valueType="time"
             accentColor="rgb(134, 239, 172)"
           />
-        </div>
+          </div>
+        )}
       </div>
     </ConstellationStarfieldBackground>
   );

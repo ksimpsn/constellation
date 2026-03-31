@@ -1010,16 +1010,36 @@ def get_project(project_id: str):
     return None
 
 
-def create_user(user_id: str, email: str, name: str, role: str = "volunteer", metadata: dict = None):
+def create_user(
+    user_id: str,
+    email: str,
+    name: str,
+    role: str = "volunteer",
+    metadata: dict = None,
+    password: str = None,
+):
     """
     Create a new user. Requires AWS_DATABASE_URL.
     Returns (user_like, None) on success, or (None, error_message) if user_id/email exists.
     """
+    from werkzeug.security import generate_password_hash
+
     from backend.core.database_aws import is_aws_db_configured, create_aws_user
     if not is_aws_db_configured():
         return None, "AWS database not configured. Set AWS_DATABASE_URL to create users."
+    hashed = (
+        generate_password_hash(password)
+        if password and str(password).strip()
+        else "CHANGE_ME"
+    )
     try:
-        u = create_aws_user(user_id=user_id, email=email, name=name, role=role)
+        u = create_aws_user(
+            user_id=user_id,
+            email=email,
+            name=name,
+            role=role,
+            hashed_password=hashed,
+        )
         return u, None
     except ValueError as e:
         return None, str(e)

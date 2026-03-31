@@ -63,10 +63,6 @@ export AWS_DATABASE_URL="postgresql://USER:PASSWORD@HOST:5432/DATABASE"
 
 This connects the Flask backend to the shared AWS RDS PostgreSQL database containing `users`, `researchers`, `projects`, and `project_users`.
 
-All commands below assume the repo root:
-
-```bash
-cd /path/to/constellation
 ```
 
 ---
@@ -529,6 +525,7 @@ For machines to communicate:
 | `Cannot determine head node IP` on connect | `project_id` not found or `ip_address` is NULL | Verify the project was submitted and check `SELECT ip_address FROM projects WHERE project_id = ...` |
 | Tasks stay in `queued` state | No volunteer workers have joined | Have at least one volunteer call `/api/workers/connect` |
 | `AWS database not configured` | `AWS_DATABASE_URL` not set | `export AWS_DATABASE_URL="postgresql://..."` before starting Flask |
+| Browse `/api/projects/browse` returns **500** | RDS TLS, security group, or schema | Ensure `AWS_DATABASE_URL` is set; allow your client IP on the RDS security group; confirm TLS (backend adds `sslmode=require` by default). Check Flask stderr for the real DB error. |
 | Ray finds stale cluster instances | Old Ray sessions from previous runs | Run `ray stop` on each machine before starting the demo |
 
 ---

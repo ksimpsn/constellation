@@ -37,6 +37,8 @@ export default function Settings() {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordMessage, setPasswordMessage] = useState('');
+  const [passwordSaving, setPasswordSaving] = useState(false);
   const [privacySettings, setPrivacySettings] = useState({
     profileVisibility: 'public',
     dataSharing: true,
@@ -44,13 +46,46 @@ export default function Settings() {
     projectUpdates: false,
   });
 
-  const handlePasswordReset = (e: React.FormEvent) => {
+  const handlePasswordReset = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (newPassword !== confirmPassword) {
-      alert('New passwords do not match');
+    if (!user) {
+      setPasswordMessage('Sign in to change your password.');
       return;
     }
-    alert('Password reset functionality would be implemented here');
+    if (newPassword.length < 8) {
+      setPasswordMessage('New password must be at least 8 characters.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordMessage('New passwords do not match.');
+      return;
+    }
+    setPasswordSaving(true);
+    setPasswordMessage('');
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/user/password`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: user.user_id,
+          current_password: currentPassword,
+          new_password: newPassword,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setPasswordMessage(data.error || `Password update failed (${response.status})`);
+        return;
+      }
+      setPasswordMessage('Password updated.');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch {
+      setPasswordMessage(`Could not reach server at ${API_BASE_URL}`);
+    } finally {
+      setPasswordSaving(false);
+    }
   };
 
   const handleRolesSave = async (e: React.FormEvent) => {
@@ -118,15 +153,20 @@ export default function Settings() {
             </div>
             <div className="flex flex-col gap-2">
               <label className="text-white/80 text-sm font-medium">New Password</label>
-              <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} style={inputStyle} required />
+              <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} style={inputStyle} minLength={8} required />
             </div>
             <div className="flex flex-col gap-2">
               <label className="text-white/80 text-sm font-medium">Confirm New Password</label>
-              <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} style={inputStyle} required />
+              <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} style={inputStyle} minLength={8} required />
             </div>
-            <button type="submit" className="w-fit py-3.5 px-6 rounded-xl font-medium text-white bg-white/20 hover:bg-white/30 border border-white/20 transition-colors cursor-pointer">
-              Reset Password
+            <button type="submit" disabled={passwordSaving} className="w-fit py-3.5 px-6 rounded-xl font-medium text-white bg-white/20 hover:bg-white/30 border border-white/20 transition-colors cursor-pointer disabled:opacity-50">
+              {passwordSaving ? 'Resetting…' : 'Reset Password'}
             </button>
+            {passwordMessage && (
+              <p className={`text-sm m-0 ${passwordMessage.includes('failed') || passwordMessage.includes('Could not') || passwordMessage.includes('incorrect') || passwordMessage.includes('must') || passwordMessage.includes('match') || passwordMessage.includes('Sign in') ? 'text-red-300' : 'text-emerald-300'}`}>
+                {passwordMessage}
+              </p>
+            )}
           </form>
         </div>
 

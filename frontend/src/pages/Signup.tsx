@@ -11,6 +11,8 @@ import { getPostAuthRedirectPath } from '../auth/session';
 const Signup: React.FC = () => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [wantResearcher, setWantResearcher] = useState(false);
   const [wantVolunteer, setWantVolunteer] = useState(false);
   const [reasons, setReasons] = useState<string[]>([]);
@@ -41,6 +43,14 @@ const Signup: React.FC = () => {
       setMessage('Error: Select at least one role (Researcher and/or Volunteer).');
       return;
     }
+    if (password.length < 8) {
+      setMessage('Error: Password should be at least 8 characters.');
+      return;
+    }
+    if (password !== confirmPassword) {
+      setMessage('Error: Passwords do not match.');
+      return;
+    }
     setLoading(true);
     setMessage('');
 
@@ -54,7 +64,7 @@ const Signup: React.FC = () => {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ name, email, roles, reasons }),
+        body: JSON.stringify({ name, email, roles, reasons, password }),
       });
 
       if (!response.ok) {
@@ -81,13 +91,14 @@ const Signup: React.FC = () => {
       setTimeout(() => {
         navigate(getPostAuthRedirectPath(data.role));
       }, 1500);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Signup error:', error);
+      const err = error as { message?: string; name?: string };
       // Check if it's a network error (backend not running)
-      if (error.message?.includes('Failed to fetch') || error.name === 'TypeError') {
+      if (err.message?.includes('Failed to fetch') || err.name === 'TypeError') {
         setMessage(`Cannot connect to server. Please make sure the backend is running on ${API_BASE_URL}`);
       } else {
-        alert(`Error: ${data.error}`);
+        setMessage(`Error: ${err.message || 'Please try again'}`);
       }
     } finally {
       setLoading(false);
@@ -136,6 +147,37 @@ const Signup: React.FC = () => {
               required
               style={inputStyle}
               placeholder="you@example.com"
+            />
+          </div>
+          <div className="mb-5">
+            <label htmlFor="password" className="text-white/80 text-sm font-medium">Password</label>
+            <input
+              type="password"
+              id="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              minLength={8}
+              style={inputStyle}
+              placeholder="At least 8 characters"
+              autoComplete="new-password"
+            />
+            <p className="text-white/50 text-xs mt-2 m-0">
+              Choose a password you’ll use to sign in. Use at least 8 characters.
+            </p>
+          </div>
+          <div className="mb-5">
+            <label htmlFor="confirmPassword" className="text-white/80 text-sm font-medium">Confirm password</label>
+            <input
+              type="password"
+              id="confirmPassword"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+              minLength={8}
+              style={inputStyle}
+              placeholder="Re-enter your password"
+              autoComplete="new-password"
             />
           </div>
           <div className="mb-5">

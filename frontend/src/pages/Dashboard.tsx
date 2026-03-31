@@ -1,9 +1,70 @@
+import { useEffect, useMemo, useState } from "react";
 import ConstellationStarfieldBackground from "../components/ConstellationStarfieldBackground";
 import FlowNav from "../components/FlowNav";
 import PageBackButton from "../components/PageBackButton";
 import { Link } from "react-router-dom";
+import { API_BASE_URL } from "../api/config";
+import { useAuth } from "../context/AuthContext";
+
+type VolunteerProject = {
+  project_id: string;
+  title: string;
+  description: string;
+  status: string;
+  progress: number;
+  sessionsContributed: number;
+  lastContributionAt?: string | null;
+};
 
 export default function Dashboard() {
+  const { user } = useAuth();
+  const [projects, setProjects] = useState<VolunteerProject[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!user?.user_id) {
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    fetch(`${API_BASE_URL}/api/volunteer/${encodeURIComponent(user.user_id)}/projects`)
+      .then(async (r) => {
+        if (r.ok) return (await r.json()) as { projects?: VolunteerProject[] };
+        const body = await r.json().catch(() => ({}));
+        throw new Error(String((body as { error?: unknown }).error || r.status));
+      })
+      .then((data) => {
+        if (cancelled) return;
+        setProjects(Array.isArray(data.projects) ? data.projects : []);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setLoadError(err instanceof Error ? err.message : "Failed to load projects");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.user_id]);
+
+  const { inProgress, completed } = useMemo(() => {
+    const done: VolunteerProject[] = [];
+    const running: VolunteerProject[] = [];
+    for (const p of projects) {
+      if (p.status === "completed" || p.progress >= 100) done.push(p);
+      else running.push(p);
+    }
+    return { inProgress: running, completed: done };
+  }, [projects]);
+
+  const totalSessions = useMemo(
+    () => projects.reduce((sum, p) => sum + (p.sessionsContributed || 0), 0),
+    [projects]
+  );
+
   return (
     <ConstellationStarfieldBackground>
       <FlowNav />
@@ -22,50 +83,47 @@ export default function Dashboard() {
             <span className="text-lg" aria-hidden>→</span>
           </Link>
           <p className="text-white/60 text-sm mt-2">Find new research projects and contribute your CPU</p>
+          {loadError && <p className="text-red-300 text-sm mt-2 m-0">Failed to load contributions: {loadError}</p>}
         </div>
 
         <div className="flex flex-col lg:flex-row gap-6 w-full items-stretch">
           <div className="flex-[1.2] min-w-0 p-5 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10 overflow-y-auto min-h-[280px]">
             <h2 className="text-xl font-semibold text-white/90 mt-0 mb-3">In-Progress</h2>
             <ul className="list-none p-0 m-0 leading-relaxed">
-              <li className="mb-3 p-3 rounded-lg bg-white/5 border border-white/10 transition-all duration-200 hover:shadow-[0_0_24px_rgba(255,255,255,0.15)] hover:border-white/20 cursor-pointer">
-                <Link to="/project/NeuroStream" className="text-white/90 no-underline hover:text-white block">NeuroStream: Adaptive Modeling (60%)</Link>
-                <div className="h-1.5 rounded bg-blue-400/80 mt-1" style={{ width: '60%' }} />
-              </li>
-              <li className="mb-3 p-3 rounded-lg bg-white/5 border border-white/10 transition-all duration-200 hover:shadow-[0_0_24px_rgba(255,255,255,0.15)] hover:border-white/20 cursor-pointer">
-                <Link to="/project/HelixCompute" className="text-white/90 no-underline hover:text-white block">HelixCompute: Task-Sharding (40%)</Link>
-                <div className="h-1.5 rounded bg-blue-400/80 mt-1" style={{ width: '40%' }} />
-              </li>
-              <li className="mb-3 p-3 rounded-lg bg-white/5 border border-white/10 transition-all duration-200 hover:shadow-[0_0_24px_rgba(255,255,255,0.15)] hover:border-white/20 cursor-pointer">
-                <Link to="/project/AuroraML" className="text-white/90 no-underline hover:text-white block">AuroraML: Diagnostic Prediction (80%)</Link>
-                <div className="h-1.5 rounded bg-blue-400/80 mt-1" style={{ width: '80%' }} />
-              </li>
-              <li className="mb-3 p-3 rounded-lg bg-white/5 border border-white/10 transition-all duration-200 hover:shadow-[0_0_24px_rgba(255,255,255,0.15)] hover:border-white/20 cursor-pointer">
-                <Link to="/project/QuantumSim" className="text-white/90 no-underline hover:text-white block">QuantumSim: Molecular Dynamics (25%)</Link>
-                <div className="h-1.5 rounded bg-blue-400/80 mt-1" style={{ width: '25%' }} />
-              </li>
-              <li className="mb-3 p-3 rounded-lg bg-white/5 border border-white/10 transition-all duration-200 hover:shadow-[0_0_24px_rgba(255,255,255,0.15)] hover:border-white/20 cursor-pointer">
-                <Link to="/project/ClimateForecast" className="text-white/90 no-underline hover:text-white block">ClimateForecast: Regional Models (55%)</Link>
-                <div className="h-1.5 rounded bg-blue-400/80 mt-1" style={{ width: '55%' }} />
-              </li>
+              {loading ? (
+                <li className="text-white/60 text-sm">Loading your contributed projects...</li>
+              ) : inProgress.length === 0 ? (
+                <li className="text-white/60 text-sm">No in-progress contributions yet.</li>
+              ) : (
+                inProgress.map((p) => (
+                  <li key={p.project_id} className="mb-3 p-3 rounded-lg bg-white/5 border border-white/10 transition-all duration-200 hover:shadow-[0_0_24px_rgba(255,255,255,0.15)] hover:border-white/20 cursor-pointer">
+                    <Link to={`/project/${encodeURIComponent(p.project_id)}`} className="text-white/90 no-underline hover:text-white block">
+                      {p.title} ({Math.max(0, Math.min(100, p.progress || 0))}%)
+                    </Link>
+                    <div className="h-1.5 rounded bg-blue-400/80 mt-1" style={{ width: `${Math.max(0, Math.min(100, p.progress || 0))}%` }} />
+                  </li>
+                ))
+              )}
             </ul>
           </div>
 
           <div className="flex-[1.2] min-w-0 p-5 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10 overflow-y-auto min-h-[280px]">
             <h2 className="text-xl font-semibold text-white/90 mt-0 mb-3">Completed</h2>
             <ul className="list-none p-0 m-0 leading-relaxed">
-              <li className="mb-3 p-3 rounded-lg bg-white/5 border border-white/10 transition-all duration-200 hover:shadow-[0_0_24px_rgba(255,255,255,0.15)] hover:border-white/20 cursor-pointer">
-                <Link to="/project/Berlin Marathon Analytics" className="text-white/90 no-underline hover:text-white block">Berlin Marathon Analytics (100%)</Link>
-                <div className="h-1.5 rounded bg-emerald-400/80 mt-1 w-full" />
-              </li>
-              <li className="mb-3 p-3 rounded-lg bg-white/5 border border-white/10 transition-all duration-200 hover:shadow-[0_0_24px_rgba(255,255,255,0.15)] hover:border-white/20 cursor-pointer">
-                <Link to="/project/Deep Learning Research" className="text-white/90 no-underline hover:text-white block">Deep Learning Research (100%)</Link>
-                <div className="h-1.5 rounded bg-emerald-400/80 mt-1 w-full" />
-              </li>
-              <li className="mb-3 p-3 rounded-lg bg-white/5 border border-white/10 transition-all duration-200 hover:shadow-[0_0_24px_rgba(255,255,255,0.15)] hover:border-white/20 cursor-pointer">
-                <Link to="/project/PTSD Detection Model" className="text-white/90 no-underline hover:text-white block">PTSD Detection Model (100%)</Link>
-                <div className="h-1.5 rounded bg-emerald-400/80 mt-1 w-full" />
-              </li>
+              {loading ? (
+                <li className="text-white/60 text-sm">Loading completed contributions...</li>
+              ) : completed.length === 0 ? (
+                <li className="text-white/60 text-sm">No completed project contributions yet.</li>
+              ) : (
+                completed.map((p) => (
+                  <li key={p.project_id} className="mb-3 p-3 rounded-lg bg-white/5 border border-white/10 transition-all duration-200 hover:shadow-[0_0_24px_rgba(255,255,255,0.15)] hover:border-white/20 cursor-pointer">
+                    <Link to={`/project/${encodeURIComponent(p.project_id)}`} className="text-white/90 no-underline hover:text-white block">
+                      {p.title} (100%)
+                    </Link>
+                    <div className="h-1.5 rounded bg-emerald-400/80 mt-1 w-full" />
+                  </li>
+                ))
+              )}
             </ul>
           </div>
 
@@ -105,7 +163,7 @@ export default function Dashboard() {
                     </div>
                     <span className="text-[10px] text-white/60 mt-0.5">Dedicated</span>
                     <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1.5 rounded-md bg-white/95 text-slate-800 text-xs font-medium max-w-[160px] text-center opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 pointer-events-none z-10 shadow-lg">
-                      You logged 50 contribution sessions
+                      You logged {totalSessions} contribution session{totalSessions === 1 ? "" : "s"}
                     </div>
                   </div>
                 </div>
