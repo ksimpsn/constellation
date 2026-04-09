@@ -755,9 +755,9 @@ def get_available_workers(limit: int = None) -> list:
         candidates = (
             session.query(Worker)
             .filter(
-                Worker.status.in_(["idle", "online"]),
-                Worker.cpu_availability > 0.5,
-                Worker.last_heartbeat.isnot(None)
+            Worker.status.in_(["idle", "online"]),
+            Worker.cpu_availability > 0.5,
+            Worker.last_heartbeat.isnot(None)
             )
             .all()
         )
@@ -1165,7 +1165,7 @@ def get_researcher_projects_with_stats(researcher_id: str) -> list:
                 .join(Run, Task.run_id == Run.run_id)
                 .filter(
                     Run.project_id == pid,
-                    Task.status.in_(["assigned", "running"]),
+                Task.status.in_(["assigned", "running"]),
                     Worker.user_id.isnot(None),
                 )
                 .all()
@@ -1229,24 +1229,24 @@ def get_researcher_projects_with_stats(researcher_id: str) -> list:
                     "tags": tag_list,
                     "codePath": getattr(project, "code_s3_path", None) or "",
                     "datasetPath": getattr(project, "dataset_s3_path", None) or "",
-                    "progress": progress,
-                    "resultUrl": result_url,
-                    "totalContributors": total_contributors,
-                    "activeContributors": active_contributors,
-                    "completedContributors": completed_contributors,
-                    "totalTasks": total_tasks,
-                    "completedTasks": completed_tasks,
-                    "failedTasks": failed_tasks,
+                "progress": progress,
+                "resultUrl": result_url,
+                "totalContributors": total_contributors,
+                "activeContributors": active_contributors,
+                "completedContributors": completed_contributors,
+                "totalTasks": total_tasks,
+                "completedTasks": completed_tasks,
+                "failedTasks": failed_tasks,
                     "createdAt": created_at.isoformat() if hasattr(created_at, "isoformat") and created_at else None,
                     "updatedAt": latest_updated.isoformat() if hasattr(latest_updated, "isoformat") and latest_updated else None,
-                    "totalRuns": total_runs,
+                "totalRuns": total_runs,
                     "averageTaskTime": round(avg_task_time, 1) if avg_task_time else None,
                     "latestRunId": latest_run.run_id if latest_run else None,
                     "latestRunStatus": latest_run.status if latest_run else None,
                 }
             )
 
-    return result
+        return result
 
 
 def list_browse_projects(limit: int = 200) -> list:

@@ -81,7 +81,7 @@ const parseProject = (raw: unknown): AwsProject => {
 const toProjectData = (project: AwsProject | null, requestedProject: string): ProjectData | null => {
   if (!project) return null;
 
-  const name = project.title.trim() || requestedProject || "Untitled AWS Project";
+  const name = project.title.trim() || requestedProject || "Untitled Project";
   const overview =
     project.longDescription?.trim() ||
     project.description.trim() ||
@@ -90,7 +90,7 @@ const toProjectData = (project: AwsProject | null, requestedProject: string): Pr
     project.whyJoin.length > 0
       ? project.whyJoin
       : [
-          "Motivation details are not available yet for this AWS project.",
+          "Motivation details are not available yet for this project.",
           "Contributors are still welcome while project metadata is being expanded.",
         ];
   const learnMore =
@@ -108,7 +108,7 @@ const toProjectData = (project: AwsProject | null, requestedProject: string): Pr
     whyJoin,
     learnMore,
     researcherName: project.researcherName,
-    progressPlaceholder: "Progress metrics are not yet available from the AWS projects browse payload.",
+    progressPlaceholder: "Progress metrics are not yet available from the projects browse payload.",
     tasksPlaceholder: "Task history has not been connected to this page yet. Star updates will appear once per-task data is available.",
   };
 };
@@ -125,6 +125,7 @@ export default function ProjectDetailsUpdated() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<"connect" | "disconnect" | null>(null);
   const [volunteerConnected, setVolunteerConnected] = useState(false);
+  const [projectStats, setProjectStats] = useState<ResearcherProjectStats | null>(null);
   const [researcherStats, setResearcherStats] = useState<ResearcherProjectStats | null>(null);
   const [researcherStatsLoading, setResearcherStatsLoading] = useState(false);
   const [hoveredTaskIndex, setHoveredTaskIndex] = useState<number | null>(null);
@@ -145,7 +146,7 @@ export default function ProjectDetailsUpdated() {
 
         if (!match) {
           setProject(null);
-          setLoadError("Project not found in AWS project table.");
+          setLoadError("Project not found.");
           return;
         }
 
@@ -165,6 +166,31 @@ export default function ProjectDetailsUpdated() {
       cancelled = true;
     };
   }, [requestedProject]);
+
+  // Fetch public project stats (progress/tasks) for all users once project id is known
+  useEffect(() => {
+    if (!project?.id) return;
+    let cancelled = false;
+    fetch(`${API_BASE_URL}/api/projects/${encodeURIComponent(project.id)}/stats`)
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data: Record<string, unknown>) => {
+        if (cancelled) return;
+        const stats: ResearcherProjectStats = {
+          id: project.id,
+          progress: Number(data.progress ?? 0),
+          totalTasks: Number(data.totalTasks ?? 0),
+          completedTasks: Number(data.completedTasks ?? 0),
+          failedTasks: Number(data.failedTasks ?? 0),
+          totalContributors: Number(data.totalContributors ?? 0),
+          activeContributors: Number(data.activeContributors ?? 0),
+          status: typeof data.status === "string" ? data.status : undefined,
+        };
+        setProjectStats(stats);
+        setProject((prev) => prev ? { ...prev, progress: stats.progress ?? 0, progressPlaceholder: undefined } : prev);
+      })
+      .catch(() => { /* stats unavailable, keep placeholder */ });
+    return () => { cancelled = true; };
+  }, [project?.id]);
 
   useEffect(() => {
     if (!user || !isVolunteer) {
@@ -392,7 +418,7 @@ export default function ProjectDetailsUpdated() {
 
         {listLoading ? (
           <div className="rounded-xl bg-white/[0.06] backdrop-blur-md border border-white/10 p-5">
-            <p className="text-white/70 text-sm m-0">Loading project details from AWS...</p>
+            <p className="text-white/70 text-sm m-0">Loading project details...</p>
           </div>
         ) : loadError || !project ? (
           <div className="rounded-xl bg-white/[0.06] backdrop-blur-md border border-red-300/30 p-5">
@@ -407,7 +433,7 @@ export default function ProjectDetailsUpdated() {
         ) : (
           <>
             <header className="shrink-0 mb-3">
-              <p className="text-xs uppercase tracking-[0.2em] text-white/50 mb-1">AWS project details</p>
+              <p className="text-xs uppercase tracking-[0.2em] text-white/50 mb-1">Project details</p>
               <h1 className="text-2xl sm:text-3xl font-semibold text-white tracking-tight mt-0 mb-1">
                 {project.name}
               </h1>
@@ -538,18 +564,23 @@ export default function ProjectDetailsUpdated() {
                     </h2>
                     {researcherStatsLoading ? (
                       <p className="text-sm text-white/70 m-0">Loading researcher statistics...</p>
-                    ) : researcherStats ? (
+                    ) : (researcherStats ?? projectStats) ? (
                       <div className="space-y-2 text-sm text-white/80">
-                        <p className="m-0">Project progress: {researcherStats.progress ?? 0}%</p>
-                        <p className="m-0">Total contributors: {researcherStats.totalContributors ?? 0}</p>
-                        <p className="m-0">Active contributors: {researcherStats.activeContributors ?? 0}</p>
-                        <p className="m-0">Total tasks: {researcherStats.totalTasks ?? 0}</p>
-                        <p className="m-0">Completed tasks: {researcherStats.completedTasks ?? 0}</p>
-                        <p className="m-0">Failed tasks: {researcherStats.failedTasks ?? 0}</p>
-                        <p className="m-0">Total runs: {researcherStats.totalRuns ?? 0}</p>
-                        <p className="m-0">
-                          Avg task time: {(researcherStats.averageTaskTime ?? 0).toFixed(1)}s
-                        </p>
+                        {(() => {
+                          const s = researcherStats ?? projectStats!;
+                          return (
+                            <>
+                              <p className="m-0">Project progress: {s.progress ?? 0}%</p>
+                              <p className="m-0">Total contributors: {s.totalContributors ?? 0}</p>
+                              <p className="m-0">Active contributors: {s.activeContributors ?? 0}</p>
+                              <p className="m-0">Total tasks: {s.totalTasks ?? 0}</p>
+                              <p className="m-0">Completed tasks: {s.completedTasks ?? 0}</p>
+                              <p className="m-0">Failed tasks: {s.failedTasks ?? 0}</p>
+                              {s.totalRuns != null && <p className="m-0">Total runs: {s.totalRuns}</p>}
+                              {!!s.averageTaskTime && <p className="m-0">Avg task time: {s.averageTaskTime.toFixed(1)}s</p>}
+                            </>
+                          );
+                        })()}
                       </div>
                     ) : (
                       <p className="text-sm text-white/70 m-0">
@@ -585,7 +616,15 @@ export default function ProjectDetailsUpdated() {
                       style={{ width: `${project.progress}%`, background: "linear-gradient(90deg, #a78bfa, #818cf8)" }}
                     />
                   </div>
-                  <p className="text-white/55 text-sm mt-3 mb-0">{project.progressPlaceholder}</p>
+                  {projectStats && (
+                    <p className="text-white/55 text-sm mt-3 mb-0">
+                      {projectStats.completedTasks?.toLocaleString()} / {projectStats.totalTasks?.toLocaleString()} tasks complete
+                      {(projectStats.activeContributors ?? 0) > 0 && ` · ${projectStats.activeContributors} active contributors`}
+                    </p>
+                  )}
+                  {!projectStats && project.progressPlaceholder && (
+                    <p className="text-white/55 text-sm mt-3 mb-0">{project.progressPlaceholder}</p>
+                  )}
                 </div>
 
                 <div className="rounded-xl bg-white/[0.06] backdrop-blur-md border border-white/10 p-5">

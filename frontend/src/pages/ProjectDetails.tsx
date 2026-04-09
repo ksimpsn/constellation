@@ -63,7 +63,7 @@ export default function ProjectDetails() {
           null;
 
         if (!match) {
-          setLoadError("Project not found in AWS browse data.");
+          setLoadError("Project not found.");
           setProject(null);
           return;
         }
@@ -106,7 +106,7 @@ export default function ProjectDetails() {
 
         <div className="mt-6 rounded-xl border border-white/15 bg-white/[0.06] backdrop-blur-md p-6 sm:p-8">
           {listLoading ? (
-            <p className="text-white/70">Loading AWS project details...</p>
+            <p className="text-white/70">Loading project details...</p>
           ) : loadError ? (
             <div>
               <h1 className="text-2xl font-semibold text-white/95 mt-0 mb-3">
@@ -124,7 +124,7 @@ export default function ProjectDetails() {
             <div className="space-y-6">
               <div>
                 <p className="text-xs uppercase tracking-[0.2em] text-white/50 mb-1">
-                  AWS project details
+                  Project details
                 </p>
                 <h1 className="text-3xl sm:text-4xl font-semibold text-white/95 mt-0 mb-2">
                   {project.title}
@@ -176,7 +176,7 @@ export default function ProjectDetails() {
                   </ul>
                 ) : (
                   <p className="text-white/65 text-[14px] leading-relaxed m-0">
-                    This AWS project does not yet include structured whyJoin notes.
+                    This project does not yet include structured whyJoin notes.
                   </p>
                 )}
               </section>
@@ -205,7 +205,7 @@ export default function ProjectDetails() {
                   </ul>
                 ) : (
                   <p className="text-white/65 text-[14px] leading-relaxed m-0">
-                    No external links are provided for this AWS project yet.
+                    No external links are provided for this project yet.
                   </p>
                 )}
               </section>

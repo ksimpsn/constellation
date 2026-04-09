@@ -59,6 +59,8 @@ class ConstellationAPI:
         self.queued_runs: dict[str, dict] = {}
         self.pending_replicas: dict[str, list[dict]] = {}
         self._runs_finalizing: set[str] = set()
+        # run_id → list of {"task_index", "task_id", "replica_index"} needing re-dispatch.
+        self._tasks_needing_requeue: dict[str, list[dict]] = {}
         self._lock = threading.RLock()
         self.counter = 0
         self._background_worker = None  # started lazily after Ray connects
@@ -116,7 +118,13 @@ class ConstellationAPI:
                 if not ray.is_initialized():
                     time.sleep(2.0)
                     continue
+                # 1. Detect dead volunteer nodes and mark their tasks as pending.
+                self._requeue_disconnected_tasks()
+                # 2. Rebuild payloads for any pending re-queues and push to pending_replicas.
+                self._requeue_pending_tasks()
+                # 3. Dispatch queued / deferred / re-queued replicas to available volunteers.
                 self.try_dispatch_queued_runs()
+                # 4. Poll Ray for completed futures and record results.
                 self._process_runs_once()
             except Exception as e:
                 logging.exception(f"[ConstellationAPI] Background processor error: {e}")
@@ -134,46 +142,27 @@ class ConstellationAPI:
 
             done, not_done = ray.wait(pending, num_returns=len(pending), timeout=0)
             if done:
-                try:
-                    ray_results = list(self.server.get_results(done))
-                except ray.exceptions.TaskUnschedulableError as e:
-                    # Avoid endless background-loop spam when a pinned node disappears.
-                    logging.error(
-                        "[ConstellationAPI] Run %s unschedulable; marking failed: %s",
-                        run_id,
-                        e,
-                    )
-                    with get_session() as session:
-                        run_row = session.query(Run).filter_by(run_id=run_id).first()
-                        if run_row:
-                            run_row.status = "failed"
-                            run_row.completed_at = datetime.utcnow()
-                            run_row.updated_at = datetime.utcnow()
-                        session.query(Task).filter(
-                            Task.run_id == run_id,
-                            Task.status.in_(["pending", "assigned", "running"]),
-                        ).update(
-                            {
-                                Task.status: "failed",
-                                Task.error_message: "Task became unschedulable (target node unavailable).",
-                                Task.updated_at: datetime.utcnow(),
-                            },
-                            synchronize_session=False,
+                # Collect results per-future so a single bad future doesn't drop the
+                # rest of the batch.  Tasks on disconnected nodes will return errors
+                # here; _requeue_disconnected_tasks cleans them up on the next loop.
+                ray_results = []
+                for fut in done:
+                    try:
+                        result = ray.get(fut)
+                        if isinstance(result, list):
+                            ray_results.extend(result)
+                        else:
+                            ray_results.append(result)
+                    except Exception as fut_err:
+                        logging.warning(
+                            "[ConstellationAPI] Future error for run %s (task will be "
+                            "re-queued if its node disconnected): %s",
+                            run_id, fut_err,
                         )
-                        session.commit()
 
-                    job_id = self.run_id_to_job_id.get(run_id)
-                    if job_id is not None:
-                        update_job(job_id, status="failed")
-
-                    with self._lock:
-                        self.futures.pop(run_id, None)
-                        self.run_fn_bytes.pop(run_id, None)
-                        self._runs_finalizing.discard(run_id)
-                    continue
-
-                self._record_results(run_id, ray_results)
-                self._verify_completed_chunks_incrementally(run_id)
+                if ray_results:
+                    self._record_results(run_id, ray_results)
+                    self._verify_completed_chunks_incrementally(run_id)
 
             with self._lock:
                 self.futures[run_id] = list(not_done)
@@ -196,18 +185,79 @@ class ConstellationAPI:
                         self._runs_finalizing.discard(run_id)
 
     def _record_results(self, run_id: str, ray_results: list[dict]):
-        """Persist raw task completion rows as soon as Ray futures resolve."""
+        """
+        Persist raw task completion rows as soon as Ray futures resolve.
+
+        Same-node collision guard: if the node that actually executed a replica is
+        already recorded as having completed another replica of the same chunk, the
+        result is rejected and the task is reset to 'pending' for re-dispatch to a
+        different volunteer node.
+        """
+        from collections import defaultdict
         now = datetime.utcnow()
+        collision_entries: list[dict] = []
+
         with get_session() as session:
+            # Build: chunk_index → set of ray_node_ids that have ALREADY completed a
+            # replica for that chunk (before this batch).  We use this to detect
+            # same-node collisions caused by soft-affinity scheduling.
+            completed_nodes_by_chunk: dict[int, set[str]] = defaultdict(set)
+            rows = (
+                session.query(Task.task_index, Worker.ray_node_id)
+                .join(Worker, Task.assigned_worker_id == Worker.worker_id)
+                .filter(
+                    Task.run_id == run_id,
+                    Task.status == "completed",
+                    Worker.ray_node_id.isnot(None),
+                )
+                .all()
+            )
+            for task_index, node_id in rows:
+                completed_nodes_by_chunk[task_index].add(node_id)
+
             for ray_result in ray_results:
                 task_id = ray_result.get("task_id")
                 task = session.query(Task).filter_by(task_id=task_id).first()
                 if not task:
                     continue
 
+                actual_node_id = ray_result.get("node_id")
                 result_data = ray_result.get("results", ray_result)
                 runtime = ray_result.get("runtime_seconds")
                 prev_status = task.status
+
+                # ----------------------------------------------------------------
+                # Same-node collision check (only for successful results).
+                # ----------------------------------------------------------------
+                if actual_node_id and not ray_result.get("error"):
+                    already_used = completed_nodes_by_chunk[task.task_index]
+                    if actual_node_id in already_used:
+                        logging.warning(
+                            "[REPLICA] Collision: task %s (chunk %d replica %d) ran on "
+                            "node %.16s which already completed another replica of this "
+                            "chunk. Re-queuing.",
+                            task_id, task.task_index, task.replica_index, actual_node_id,
+                        )
+                        task.status = "pending"
+                        task.assigned_worker_id = None
+                        task.assigned_at = None
+                        task.raw_result_data = None
+                        task.raw_runtime_seconds = None
+                        task.error_message = (
+                            "Re-queued: same node already completed another replica of this chunk"
+                        )
+                        task.updated_at = now
+                        collision_entries.append({
+                            "run_id": task.run_id,
+                            "task_index": task.task_index,
+                            "task_id": task.task_id,
+                            "replica_index": task.replica_index,
+                        })
+                        continue  # skip normal recording
+
+                # ----------------------------------------------------------------
+                # Normal result recording.
+                # ----------------------------------------------------------------
                 task.raw_result_data = result_data
                 task.raw_runtime_seconds = runtime
                 task.completed_at = now
@@ -219,26 +269,204 @@ class ConstellationAPI:
                 else:
                     task.status = "completed"
                     task.error_message = None
+                    # Track this node so later results in the same batch are checked.
+                    if actual_node_id:
+                        completed_nodes_by_chunk[task.task_index].add(actual_node_id)
 
-                # Attribution should follow task assignment, not node identity.
+                # Update assigned_worker_id to reflect where the task actually ran
+                # so _dispatch_pending_replicas correctly excludes that node later.
+                if actual_node_id and prev_status not in ["completed", "failed"]:
+                    actual_worker = session.query(Worker).filter_by(
+                        ray_node_id=actual_node_id
+                    ).first()
+                    if actual_worker and actual_worker.worker_id != task.assigned_worker_id:
+                        task.assigned_worker_id = actual_worker.worker_id
+
+                # Attribution counters.
                 if prev_status not in ["completed", "failed"]:
                     worker = None
                     if task.assigned_worker_id:
-                        worker = session.query(Worker).filter_by(worker_id=task.assigned_worker_id).first()
-                    if worker is None:
-                        node_id = ray_result.get("node_id")
-                        if node_id:
-                            worker = session.query(Worker).filter_by(ray_node_id=node_id).first()
+                        worker = session.query(Worker).filter_by(
+                            worker_id=task.assigned_worker_id
+                        ).first()
+                    if worker is None and actual_node_id:
+                        worker = session.query(Worker).filter_by(
+                            ray_node_id=actual_node_id
+                        ).first()
 
                     if worker:
                         runtime_val = float(runtime) if isinstance(runtime, (int, float)) else 0.0
-                        worker.total_cpu_time_seconds = (worker.total_cpu_time_seconds or 0.0) + runtime_val
+                        worker.total_cpu_time_seconds = (
+                            (worker.total_cpu_time_seconds or 0.0) + runtime_val
+                        )
                         if task.status == "completed":
                             worker.tasks_completed = (worker.tasks_completed or 0) + 1
                         elif task.status == "failed":
                             worker.tasks_failed = (worker.tasks_failed or 0) + 1
                         worker.updated_at = now
+
             session.commit()
+
+        # Register collision tasks for re-dispatch outside the DB session.
+        if collision_entries:
+            with self._lock:
+                for entry in collision_entries:
+                    bucket = self._tasks_needing_requeue.setdefault(entry["run_id"], [])
+                    if not any(
+                        e["task_id"] == entry["task_id"] for e in bucket
+                    ):
+                        bucket.append(entry)
+
+    # ------------------------------------------------------------------
+    # Node-disconnect and collision re-queue helpers
+    # ------------------------------------------------------------------
+
+    def _requeue_disconnected_tasks(self):
+        """
+        Find tasks in active runs that are assigned to workers whose Ray nodes have
+        disconnected and reset them to 'pending' for re-dispatch.
+        """
+        if not ray.is_initialized():
+            return
+        try:
+            alive_node_ids = {n["NodeID"] for n in ray.nodes() if n.get("Alive")}
+        except Exception:
+            return
+        if not alive_node_ids:
+            return
+
+        now = datetime.utcnow()
+        requeue_entries: list[dict] = []
+        dead_worker_ids: set[str] = set()
+
+        with get_session() as session:
+            stale_tasks = (
+                session.query(Task)
+                .join(Worker, Task.assigned_worker_id == Worker.worker_id)
+                .join(Run, Task.run_id == Run.run_id)
+                .filter(
+                    Task.status.in_(["assigned", "running"]),
+                    Run.status.in_(["running", "queued"]),
+                    Worker.ray_node_id.isnot(None),
+                    Worker.ray_node_id.notin_(alive_node_ids),
+                )
+                .all()
+            )
+
+            for task in stale_tasks:
+                logging.info(
+                    "[REQUEUE] Task %s (run %s, chunk %d replica %d): "
+                    "volunteer node disconnected — re-queuing.",
+                    task.task_id, task.run_id, task.task_index, task.replica_index,
+                )
+                requeue_entries.append({
+                    "run_id": task.run_id,
+                    "task_index": task.task_index,
+                    "task_id": task.task_id,
+                    "replica_index": task.replica_index,
+                })
+                if task.assigned_worker_id:
+                    dead_worker_ids.add(task.assigned_worker_id)
+
+                task.status = "pending"
+                task.assigned_worker_id = None
+                task.assigned_at = None
+                task.raw_result_data = None
+                task.raw_runtime_seconds = None
+                task.error_message = "Re-queued: assigned volunteer node disconnected from cluster"
+                task.updated_at = now
+
+            if dead_worker_ids:
+                session.query(Worker).filter(
+                    Worker.worker_id.in_(dead_worker_ids)
+                ).update(
+                    {"status": "offline", "updated_at": now},
+                    synchronize_session=False,
+                )
+
+            if stale_tasks:
+                session.commit()
+
+        if requeue_entries:
+            with self._lock:
+                for entry in requeue_entries:
+                    bucket = self._tasks_needing_requeue.setdefault(entry["run_id"], [])
+                    if not any(e["task_id"] == entry["task_id"] for e in bucket):
+                        bucket.append(entry)
+
+    def _requeue_pending_tasks(self):
+        """
+        Reconstruct data payloads for tasks in _tasks_needing_requeue and push them
+        into pending_replicas so _dispatch_pending_replicas can assign them to a
+        different volunteer node.
+        """
+        with self._lock:
+            to_process = {k: list(v) for k, v in self._tasks_needing_requeue.items()}
+            self._tasks_needing_requeue.clear()
+
+        if not to_process:
+            return
+
+        for run_id, entries in to_process.items():
+            fn_bytes = self.run_fn_bytes.get(run_id)
+            if not fn_bytes:
+                logging.warning(
+                    "[REQUEUE] No serialised function cached for run %s; "
+                    "cannot re-queue %d task(s).",
+                    run_id, len(entries),
+                )
+                continue
+
+            with get_session() as session:
+                run_row = session.query(Run).filter_by(run_id=run_id).first()
+                if not run_row:
+                    continue
+                project = get_project(run_row.project_id)
+                if not project:
+                    continue
+                dataset_type = (project.dataset_type or "").lower()
+                dataset_path = project.dataset_s3_path
+                chunk_size = max(1, int(getattr(project, "chunk_size", 1) or 1))
+
+            try:
+                if dataset_type == "csv":
+                    all_rows = self._load_csv(dataset_path)
+                elif dataset_type == "json":
+                    all_rows = self._load_json(dataset_path)
+                else:
+                    logging.error("[REQUEUE] Unknown dataset type '%s' for run %s.", dataset_type, run_id)
+                    continue
+            except Exception as e:
+                logging.error("[REQUEUE] Could not load dataset for run %s: %s", run_id, e)
+                continue
+
+            chunks = [all_rows[i:i + chunk_size] for i in range(0, len(all_rows), chunk_size)]
+
+            payloads: list[dict] = []
+            for entry in entries:
+                task_index = entry["task_index"]
+                if task_index >= len(chunks):
+                    logging.error(
+                        "[REQUEUE] task_index %d out of range (%d chunks) for run %s.",
+                        task_index, len(chunks), run_id,
+                    )
+                    continue
+                payloads.append({
+                    "task_id": entry["task_id"],
+                    "task_index": task_index,
+                    "replica_index": entry.get("replica_index", 0),
+                    "rows": chunks[task_index],
+                    "params": None,
+                })
+
+            if payloads:
+                with self._lock:
+                    existing = self.pending_replicas.get(run_id, [])
+                    self.pending_replicas[run_id] = existing + payloads
+                logging.info(
+                    "[REQUEUE] Run %s: pushed %d task(s) into pending_replicas for re-dispatch.",
+                    run_id, len(payloads),
+                )
 
     def _build_chunk_outputs(self, run_id: str) -> dict[int, dict[str, dict]]:
         chunk_outputs: dict[int, dict[str, dict]] = {}
@@ -644,7 +872,7 @@ class ConstellationAPI:
         eligible_nodes = {
             node_id: node
             for node_id, node in live_nodes.items()
-            if not node.get("IsHeadNode", False)
+            if not (node.get("Resources") or {}).get("node:__internal_head__")
         }
         eligible_node_ids = set(eligible_nodes.keys())
 

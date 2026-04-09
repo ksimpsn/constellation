@@ -106,10 +106,7 @@ export default function BrowseProjectsAws() {
     <ConstellationStarfieldBackground>
       <FlowNav />
       <div className="relative z-10 px-6 pt-24 pb-16 max-w-6xl mx-auto w-full min-h-screen flex flex-col">
-        <h1 className="text-4xl font-bold text-white/90 mb-2">Browse Projects (AWS)</h1>
-        <p className="text-white/70 mb-4">
-          Data source: <code>/api/projects/browse</code> from the AWS <code>projects</code> table.
-        </p>
+        <h1 className="text-4xl font-bold text-white/90 mb-2">Browse Projects</h1>
 
         <div className="mb-6 rounded-xl border border-amber-300/30 bg-amber-500/10 p-4 text-sm text-amber-100">
           <strong>Schema gaps (currently not stored on submission):</strong> why-be-part-of-this-project bullets,
@@ -148,7 +145,7 @@ export default function BrowseProjectsAws() {
           })}
         </div>
 
-        {listLoading && <p className="text-white/60">Loading projects from AWS...</p>}
+        {listLoading && <p className="text-white/60">Loading projects...</p>}
         {loadError && (
           <div className="mb-6 rounded-xl border border-red-300/30 bg-red-500/10 p-4 text-sm text-red-100">
             Failed to load browse data: {loadError}
@@ -161,7 +158,7 @@ export default function BrowseProjectsAws() {
         >
           {!listLoading && filteredProjects.length === 0 ? (
             <p className="col-span-full text-white/60 py-8">
-              No AWS-backed projects match your current filters.
+              No projects match your current filters.
             </p>
           ) : (
             filteredProjects.map((proj) => {

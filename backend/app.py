@@ -114,6 +114,66 @@ def browse_projects_list():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/projects/<project_id>/stats", methods=["GET", "OPTIONS"])
+def get_project_stats(project_id):
+    """Public project stats (progress, task counts) for any viewer."""
+    try:
+        from backend.core.database import Run, Task, TaskResult, Worker
+        from sqlalchemy import func, distinct
+
+        with get_session() as session:
+            all_tasks = session.query(Task).join(Run).filter(Run.project_id == project_id).all()
+            total_tasks = len(all_tasks)
+            completed_tasks = sum(1 for t in all_tasks if t.status == "completed")
+            failed_tasks = sum(1 for t in all_tasks if t.status == "failed")
+            progress = int((completed_tasks / total_tasks) * 100) if total_tasks > 0 else 0
+
+            latest_run = (
+                session.query(Run)
+                .filter(Run.project_id == project_id)
+                .order_by(Run.created_at.desc())
+                .first()
+            )
+            status = (latest_run.status or "unknown") if latest_run else "unknown"
+            if status == "completed":
+                progress = 100
+
+            total_contributors = (
+                session.query(func.count(distinct(Worker.user_id)))
+                .join(Task, Task.assigned_worker_id == Worker.worker_id)
+                .join(TaskResult, TaskResult.task_id == Task.task_id)
+                .filter(TaskResult.project_id == project_id, Worker.user_id.isnot(None))
+                .scalar()
+            ) or 0
+
+            active_contributors = (
+                session.query(func.count(distinct(Worker.user_id)))
+                .join(Task, Worker.worker_id == Task.assigned_worker_id)
+                .join(Run, Task.run_id == Run.run_id)
+                .filter(
+                    Run.project_id == project_id,
+                    Task.status.in_(["assigned", "running"]),
+                    Worker.user_id.isnot(None),
+                )
+                .scalar()
+            ) or 0
+
+        return jsonify({
+            "project_id": project_id,
+            "progress": progress,
+            "status": status,
+            "totalTasks": total_tasks,
+            "completedTasks": completed_tasks,
+            "failedTasks": failed_tasks,
+            "totalContributors": total_contributors,
+            "activeContributors": active_contributors,
+        }), 200
+
+    except Exception as e:
+        logging.error(f"[ERROR] get_project_stats: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/submit", methods=["OPTIONS"])
 def submit_options():
     """Handle preflight OPTIONS request explicitly"""
@@ -1251,7 +1311,7 @@ def get_volunteer_stats(volunteer_id):
 def get_volunteer_projects(volunteer_id):
     """GET /api/volunteer/<volunteer_id>/projects — projects this volunteer contributed to."""
     try:
-        from backend.core.database import Run, TaskResult, Worker
+        from backend.core.database import Run, Task, TaskResult, Worker
         from backend.core.database_aws import get_aws_project
         from sqlalchemy import func
 
@@ -1265,49 +1325,92 @@ def get_volunteer_projects(volunteer_id):
             }), 403
 
         with get_session() as session:
-            rows = (
+            # Get all worker_ids for this volunteer
+            worker_ids = [
+                row[0]
+                for row in session.query(Worker.worker_id).filter(Worker.user_id == volunteer_id).all()
+            ]
+
+            # Collect project_ids from TaskResults (completed work)
+            result_rows = (
                 session.query(
                     TaskResult.project_id.label("project_id"),
                     func.count(TaskResult.task_result_id).label("sessions_contributed"),
                     func.max(TaskResult.completed_at).label("last_contribution_at"),
                 )
-                .join(Worker, Worker.worker_id == TaskResult.worker_id)
-                .filter(Worker.user_id == volunteer_id)
+                .filter(TaskResult.worker_id.in_(worker_ids))
                 .group_by(TaskResult.project_id)
-                .order_by(func.max(TaskResult.completed_at).desc())
                 .all()
-            )
+            ) if worker_ids else []
+
+            # Also collect project_ids from Tasks assigned to this volunteer's workers
+            # (in-progress tasks that may not have TaskResults yet)
+            assigned_project_ids: set[str] = set()
+            if worker_ids:
+                assigned_rows = (
+                    session.query(Task.run_id)
+                    .filter(
+                        Task.assigned_worker_id.in_(worker_ids),
+                        Task.status.in_(["assigned", "running", "completed"]),
+                    )
+                    .distinct()
+                    .all()
+                )
+                run_ids = [r[0] for r in assigned_rows]
+                if run_ids:
+                    run_project_rows = (
+                        session.query(Run.project_id)
+                        .filter(Run.run_id.in_(run_ids))
+                        .distinct()
+                        .all()
+                    )
+                    assigned_project_ids = {str(r[0]) for r in run_project_rows}
+
+            # Build a dict keyed by project_id from TaskResult rows
+            by_project: dict[str, dict] = {}
+            for row in result_rows:
+                pid = str(row.project_id)
+                by_project[pid] = {
+                    "sessions_contributed": int(row.sessions_contributed or 0),
+                    "last_contribution_at": row.last_contribution_at,
+                }
+
+            # Merge in assigned project_ids that don't have TaskResults yet
+            for pid in assigned_project_ids:
+                if pid not in by_project:
+                    by_project[pid] = {"sessions_contributed": 0, "last_contribution_at": None}
 
             projects = []
-            for row in rows:
-                pid = str(row.project_id)
+            for pid, contrib in sorted(
+                by_project.items(),
+                key=lambda kv: kv[1]["last_contribution_at"] or datetime.min,
+                reverse=True,
+            ):
                 project = get_aws_project(pid)
+                all_tasks = session.query(Task).join(Run).filter(Run.project_id == pid).all()
+                total_tasks = len(all_tasks)
+                completed_tasks = sum(1 for t in all_tasks if t.status == "completed")
+                progress = int((completed_tasks / total_tasks) * 100) if total_tasks > 0 else 0
+
                 latest_run = (
                     session.query(Run)
                     .filter(Run.project_id == pid)
                     .order_by(Run.created_at.desc())
                     .first()
                 )
-                progress = 0
-                status = "unknown"
-                if latest_run:
-                    total = latest_run.total_tasks or 0
-                    done = latest_run.completed_tasks or 0
-                    progress = int((done / total) * 100) if total > 0 else 0
-                    status = latest_run.status or "unknown"
-                    if status == "completed":
-                        progress = 100
+                status = (latest_run.status or "unknown") if latest_run else "unknown"
+                if status == "completed":
+                    progress = 100
 
+                last_at = contrib["last_contribution_at"]
                 projects.append({
                     "project_id": pid,
                     "title": getattr(project, "title", None) or f"Project {pid}",
                     "description": getattr(project, "description", "") or "",
                     "status": status,
                     "progress": progress,
-                    "sessionsContributed": int(row.sessions_contributed or 0),
-                    "lastContributionAt": (
-                        row.last_contribution_at.isoformat() if row.last_contribution_at else None
-                    ),
+                    "sessionsContributed": contrib["sessions_contributed"],
+                    "lastContributionAt": last_at.isoformat() if last_at else None,
                 })
 
         return jsonify({"projects": projects}), 200
