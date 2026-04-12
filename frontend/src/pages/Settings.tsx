@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import ConstellationStarfieldBackground from '../components/ConstellationStarfieldBackground';
 import FlowNav from '../components/FlowNav';
+import PageFooter from '../components/PageFooter';
 import PageBackButton from '../components/PageBackButton';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../api/config';
@@ -132,7 +133,7 @@ export default function Settings() {
   return (
     <ConstellationStarfieldBackground>
       <FlowNav />
-      <div className="relative z-10 px-6 pt-24 pb-16 max-w-[800px] mx-auto w-full flex flex-col gap-8">
+      <div className="relative z-10 flex min-h-0 flex-1 flex-col gap-8 px-6 pt-24 pb-16 max-w-[800px] mx-auto w-full min-h-screen">
         <div>
           <PageBackButton />
         </div>
@@ -255,6 +256,8 @@ export default function Settings() {
             </button>
           </div>
         </div>
+
+        <PageFooter className="w-full" />
       </div>
     </ConstellationStarfieldBackground>
   );

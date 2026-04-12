@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import ConstellationStarfieldBackground from '../components/ConstellationStarfieldBackground';
 import FlowNav from '../components/FlowNav';
 import PageBackButton from '../components/PageBackButton';
+import PageFooter from '../components/PageFooter';
 import { useAuth } from '../context/AuthContext';
 import { hasResearcherRole, hasVolunteerRole } from '../auth/session';
 import { API_BASE_URL } from '../api/config';
@@ -10,7 +11,7 @@ import { API_BASE_URL } from '../api/config';
 export default function Profile() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
-  const [volStats, setVolStats] = useState({ projectsContributed: 0, sessionsContributed: 0 });
+  const [volStats, setVolStats] = useState({ projectsContributed: 0, sessionsContributed: 0, publications: 0 });
   const [loadingStats, setLoadingStats] = useState(true);
 
   useEffect(() => {
@@ -32,7 +33,10 @@ export default function Profile() {
     return (
       <ConstellationStarfieldBackground>
         <FlowNav />
-        <div className="relative z-10 pt-28 text-center text-white/70">Loading…</div>
+        <div className="relative z-10 flex min-h-0 flex-1 flex-col px-4 sm:px-6 pt-28 pb-10 max-w-4xl mx-auto w-full min-h-screen">
+          <div className="text-center text-white/70">Loading…</div>
+          <PageFooter className="w-full" />
+        </div>
       </ConstellationStarfieldBackground>
     );
   }
@@ -49,16 +53,17 @@ export default function Profile() {
     setLoadingStats(true);
     fetch(`${API_BASE_URL}/api/volunteer/${encodeURIComponent(user.user_id)}/stats`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((data: { projectsContributed?: number; sessionsContributed?: number }) => {
+      .then((data: { projectsContributed?: number; sessionsContributed?: number; publications?: number }) => {
         if (cancelled) return;
         setVolStats({
           projectsContributed: Number(data.projectsContributed || 0),
           sessionsContributed: Number(data.sessionsContributed || 0),
+          publications: Number(data.publications || 0),
         });
       })
       .catch(() => {
         if (cancelled) return;
-        setVolStats({ projectsContributed: 0, sessionsContributed: 0 });
+        setVolStats({ projectsContributed: 0, sessionsContributed: 0, publications: 0 });
       })
       .finally(() => {
         if (!cancelled) setLoadingStats(false);
@@ -71,7 +76,7 @@ export default function Profile() {
   return (
     <ConstellationStarfieldBackground>
       <FlowNav />
-      <div className="relative z-10 px-4 sm:px-6 pt-20 sm:pt-24 pb-20 max-w-4xl mx-auto w-full min-h-screen">
+      <div className="relative z-10 flex min-h-0 flex-1 flex-col px-4 sm:px-6 pt-20 sm:pt-24 pb-20 max-w-4xl mx-auto w-full min-h-screen">
         <div className="mb-6">
           <PageBackButton />
         </div>
@@ -135,7 +140,7 @@ export default function Profile() {
                   label: 'Sessions',
                   accent: 'emerald',
                 },
-                { value: '3', label: 'Publications', accent: 'violet' },
+                { value: loadingStats ? '...' : String(volStats.publications), label: 'Publications', accent: 'violet' },
               ].map(({ value, label, accent }) => (
                 <div
                   key={label}
@@ -206,6 +211,8 @@ export default function Profile() {
             Log out
           </button>
         </div>
+
+        <PageFooter className="w-full" />
       </div>
     </ConstellationStarfieldBackground>
   );

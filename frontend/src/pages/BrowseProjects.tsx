@@ -2,6 +2,7 @@ import ConstellationStarfieldBackground from "../components/ConstellationStarfie
 import FlowNav from "../components/FlowNav";
 import { useState, useMemo, useRef, useEffect } from "react";
 import { Link } from "react-router-dom";
+import PageFooter from "../components/PageFooter";
 import { useGoBack } from "../hooks/useGoBack";
 import { API_BASE_URL } from "../api/config";
 
@@ -268,7 +269,7 @@ export default function BrowseProjects() {
   return (
     <ConstellationStarfieldBackground>
       <FlowNav />
-      <div className="relative z-10 px-6 pt-24 pb-16 max-w-6xl mx-auto w-full min-h-screen flex flex-col">
+      <div className="relative z-10 flex min-h-0 flex-1 flex-col px-6 pt-24 pb-16 max-w-6xl mx-auto w-full min-h-screen">
         <h1 className="text-4xl font-bold text-white/90 mb-4">Browse Research Projects</h1>
         <p className="text-white/70 mb-6">
           Click a project to learn more, then contribute your CPU if you’d like to join.
@@ -482,18 +483,16 @@ export default function BrowseProjects() {
           )}
         </div>
 
-        <div className="pt-4 border-t border-white/10 flex flex-wrap gap-4">
+        <div className="mt-8 shrink-0">
           <button
             type="button"
             onClick={goBack}
-            className="text-white/70 hover:text-white transition-colors bg-transparent border-0 cursor-pointer font-inherit p-0"
+            className="text-white/70 hover:text-white transition-colors bg-transparent border-0 cursor-pointer font-inherit p-0 text-left w-fit"
           >
             ← Back
           </button>
-          <Link to="/" className="text-white/70 hover:text-white transition-colors no-underline">
-            Home
-          </Link>
         </div>
+        <PageFooter className="w-full" />
       </div>
     </ConstellationStarfieldBackground>
   );

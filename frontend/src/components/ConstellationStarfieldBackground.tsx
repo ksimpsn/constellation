@@ -57,7 +57,8 @@ export default function ConstellationStarfieldBackground({ children }: Constella
         position: 'relative',
         width: '100%',
         minHeight: '100vh',
-        overflow: 'hidden',
+        overflowX: 'hidden',
+        overflowY: 'visible',
         background: 'linear-gradient(to bottom right, #0f172a 0%, #581c87 50%, #0f172a 100%)',
       }}
     >
@@ -136,9 +137,9 @@ export default function ConstellationStarfieldBackground({ children }: Constella
       <div className="absolute rounded-full animate-swirl-delayed" style={{ top: '33%', right: '33%', width: 4, height: 4, background: '#c084fc', opacity: 0.4 }} />
       <div className="absolute rounded-full animate-swirl-reverse" style={{ bottom: '25%', left: '33%', width: 6, height: 6, background: '#818cf8', opacity: 0.5 }} />
 
-      {/* Content */}
-      <div className="relative z-10" style={{ minHeight: '100vh' }}>
-        {children}
+      {/* Content: flex column fills viewport so footers can sit at the bottom */}
+      <div className="relative z-10 flex min-h-screen flex-col">
+        <div className="flex min-h-0 flex-1 flex-col">{children}</div>
       </div>
 
       <style

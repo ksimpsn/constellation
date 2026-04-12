@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import ConstellationStarfieldBackground from '../components/ConstellationStarfieldBackground';
 import FlowNav from '../components/FlowNav';
+import PageFooter from '../components/PageFooter';
 import { useGoBack } from '../hooks/useGoBack';
 
 const zeroAccessItems = [
@@ -39,8 +40,8 @@ export default function SecurityResearch() {
   return (
     <ConstellationStarfieldBackground>
       <FlowNav />
-      <div className="relative z-10 flex flex-col items-center min-h-screen px-4 sm:px-6 py-16 sm:py-24">
-        <div className="max-w-3xl mx-auto w-full">
+      <div className="relative z-10 flex min-h-0 flex-1 flex-col items-center min-h-screen px-4 sm:px-6 py-16 sm:py-24">
+        <div className="flex min-h-0 max-w-3xl flex-1 flex-col mx-auto w-full">
           {/* Back */}
           <div className="mb-8">
             <button
@@ -184,6 +185,8 @@ export default function SecurityResearch() {
               Join secure computing
             </Link>
           </div>
+
+          <PageFooter className="w-full" />
         </div>
       </div>
     </ConstellationStarfieldBackground>

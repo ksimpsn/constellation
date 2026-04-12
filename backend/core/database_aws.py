@@ -12,7 +12,7 @@ import os
 from contextlib import contextmanager
 from datetime import datetime
 from types import SimpleNamespace
-from typing import Optional
+from typing import List, Optional, Tuple
 
 from sqlalchemy import (
     Column,
@@ -35,6 +35,34 @@ AWSSessionLocal = None
 AWSBase = declarative_base()
 
 
+def _ensure_projects_volunteer_metadata_columns() -> None:
+    """
+    Add why_join / learn_more to public.projects if missing (PostgreSQL/RDS).
+
+    Keeps older databases working without a manual migration; idempotent.
+    """
+    if aws_engine is None or aws_engine.dialect.name != "postgresql":
+        return
+    from sqlalchemy import text
+
+    try:
+        with aws_engine.begin() as conn:
+            for col_name, col_type in (("why_join", "TEXT"), ("learn_more", "TEXT")):
+                row = conn.execute(
+                    text(
+                        "SELECT 1 FROM information_schema.columns "
+                        "WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'projects' "
+                        "AND column_name = :col"
+                    ),
+                    {"col": col_name},
+                ).fetchone()
+                if row is None:
+                    conn.execute(text(f"ALTER TABLE projects ADD COLUMN {col_name} {col_type}"))
+                    print(f"[AWS DB] Added column projects.{col_name} ({col_type})")
+    except Exception as e:
+        print(f"[AWS DB] Could not ensure projects.why_join / learn_more columns: {e}")
+
+
 def init_aws_db() -> bool:
     """Initialize AWS RDS connection. Call once at startup if AWS_DATABASE_URL is set."""
     global aws_engine, AWSSessionLocal
@@ -43,6 +71,7 @@ def init_aws_db() -> bool:
     try:
         aws_engine = create_engine(_AWS_DATABASE_URL, echo=False)
         AWSSessionLocal = sessionmaker(bind=aws_engine, autocommit=False, autoflush=False)
+        _ensure_projects_volunteer_metadata_columns()
         return True
     except Exception as e:
         print(f"[AWS DB] Failed to connect: {e}")
@@ -101,6 +130,9 @@ class AWSProject(AWSBase):
     dataset_s3_path = Column(String(1000), nullable=True)
     dataset_type = Column(String(10), nullable=True)
     status = Column(String(20), nullable=True, default="pending")
+    # JSON: array of strings (volunteer-facing); array of {label, url} for learn_more (url may be "")
+    why_join = Column(Text, nullable=True)
+    learn_more = Column(Text, nullable=True)
 
 
 class AWSProjectUser(AWSBase):
@@ -120,6 +152,70 @@ def add_aws_project_user(project_id: int, username: str) -> None:
         existing = session.query(AWSProjectUser).filter_by(project_id=project_id, username=username).first()
         if not existing:
             session.add(AWSProjectUser(project_id=project_id, username=username))
+
+
+def _why_join_list_from_column(raw) -> List[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return [str(x).strip() for x in raw if str(x).strip()]
+    if isinstance(raw, str):
+        s = raw.strip()
+        if not s:
+            return []
+        try:
+            parsed = json.loads(s)
+            if isinstance(parsed, list):
+                return [str(x).strip() for x in parsed if str(x).strip()]
+        except Exception:
+            pass
+        return [ln.strip() for ln in s.splitlines() if ln.strip()]
+    return []
+
+
+def _learn_more_list_from_column(raw) -> List[dict]:
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        out = []
+        for x in raw:
+            if isinstance(x, dict):
+                lab = str(x.get("label", "")).strip()
+                if not lab:
+                    continue
+                out.append({"label": lab, "url": str(x.get("url", "") or "").strip()})
+        return out
+    if isinstance(raw, str):
+        s = raw.strip()
+        if not s:
+            return []
+        try:
+            parsed = json.loads(s)
+            if isinstance(parsed, list):
+                return _learn_more_list_from_column(parsed)
+        except Exception:
+            pass
+    return []
+
+
+def _tags_list_from_column(raw) -> List[str]:
+    """Normalize projects.tags (JSON array, comma string, or empty) to a list of strings."""
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return [str(tag).strip() for tag in raw if str(tag).strip()]
+    if isinstance(raw, str):
+        stripped = raw.strip()
+        if not stripped:
+            return []
+        try:
+            parsed = json.loads(stripped)
+            if isinstance(parsed, list):
+                return [str(tag).strip() for tag in parsed if str(tag).strip()]
+        except Exception:
+            pass
+        return [x.strip() for x in stripped.split(",") if x.strip()]
+    return []
 
 
 def get_aws_project_users(project_id: int) -> list:
@@ -314,16 +410,19 @@ def list_aws_browse_projects(limit: int = 200) -> list:
             else:
                 tag_list = []
 
+            why_join_list = _why_join_list_from_column(getattr(project, "why_join", None))
+            learn_more_list = _learn_more_list_from_column(getattr(project, "learn_more", None))
+
             out.append(
                 {
                     "id": project.project_id,
                     "title": project.name,
                     "description": (project.description or "")[:500],
-                    "longDescription": project.description or "",
                     "tags": tag_list,
                     "researcherName": researcher_name,
-                    "whyJoin": [],
-                    "learnMore": [],
+                    "researcherId": project.researcher_id,
+                    "whyJoin": why_join_list,
+                    "learnMore": learn_more_list,
                 }
             )
 
@@ -355,7 +454,76 @@ def get_aws_project(project_id) -> Optional[SimpleNamespace]:
             created_at=getattr(p, "date_created", None),
             updated_at=None,
             status=getattr(p, "status", None) or "pending",
+            tags=_tags_list_from_column(p.tags),
+            why_join=_why_join_list_from_column(getattr(p, "why_join", None)),
+            learn_more=_learn_more_list_from_column(getattr(p, "learn_more", None)),
+            aws_total_chunks=p.total_chunks,
+            aws_chunks_completed=p.chunks_completed or 0,
         )
+
+
+def update_aws_project_by_owner(
+    project_id,
+    owner_researcher_id: str,
+    *,
+    title: str | None = None,
+    description: str | None = None,
+    tags: list | str | None = None,
+    why_join: list | None = None,
+    learn_more: list | None = None,
+) -> Tuple[bool, Optional[str]]:
+    """
+    Update RDS project metadata if owner_researcher_id matches project.researcher_id.
+    Returns (success, error_message).
+    """
+    if not is_aws_db_configured():
+        return False, "AWS database not configured"
+    if not owner_researcher_id:
+        return False, "Missing owner"
+    try:
+        pid = int(project_id)
+    except (TypeError, ValueError):
+        return False, "Invalid project id"
+    with get_aws_session() as session:
+        p = session.query(AWSProject).filter_by(project_id=pid).first()
+        if not p:
+            return False, "Project not found"
+        if (p.researcher_id or "") != owner_researcher_id:
+            return False, "Only the project owner can update this project"
+        if title is not None:
+            t = title.strip()
+            if not t:
+                return False, "Title cannot be empty"
+            p.name = t[:500]
+        if description is not None:
+            p.description = description
+        if tags is not None:
+            if isinstance(tags, list):
+                cleaned = [str(x).strip() for x in tags if str(x).strip()]
+                if not cleaned:
+                    return False, "At least one tag is required"
+                p.tags = json.dumps(cleaned)
+            else:
+                s = str(tags).strip()
+                if not s:
+                    return False, "At least one tag is required"
+                p.tags = s
+        if why_join is not None:
+            cleaned_wj = [str(x).strip() for x in why_join if str(x).strip()]
+            if not cleaned_wj:
+                return False, "At least one 'why join' line is required"
+            p.why_join = json.dumps(cleaned_wj)
+        if learn_more is not None:
+            lm = []
+            for i, item in enumerate(learn_more):
+                if not isinstance(item, dict):
+                    return False, f"learnMore[{i}] must be an object with label and optional url"
+                lab = str(item.get("label", "")).strip()
+                if not lab:
+                    return False, f"learnMore[{i}] needs a non-empty label (URL may be blank)"
+                lm.append({"label": lab, "url": str(item.get("url", "") or "").strip()})
+            p.learn_more = json.dumps(lm)
+        return True, None
 
 
 def create_aws_user(
@@ -490,6 +658,9 @@ def create_aws_project(
     bucket_name: str = None,
     num_chunks: int = 0,
     ip_address: str = None,
+    tags: List[str] | None = None,
+    why_join: List[str] | None = None,
+    learn_more: List[dict] | None = None,
 ) -> SimpleNamespace:
     """
     Create project in RDS and optionally upload code/dataset to S3.
@@ -510,6 +681,22 @@ def create_aws_project(
             max_attempts=max_verification_attempts,
             ip_address=ip_address,
         )
+        if tags is not None:
+            cleaned_tags = [str(t).strip() for t in tags if str(t).strip()]
+            p.tags = json.dumps(cleaned_tags) if cleaned_tags else None
+        if why_join is not None:
+            cleaned_wj = [str(x).strip() for x in why_join if str(x).strip()]
+            p.why_join = json.dumps(cleaned_wj) if cleaned_wj else None
+        if learn_more is not None:
+            lm = []
+            for item in learn_more:
+                if not isinstance(item, dict):
+                    continue
+                lab = str(item.get("label", "")).strip()
+                if not lab:
+                    continue
+                lm.append({"label": lab, "url": str(item.get("url", "") or "").strip()})
+            p.learn_more = json.dumps(lm)
         session.add(p)
         session.flush()
         pid = p.project_id

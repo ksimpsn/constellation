@@ -2,7 +2,10 @@ import ConstellationStarfieldBackground from "../components/ConstellationStarfie
 import FlowNav from "../components/FlowNav";
 import { useState, useMemo, useEffect } from "react";
 import { Link } from "react-router-dom";
+import PageFooter from "../components/PageFooter";
 import { API_BASE_URL } from "../api/config";
+import TagMultiselectDropdown from "../components/TagMultiselectDropdown";
+import { PROJECT_TAG_OPTIONS } from "../constants/projectTags";
 
 interface LearnMoreLink {
   label: string;
@@ -13,7 +16,6 @@ interface Project {
   id: string | number;
   title: string;
   description: string;
-  longDescription?: string;
   tags: string[];
   whyJoin: string[];
   learnMore: LearnMoreLink[];
@@ -21,7 +23,8 @@ interface Project {
 }
 
 export default function BrowseProjectsAws() {
-  const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [searchTerms, setSearchTerms] = useState<string[]>([]);
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   const [expandedId, setExpandedId] = useState<string | number | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -42,7 +45,6 @@ export default function BrowseProjectsAws() {
             id: (p.id as string | number) ?? "",
             title: String(p.title ?? ""),
             description: String(p.description ?? ""),
-            longDescription: String(p.longDescription ?? p.description ?? ""),
             tags: Array.isArray(p.tags) ? (p.tags as string[]) : [],
             whyJoin: Array.isArray(p.whyJoin) ? (p.whyJoin as string[]) : [],
             learnMore: Array.isArray(p.learnMore)
@@ -71,74 +73,142 @@ export default function BrowseProjectsAws() {
 
   const allTags = useMemo(() => {
     const tags = new Set<string>();
+    for (const t of PROJECT_TAG_OPTIONS) tags.add(t);
     for (const p of projects) {
       for (const tag of p.tags) tags.add(tag);
     }
     return Array.from(tags).sort((a, b) => a.localeCompare(b));
   }, [projects]);
 
-  const toggleTag = (tag: string) => {
-    setSelectedTags((prev) => {
-      const next = new Set(prev);
-      if (next.has(tag)) next.delete(tag);
-      else next.add(tag);
-      return next;
-    });
-  };
-
   const filteredProjects = useMemo(() => {
     let list = projects;
     if (selectedTags.size > 0) {
       list = list.filter((p) => p.tags.some((t) => selectedTags.has(t)));
     }
-    if (!search.trim()) return list;
-    const q = search.trim().toLowerCase();
-    return list.filter(
-      (p) =>
-        p.title.toLowerCase().includes(q) ||
-        p.description.toLowerCase().includes(q) ||
-        p.tags.some((t) => t.toLowerCase().includes(q))
+    for (const term of searchTerms) {
+      const q = term.toLowerCase();
+      list = list.filter(
+        (p) =>
+          p.title.toLowerCase().includes(q) ||
+          p.description.toLowerCase().includes(q) ||
+          p.tags.some((t) => t.toLowerCase().includes(q))
+      );
+    }
+    return list;
+  }, [searchTerms, selectedTags, projects]);
+
+  const commitSearchFilter = () => {
+    const t = searchInput.trim();
+    if (!t) return;
+    setSearchTerms((prev) =>
+      prev.some((x) => x.toLowerCase() === t.toLowerCase()) ? prev : [...prev, t]
     );
-  }, [search, selectedTags, projects]);
+    setSearchInput("");
+  };
+
+  const removeSearchTerm = (term: string) => {
+    setSearchTerms((prev) => prev.filter((x) => x !== term));
+  };
+
+  const removeTagFilter = (tag: string) => {
+    setSelectedTags((prev) => {
+      const next = new Set(prev);
+      next.delete(tag);
+      return next;
+    });
+  };
+
+  const selectedTagsSorted = useMemo(
+    () => [...selectedTags].sort((a, b) => a.localeCompare(b)),
+    [selectedTags]
+  );
+
+  const hasActiveFilters = searchTerms.length > 0 || selectedTags.size > 0;
 
   return (
     <ConstellationStarfieldBackground>
       <FlowNav />
-      <div className="relative z-10 px-6 pt-24 pb-16 max-w-6xl mx-auto w-full min-h-screen flex flex-col">
+      <div className="relative z-10 flex min-h-0 flex-1 flex-col px-6 pt-24 pb-16 max-w-6xl mx-auto w-full min-h-screen">
         <h1 className="text-4xl font-bold text-white/90 mb-4">Browse Projects</h1>
 
-        <div className="mb-6 flex flex-wrap items-center gap-3">
+        <div className="mb-3 flex flex-wrap items-center gap-3">
           <label htmlFor="browse-aws-search" className="sr-only">
             Search projects
           </label>
           <input
             id="browse-aws-search"
             type="search"
-            placeholder="Search by name, description, or tags..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Type text, press Enter to add a search filter…"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                commitSearchFilter();
+              }
+            }}
             className="shrink-0 w-full min-w-[200px] max-w-sm px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white/95 placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/30 focus:border-white/30 transition-all"
           />
-          {allTags.map((tag) => {
-            const active = selectedTags.has(tag);
-            return (
-              <button
-                key={tag}
-                type="button"
-                onClick={() => toggleTag(tag)}
-                className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
-                  active
-                    ? "bg-emerald-500/30 border-emerald-300/50 text-emerald-100"
-                    : "bg-white/10 border-white/20 text-white/80 hover:bg-white/15"
-                }`}
-              >
-                {tag}
-              </button>
-            );
-          })}
+          <TagMultiselectDropdown
+            options={allTags}
+            selected={selectedTags}
+            onChange={setSelectedTags}
+            buttonLabel="Filter by tags"
+            emptyHint="No tags match your search."
+            clearAllLabel="Clear tag filters"
+            showSelectedChips={false}
+          />
         </div>
 
-        {listLoading && <p className="text-white/60">Loading projects from AWS...</p>}
+        {hasActiveFilters && (
+          <div className="mb-6 flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/40 shrink-0">
+              Filters
+            </span>
+            <div className="flex flex-wrap gap-2 min-w-0">
+              {searchTerms.map((term) => (
+                <span
+                  key={`q:${term}`}
+                  className="inline-flex items-center gap-1 pl-2.5 pr-1 py-1 rounded-lg bg-sky-500/20 border border-sky-400/35 text-sky-100 text-xs max-w-full"
+                >
+                  <span className="text-sky-200/80 shrink-0">Search</span>
+                  <span className="truncate" title={term}>
+                    {term}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removeSearchTerm(term)}
+                    className="p-0.5 rounded-md hover:bg-white/10 text-white/90 leading-none border-0 bg-transparent cursor-pointer font-inherit shrink-0"
+                    aria-label={`Remove search filter ${term}`}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              {selectedTagsSorted.map((tag) => (
+                <span
+                  key={`t:${tag}`}
+                  className="inline-flex items-center gap-1 pl-2.5 pr-1 py-1 rounded-lg bg-emerald-500/20 border border-emerald-400/35 text-emerald-100 text-xs max-w-full"
+                >
+                  <span className="text-emerald-200/80 shrink-0">Tag</span>
+                  <span className="truncate" title={tag}>
+                    {tag}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removeTagFilter(tag)}
+                    className="p-0.5 rounded-md hover:bg-white/10 text-white/90 leading-none border-0 bg-transparent cursor-pointer font-inherit shrink-0"
+                    aria-label={`Remove tag filter ${tag}`}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {listLoading && <p className="text-white/60">Loading projects...</p>}
         {loadError && (
           <div className="mb-6 rounded-xl border border-red-300/30 bg-red-500/10 p-4 text-sm text-red-100">
             Failed to load browse data: {loadError}
@@ -146,32 +216,32 @@ export default function BrowseProjectsAws() {
         )}
 
         <div
-          className="flex-1 overflow-y-auto grid gap-5 w-full pb-12"
+          className="flex-1 overflow-y-auto grid gap-5 w-full pb-12 items-start"
           style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}
         >
           {!listLoading && filteredProjects.length === 0 ? (
             <p className="col-span-full text-white/60 py-8">
-              No AWS-backed projects match your current filters.
+              No projects match your current filters.
             </p>
           ) : (
             filteredProjects.map((proj) => {
               const isExpanded = expandedId === proj.id;
               const missingWhyJoin = proj.whyJoin.length === 0;
               const missingLearnMore = proj.learnMore.length === 0;
-              const descriptionBackfill =
-                (proj.longDescription ?? "").trim() === (proj.description ?? "").trim();
 
               return (
                 <div
                   key={proj.id}
-                  className={`rounded-xl backdrop-blur-sm border transition-all flex flex-col overflow-hidden ${
+                  className={`rounded-xl backdrop-blur-sm border transition-all flex flex-col overflow-hidden cursor-pointer ${
                     isExpanded
                       ? "bg-white/10 border-white/25 shadow-[0_0_32px_rgba(255,255,255,0.08)]"
-                      : "bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20 cursor-pointer"
+                      : "bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20"
                   }`}
-                  onClick={() => !isExpanded && setExpandedId(proj.id)}
+                  onClick={() =>
+                    setExpandedId((id) => (id === proj.id ? null : proj.id))
+                  }
                 >
-                  <div className="p-5" onClick={(e) => isExpanded && e.stopPropagation()}>
+                  <div className="p-5">
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <h2 className="text-xl font-semibold text-white/90 m-0">{proj.title}</h2>
@@ -198,27 +268,7 @@ export default function BrowseProjectsAws() {
 
                     {isExpanded && (
                       <div className="mt-4 space-y-4">
-                        <p className="text-white/80 text-[15px] leading-relaxed">
-                          {proj.longDescription || proj.description}
-                        </p>
-
-                        <div className="flex flex-wrap gap-2 text-[11px]">
-                          {descriptionBackfill && (
-                            <span className="rounded-md border border-amber-300/30 bg-amber-500/10 px-2 py-1 text-amber-100">
-                              Long description currently mirrors description
-                            </span>
-                          )}
-                          {missingWhyJoin && (
-                            <span className="rounded-md border border-amber-300/30 bg-amber-500/10 px-2 py-1 text-amber-100">
-                              whyJoin not in SQLite submission schema
-                            </span>
-                          )}
-                          {missingLearnMore && (
-                            <span className="rounded-md border border-amber-300/30 bg-amber-500/10 px-2 py-1 text-amber-100">
-                              learnMore links not in SQLite submission schema
-                            </span>
-                          )}
-                        </div>
+                        {/* <p className="text-white/80 text-[15px] leading-relaxed">{proj.description}</p> */}
 
                         <div>
                           <h3 className="text-sm font-semibold text-white/90 uppercase tracking-wider mb-2">
@@ -226,7 +276,7 @@ export default function BrowseProjectsAws() {
                           </h3>
                           {missingWhyJoin ? (
                             <p className="text-white/65 text-[14px] leading-relaxed m-0">
-                              Placeholder only: this field is not yet captured at project submission time.
+                              No reasons listed yet for this project.
                             </p>
                           ) : (
                             <ul className="list-none p-0 m-0 space-y-1.5">
@@ -246,21 +296,30 @@ export default function BrowseProjectsAws() {
                           </h3>
                           {missingLearnMore ? (
                             <p className="text-white/65 text-[14px] leading-relaxed m-0">
-                              Placeholder only: external resource links are not yet stored for submitted projects.
+                              No external links listed for this project.
                             </p>
                           ) : (
                             <ul className="list-none p-0 m-0 flex flex-wrap gap-2">
                               {proj.learnMore.map((link, i) => (
                                 <li key={i}>
-                                  <a
-                                    href={link.url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 border border-white/20 text-white/90 text-sm no-underline transition-colors"
-                                  >
-                                    {link.label}
-                                    <span className="text-xs opacity-70" aria-hidden>↗</span>
-                                  </a>
+                                  {link.url ? (
+                                    <a
+                                      href={link.url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 border border-white/20 text-white/90 text-sm no-underline transition-colors"
+                                    >
+                                      {link.label}
+                                      <span className="text-xs opacity-70" aria-hidden>
+                                        ↗
+                                      </span>
+                                    </a>
+                                  ) : (
+                                    <span className="inline-flex items-center px-3 py-1.5 rounded-lg bg-white/10 border border-white/15 text-white/80 text-sm">
+                                      {link.label}
+                                    </span>
+                                  )}
                                 </li>
                               ))}
                             </ul>
@@ -269,6 +328,7 @@ export default function BrowseProjectsAws() {
 
                         <Link
                           to={`/project/${encodeURIComponent(String(proj.id))}`}
+                          onClick={(e) => e.stopPropagation()}
                           className="inline-flex items-center justify-center gap-2 w-full px-4 py-3 rounded-lg bg-white/20 hover:bg-white/30 border border-white/30 text-white font-medium no-underline transition-all duration-200 text-sm mt-2"
                         >
                           View project details
@@ -283,11 +343,7 @@ export default function BrowseProjectsAws() {
           )}
         </div>
 
-        <div className="pt-4 border-t border-white/10 flex flex-wrap gap-4">
-          <Link to="/" className="text-white/70 hover:text-white transition-colors no-underline">
-            Home
-          </Link>
-        </div>
+        <PageFooter className="w-full" />
       </div>
     </ConstellationStarfieldBackground>
   );

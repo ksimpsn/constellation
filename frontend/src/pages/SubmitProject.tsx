@@ -1,5 +1,6 @@
 import ConstellationStarfieldBackground from "../components/ConstellationStarfieldBackground";
 import FlowNav from "../components/FlowNav";
+import PageFooter from "../components/PageFooter";
 import { useState, useEffect, useRef } from "react";
 import { Navigate } from "react-router-dom";
 import { useGoBack } from "../hooks/useGoBack";
@@ -7,12 +8,21 @@ import { useAuth } from "../context/AuthContext";
 import { hasResearcherRole } from "../auth/session";
 
 import { API_BASE_URL } from "../api/config";
+import TagMultiselectDropdown from "../components/TagMultiselectDropdown";
+import { PROJECT_TAG_OPTIONS } from "../constants/projectTags";
 
 export default function SubmitProject() {
   const goBack = useGoBack();
   const { user } = useAuth();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [selectedPresetTags, setSelectedPresetTags] = useState<Set<string>>(new Set());
+  const [extraTags, setExtraTags] = useState<string[]>([]);
+  const [customTagInput, setCustomTagInput] = useState("");
+  const [whyJoinText, setWhyJoinText] = useState("");
+  const [learnMoreRows, setLearnMoreRows] = useState<{ label: string; url: string }[]>([
+    { label: "", url: "" },
+  ]);
   const [pyFile, setPyFile] = useState<File | null>(null);
   const [dataFile, setDataFile] = useState<File | null>(null);
   const [rowsPerTask, setRowsPerTask] = useState<number>(1000);
@@ -54,11 +64,42 @@ export default function SubmitProject() {
       return;
     }
 
-    console.log("inside handle submit");
+    const tags = [
+      ...new Set(
+        [...selectedPresetTags, ...extraTags]
+          .map((t) => t.trim())
+          .filter(Boolean)
+      ),
+    ];
+    if (tags.length === 0) {
+      setMessage("Select at least one suggested tag and/or add a custom tag.");
+      return;
+    }
+    const whyJoinLines = whyJoinText
+      .split("\n")
+      .map((ln) => ln.trim())
+      .filter(Boolean);
+    if (whyJoinLines.length === 0) {
+      setMessage("Add at least one “Why join” reason (one per line).");
+      return;
+    }
+    for (let i = 0; i < learnMoreRows.length; i++) {
+      const row = learnMoreRows[i];
+      if ((row.url || "").trim() && !(row.label || "").trim()) {
+        setMessage(`Learn more row ${i + 1}: add a label, or clear the URL.`);
+        return;
+      }
+    }
+    const learnMorePayload = learnMoreRows
+      .filter((r) => r.label.trim())
+      .map((r) => ({ label: r.label.trim(), url: (r.url || "").trim() }));
 
     const formData = new FormData();
     formData.append("title", title);
     formData.append("description", description);
+    formData.append("tags", tags.join(","));
+    formData.append("why_join", whyJoinText);
+    formData.append("learn_more", JSON.stringify(learnMorePayload));
     formData.append("py_file", pyFile);
     formData.append("data_file", dataFile);
     formData.append("chunk_size", String(Math.floor(rowsPerTask)));
@@ -172,7 +213,7 @@ export default function SubmitProject() {
   return (
     <ConstellationStarfieldBackground>
       <FlowNav />
-      <div className="relative z-10 px-6 pt-24 pb-16 max-w-[700px] mx-auto w-full">
+      <div className="relative z-10 flex min-h-0 flex-1 flex-col min-h-screen px-6 pt-24 pb-16 max-w-[700px] mx-auto w-full">
         <h1 className="text-4xl font-bold text-white/90 mb-8">
           Submit a Research Project
         </h1>
@@ -198,6 +239,147 @@ export default function SubmitProject() {
               rows={6}
               style={{ ...inputStyle, resize: "vertical" }}
             />
+          </div>
+
+          <div>
+            <span className="text-white/80 text-sm font-medium block">Tags (required)</span>
+            <p className="text-white/60 text-sm mt-1.5 mb-3">
+              Choose from suggested tags (multiselect) and optionally add your own. Used for browse filters.
+            </p>
+            <TagMultiselectDropdown
+              options={[...PROJECT_TAG_OPTIONS]}
+              selected={selectedPresetTags}
+              onChange={setSelectedPresetTags}
+              buttonLabel="Suggested tags"
+              emptyHint="No suggested tags match your search."
+            />
+            <div className="mt-4">
+              <span className="text-white/70 text-xs font-medium uppercase tracking-wide block mb-2">
+                Custom tags (optional)
+              </span>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="text"
+                  placeholder="e.g. astrophysics, HPC"
+                  value={customTagInput}
+                  onChange={(e) => setCustomTagInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      const t = customTagInput.trim();
+                      if (!t) return;
+                      setExtraTags((prev) =>
+                        prev.some((x) => x.toLowerCase() === t.toLowerCase()) ? prev : [...prev, t]
+                      );
+                      setCustomTagInput("");
+                    }
+                  }}
+                  style={{ ...inputStyle, marginTop: 0 }}
+                  className="flex-1 min-w-0"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const t = customTagInput.trim();
+                    if (!t) return;
+                    setExtraTags((prev) =>
+                      prev.some((x) => x.toLowerCase() === t.toLowerCase()) ? prev : [...prev, t]
+                    );
+                    setCustomTagInput("");
+                  }}
+                  className="py-3 px-4 rounded-lg border border-white/25 text-white/90 text-sm hover:bg-white/10 cursor-pointer shrink-0 bg-transparent font-inherit"
+                >
+                  Add tag
+                </button>
+              </div>
+              {extraTags.length > 0 && (
+                <ul className="flex flex-wrap gap-2 list-none m-0 mt-3 p-0">
+                  {extraTags.map((tag) => (
+                    <li key={tag}>
+                      <span className="inline-flex items-center gap-1.5 pl-2.5 pr-1 py-1 rounded-lg bg-violet-500/20 border border-violet-400/30 text-violet-100 text-xs">
+                        {tag}
+                        <button
+                          type="button"
+                          onClick={() => setExtraTags((prev) => prev.filter((x) => x !== tag))}
+                          className="p-0.5 rounded hover:bg-white/15 text-white/80 leading-none border-0 bg-transparent cursor-pointer font-inherit"
+                          aria-label={`Remove ${tag}`}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <label className="text-white/80 text-sm font-medium">Why join (required)</label>
+            <p className="text-white/60 text-sm mt-1.5 mb-0">
+              One motivating reason per line — shown to volunteers on the project page.
+            </p>
+            <textarea
+              placeholder={"Help cure disease\nLearn how distributed science works"}
+              value={whyJoinText}
+              onChange={(e) => setWhyJoinText(e.target.value)}
+              rows={4}
+              style={{ ...inputStyle, resize: "vertical" }}
+            />
+          </div>
+
+          <div>
+            <label className="text-white/80 text-sm font-medium">Learn more (optional)</label>
+            <p className="text-white/60 text-sm mt-1.5 mb-0">
+              Add links to papers, docs, or repos. Each row needs a <strong className="text-white/80">label</strong>;
+              URL can be left blank.
+            </p>
+            <div className="flex flex-col gap-3 mt-2">
+              {learnMoreRows.map((row, i) => (
+                <div key={i} className="flex flex-col sm:flex-row gap-2 sm:items-end">
+                  <input
+                    type="text"
+                    placeholder="Label"
+                    value={row.label}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setLearnMoreRows((rows) =>
+                        rows.map((r, j) => (j === i ? { ...r, label: v } : r))
+                      );
+                    }}
+                    style={{ ...inputStyle, marginTop: 0 }}
+                    className="flex-1 min-w-0"
+                  />
+                  <input
+                    type="text"
+                    placeholder="https://… (optional)"
+                    value={row.url}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setLearnMoreRows((rows) =>
+                        rows.map((r, j) => (j === i ? { ...r, url: v } : r))
+                      );
+                    }}
+                    style={{ ...inputStyle, marginTop: 0 }}
+                    className="flex-[2] min-w-0"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setLearnMoreRows((rows) => rows.filter((_, j) => j !== i))}
+                    className="py-3 px-4 rounded-lg border border-white/25 text-white/80 text-sm hover:bg-white/10 cursor-pointer shrink-0 bg-transparent font-inherit"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => setLearnMoreRows((rows) => [...rows, { label: "", url: "" }])}
+                className="self-start py-2 px-3 rounded-lg border border-white/20 text-white/85 text-sm hover:bg-white/10 cursor-pointer bg-transparent font-inherit"
+              >
+                + Add link row
+              </button>
+            </div>
           </div>
 
           <div>
@@ -339,7 +521,7 @@ export default function SubmitProject() {
           )}
         </div>
 
-        <div className="mt-10">
+        <div className="mt-10 shrink-0">
           <button
             type="button"
             onClick={goBack}
@@ -348,6 +530,7 @@ export default function SubmitProject() {
             ← Back
           </button>
         </div>
+        <PageFooter className="w-full" />
       </div>
     </ConstellationStarfieldBackground>
   );

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import ConstellationStarfieldBackground from "../components/ConstellationStarfieldBackground";
 import FlowNav from "../components/FlowNav";
+import PageFooter from "../components/PageFooter";
 import PageBackButton from "../components/PageBackButton";
 import { API_BASE_URL } from "../api/config";
 
@@ -157,7 +158,7 @@ export default function Leaderboard() {
   return (
     <ConstellationStarfieldBackground>
       <FlowNav />
-      <div className="relative z-10 px-6 pt-24 pb-16 max-w-7xl mx-auto w-full">
+      <div className="relative z-10 flex min-h-0 flex-1 flex-col px-6 pt-24 pb-16 max-w-7xl mx-auto w-full min-h-screen">
         <div className="mb-6">
           <PageBackButton />
         </div>
@@ -240,6 +241,8 @@ export default function Leaderboard() {
           />
           </div>
         )}
+
+        <PageFooter className="w-full" />
       </div>
     </ConstellationStarfieldBackground>
   );

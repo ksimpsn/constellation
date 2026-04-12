@@ -1,5 +1,6 @@
 import { useState } from "react";
 import GradientBackground from "../components/GradientBackground";
+import PageFooter from "../components/PageFooter";
 import { getApiUrl } from "../api/config";
 
 export default function VolunteerConnect() {
@@ -131,11 +132,10 @@ export default function VolunteerConnect() {
         </p>
       )}
 
-      <div style={{ marginTop: "40px" }}>
-        <a href="/" style={{ fontSize: "18px", color: "black" }}>
-          ← Back to Home
-        </a>
-      </div>
+      <PageFooter
+        className="w-full max-w-[560px] border-neutral-300/70"
+        linkClassName="text-neutral-800 hover:text-black transition-colors no-underline text-[15px]"
+      />
     </GradientBackground>
   );
 }

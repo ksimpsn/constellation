@@ -1,11 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Delaunay } from "d3-delaunay";
 import FlowNav from "../components/FlowNav";
 import ConstellationStarfieldBackground from "../components/ConstellationStarfieldBackground";
+import PageFooter from "../components/PageFooter";
 import { useGoBack } from "../hooks/useGoBack";
 import { API_BASE_URL } from "../api/config";
+import { hasResearcherRole } from "../auth/session";
 import { useAuth } from "../context/AuthContext";
+import TagMultiselectDropdown from "../components/TagMultiselectDropdown";
+import { PROJECT_TAG_OPTIONS } from "../constants/projectTags";
 
 type Task = { id: number; title: string; description: string };
 type ConstellationStar = { id: number; x: number; y: number; isYours: boolean };
@@ -19,11 +23,11 @@ interface AwsProject {
   id: string | number;
   title: string;
   description: string;
-  longDescription?: string;
   tags: string[];
   whyJoin: string[];
   learnMore: LearnMoreLink[];
   researcherName?: string;
+  researcherId?: string;
 }
 
 interface ProjectData {
@@ -36,6 +40,7 @@ interface ProjectData {
   whyJoin: string[];
   learnMore: LearnMoreLink[];
   researcherName?: string;
+  ownerResearcherId?: string;
   progressPlaceholder?: string;
   tasksPlaceholder?: string;
 }
@@ -62,6 +67,24 @@ interface ProjectStats {
   totalRuns?: number;
   averageTaskTime?: number;
   status?: string;
+  latestRunId?: string;
+  latestRunStatus?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  totalChunks?: number;
+  verifiedChunks?: number;
+  failedVerifications?: number;
+  researcherId?: string | null;
+  title?: string;
+  description?: string;
+  tags?: string[];
+  replicationFactor?: number;
+  maxVerificationAttempts?: number;
+  datasetType?: string;
+  awsTotalChunks?: number | null;
+  awsChunksCompleted?: number | null;
+  whyJoin?: string[];
+  learnMore?: LearnMoreLink[];
 }
 
 const parseProject = (raw: unknown): AwsProject => {
@@ -70,33 +93,31 @@ const parseProject = (raw: unknown): AwsProject => {
     id: (p.id as string | number) ?? "",
     title: String(p.title ?? ""),
     description: String(p.description ?? ""),
-    longDescription: String(p.longDescription ?? p.description ?? ""),
     tags: Array.isArray(p.tags) ? (p.tags as string[]) : [],
     whyJoin: Array.isArray(p.whyJoin) ? (p.whyJoin as string[]) : [],
     learnMore: Array.isArray(p.learnMore) ? (p.learnMore as LearnMoreLink[]) : [],
     researcherName: typeof p.researcherName === "string" ? p.researcherName : undefined,
+    researcherId:
+      typeof p.researcherId === "string"
+        ? p.researcherId
+        : typeof p.researcher_id === "string"
+          ? p.researcher_id
+          : undefined,
   };
 };
 
 const toProjectData = (project: AwsProject | null, requestedProject: string): ProjectData | null => {
   if (!project) return null;
 
-  const name = project.title.trim() || requestedProject || "Untitled AWS Project";
+  const name = project.title.trim() || requestedProject || "Untitled Project";
   const overview =
-    project.longDescription?.trim() ||
     project.description.trim() ||
     "Project description is not available yet. Please check back soon for more details.";
   const whyJoin =
     project.whyJoin.length > 0
       ? project.whyJoin
-      : [
-          "Motivation details are not available yet for this AWS project.",
-          "Contributors are still welcome while project metadata is being expanded.",
-        ];
-  const learnMore =
-    project.learnMore.length > 0
-      ? project.learnMore
-      : [{ label: "Learn-more links coming soon", url: "" }];
+      : ["The lead researcher has not added “why join” reasons for this project yet."];
+  const learnMore = project.learnMore.length > 0 ? project.learnMore : [];
 
   return {
     id: String(project.id),
@@ -108,10 +129,33 @@ const toProjectData = (project: AwsProject | null, requestedProject: string): Pr
     whyJoin,
     learnMore,
     researcherName: project.researcherName,
-    progressPlaceholder: "Progress metrics are not yet available from the AWS projects browse payload.",
+    ownerResearcherId: project.researcherId,
+    progressPlaceholder: "Progress metrics are not yet available.",
     tasksPlaceholder: "Task history has not been connected to this page yet. Star updates will appear once per-task data is available.",
   };
 };
+
+function OwnerPanelSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="rounded-xl bg-white/[0.04] border border-white/10 p-4 min-w-0 flex flex-col h-full">
+      <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-violet-200/90 m-0 mb-3 pb-2 border-b border-white/10">
+        {title}
+      </h3>
+      <div className="min-w-0 flex flex-col flex-1">{children}</div>
+    </section>
+  );
+}
+
+function OwnerStatRow({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 py-2.5 border-b border-white/[0.07] last:border-b-0 items-start sm:items-baseline">
+      <span className="text-white/50 text-xs leading-snug">{label}</span>
+      <span className="text-white/95 text-sm font-medium tabular-nums sm:text-right break-words min-w-0">
+        {value}
+      </span>
+    </div>
+  );
+}
 
 export default function ProjectDetailsUpdated() {
   const goBack = useGoBack();
@@ -127,7 +171,18 @@ export default function ProjectDetailsUpdated() {
   const [volunteerConnected, setVolunteerConnected] = useState(false);
   const [projectStats, setProjectStats] = useState<ProjectStats | null>(null);
   const [projectStatsLoading, setProjectStatsLoading] = useState(false);
+  const [statsVersion, setStatsVersion] = useState(0);
   const [hoveredTaskIndex, setHoveredTaskIndex] = useState<number | null>(null);
+  const [editingProject, setEditingProject] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editPresetTags, setEditPresetTags] = useState<Set<string>>(new Set());
+  const [editExtraTags, setEditExtraTags] = useState<string[]>([]);
+  const [editCustomTagInput, setEditCustomTagInput] = useState("");
+  const [editWhyJoinText, setEditWhyJoinText] = useState("");
+  const [editLearnMoreRows, setEditLearnMoreRows] = useState<LearnMoreLink[]>([]);
+  const [saveProjectLoading, setSaveProjectLoading] = useState(false);
+  const [saveProjectError, setSaveProjectError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -145,7 +200,7 @@ export default function ProjectDetailsUpdated() {
 
         if (!match) {
           setProject(null);
-          setLoadError("Project not found in AWS project table.");
+          setLoadError("Project not found.");
           return;
         }
 
@@ -210,6 +265,9 @@ export default function ProjectDetailsUpdated() {
           setProjectStats(null);
           return;
         }
+        const tagArr = Array.isArray(p.tags)
+          ? (p.tags as unknown[]).map((t) => String(t))
+          : [];
         setProjectStats({
           id: p.id as string | number,
           progress: Number(p.progress ?? 0),
@@ -224,6 +282,40 @@ export default function ProjectDetailsUpdated() {
           averageTaskTime:
             p.averageTaskTime == null ? undefined : Number(p.averageTaskTime),
           status: typeof p.status === "string" ? p.status : undefined,
+          latestRunId: typeof p.latestRunId === "string" ? p.latestRunId : undefined,
+          latestRunStatus:
+            typeof p.latestRunStatus === "string" ? p.latestRunStatus : undefined,
+          createdAt: typeof p.createdAt === "string" ? p.createdAt : undefined,
+          updatedAt: typeof p.updatedAt === "string" ? p.updatedAt : undefined,
+          totalChunks: p.totalChunks == null ? undefined : Number(p.totalChunks),
+          verifiedChunks: p.verifiedChunks == null ? undefined : Number(p.verifiedChunks),
+          failedVerifications:
+            p.failedVerifications == null ? undefined : Number(p.failedVerifications),
+          researcherId:
+            p.researcherId == null ? null : String(p.researcherId),
+          title: typeof p.title === "string" ? p.title : undefined,
+          description: typeof p.description === "string" ? p.description : undefined,
+          tags: tagArr,
+          replicationFactor:
+            p.replicationFactor == null ? undefined : Number(p.replicationFactor),
+          maxVerificationAttempts:
+            p.maxVerificationAttempts == null
+              ? undefined
+              : Number(p.maxVerificationAttempts),
+          datasetType: typeof p.datasetType === "string" ? p.datasetType : undefined,
+          awsTotalChunks:
+            p.awsTotalChunks == null ? null : Number(p.awsTotalChunks),
+          awsChunksCompleted:
+            p.awsChunksCompleted == null ? null : Number(p.awsChunksCompleted),
+          whyJoin: Array.isArray(p.whyJoin)
+            ? (p.whyJoin as unknown[]).map((x) => String(x))
+            : undefined,
+          learnMore: Array.isArray(p.learnMore)
+            ? (p.learnMore as { label?: string; url?: string }[]).map((x) => ({
+                label: String(x.label ?? ""),
+                url: String(x.url ?? ""),
+              }))
+            : undefined,
         });
       })
       .catch(() => {
@@ -236,7 +328,7 @@ export default function ProjectDetailsUpdated() {
     return () => {
       cancelled = true;
     };
-  }, [project]);
+  }, [project, statsVersion]);
 
   const connectWorkerForProject = async () => {
     if (!project || !user) {
@@ -294,9 +386,181 @@ export default function ProjectDetailsUpdated() {
   };
 
   const tasks = project?.completedTasks ?? [];
-  const volunteerView = !!isVolunteer && !isResearcher;
+  const volunteerView = !!isVolunteer && !hasResearcherRole(user?.role ?? "");
   const connectedStarCount = volunteerView && volunteerConnected ? 1 : 0;
   const displayedProgress = Math.max(0, Math.min(100, projectStats?.progress ?? project?.progress ?? 0));
+
+  const isProjectOwner = Boolean(
+    user?.user_id &&
+      isResearcher &&
+      (projectStats?.researcherId === user.user_id ||
+        project?.ownerResearcherId === user.user_id)
+  );
+
+  const displayTitle =
+    isProjectOwner && projectStats?.title ? projectStats.title : (project?.name ?? "");
+  const displayOverview =
+    isProjectOwner && projectStats?.description != null && projectStats.description !== ""
+      ? projectStats.description
+      : (project?.overview ?? "");
+
+  const displayTags =
+    isProjectOwner && projectStats?.tags && projectStats.tags.length > 0
+      ? projectStats.tags
+      : (project?.tags ?? []);
+
+  const displayWhyJoin = useMemo(() => {
+    const fromStats = projectStats?.whyJoin?.filter((s) => s.trim());
+    if (fromStats && fromStats.length > 0) return fromStats;
+    return project?.whyJoin ?? [];
+  }, [projectStats?.whyJoin, project?.whyJoin]);
+
+  const displayLearnMore = useMemo(() => {
+    const fromStats = projectStats?.learnMore?.filter((l) => l.label.trim());
+    if (fromStats && fromStats.length > 0) return fromStats;
+    return project?.learnMore ?? [];
+  }, [projectStats?.learnMore, project?.learnMore]);
+
+  const downloadResultsOwner = () => {
+    if (projectStats?.latestRunId) {
+      window.open(
+        `${API_BASE_URL}/api/runs/${projectStats.latestRunId}/results/download`,
+        "_blank"
+      );
+    }
+  };
+
+  const beginEditProject = () => {
+    setSaveProjectError(null);
+    setEditTitle(projectStats?.title ?? project?.name ?? "");
+    const desc =
+      projectStats?.description ??
+      (project?.overview && !project.overview.includes("not available yet")
+        ? project.overview
+        : "") ??
+      "";
+    setEditDescription(desc);
+    const tagSource =
+      projectStats?.tags && projectStats.tags.length > 0 ? projectStats.tags : project?.tags ?? [];
+    const nextPreset = new Set<string>();
+    const nextExtra: string[] = [];
+    for (const raw of tagSource) {
+      const trimmed = String(raw).trim();
+      if (!trimmed) continue;
+      const canonical = PROJECT_TAG_OPTIONS.find(
+        (p) => p.toLowerCase() === trimmed.toLowerCase()
+      );
+      if (canonical) nextPreset.add(canonical);
+      else if (!nextExtra.some((x) => x.toLowerCase() === trimmed.toLowerCase())) {
+        nextExtra.push(trimmed);
+      }
+    }
+    setEditPresetTags(nextPreset);
+    setEditExtraTags(nextExtra);
+    setEditCustomTagInput("");
+    const wj =
+      projectStats?.whyJoin && projectStats.whyJoin.length > 0
+        ? projectStats.whyJoin
+        : project?.whyJoin ?? [];
+    setEditWhyJoinText(wj.join("\n"));
+    const lm =
+      projectStats?.learnMore && projectStats.learnMore.length > 0
+        ? projectStats.learnMore
+        : project?.learnMore ?? [];
+    setEditLearnMoreRows(lm.length > 0 ? [...lm] : [{ label: "", url: "" }]);
+    setEditingProject(true);
+  };
+
+  const cancelEditProject = () => {
+    setEditingProject(false);
+    setSaveProjectError(null);
+  };
+
+  const saveEditProject = async () => {
+    if (!user?.user_id || !project) return;
+    const titleTrim = editTitle.trim();
+    if (!titleTrim) {
+      setSaveProjectError("Title cannot be empty.");
+      return;
+    }
+    const tags = [
+      ...new Set(
+        [...editPresetTags, ...editExtraTags].map((s) => s.trim()).filter(Boolean)
+      ),
+    ];
+    if (tags.length === 0) {
+      setSaveProjectError("Select at least one suggested tag and/or add a custom tag.");
+      return;
+    }
+    const whyJoinLines = editWhyJoinText
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (whyJoinLines.length === 0) {
+      setSaveProjectError("Add at least one “why join” line.");
+      return;
+    }
+    const learnMorePayload = editLearnMoreRows
+      .filter((r) => r.label.trim())
+      .map((r) => ({ label: r.label.trim(), url: (r.url || "").trim() }));
+    for (let i = 0; i < editLearnMoreRows.length; i++) {
+      const row = editLearnMoreRows[i];
+      if ((row.url || "").trim() && !(row.label || "").trim()) {
+        setSaveProjectError(`Learn more row ${i + 1}: add a label, or remove the URL.`);
+        return;
+      }
+    }
+    setSaveProjectLoading(true);
+    setSaveProjectError(null);
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/api/projects/${encodeURIComponent(project.id)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user_id: user.user_id,
+            title: titleTrim,
+            description: editDescription,
+            tags,
+            whyJoin: whyJoinLines,
+            learnMore: learnMorePayload,
+          }),
+        }
+      );
+      const data = (await res.json()) as {
+        error?: string;
+        project?: {
+          title: string;
+          description: string;
+          tags: string[];
+          whyJoin?: string[];
+          learnMore?: LearnMoreLink[];
+        };
+      };
+      if (!res.ok) throw new Error(data.error || "Failed to save");
+      setEditingProject(false);
+      if (data.project) {
+        setProject((prev) =>
+          prev
+            ? {
+                ...prev,
+                name: data.project!.title,
+                overview: data.project!.description,
+                tags: data.project!.tags ?? prev.tags,
+                whyJoin: data.project!.whyJoin ?? prev.whyJoin,
+                learnMore: data.project!.learnMore ?? prev.learnMore,
+              }
+            : prev
+        );
+      }
+      setStatsVersion((v) => v + 1);
+    } catch (e) {
+      setSaveProjectError(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setSaveProjectLoading(false);
+    }
+  };
 
   const { starPositions, lines } = useMemo((): {
     starPositions: ConstellationStar[];
@@ -369,7 +633,7 @@ export default function ProjectDetailsUpdated() {
   return (
     <ConstellationStarfieldBackground>
       <FlowNav />
-      <div className="relative z-10 h-screen flex flex-col overflow-hidden px-4 sm:px-6 pt-16 sm:pt-20 pb-4 max-w-6xl mx-auto w-full">
+      <div className="relative z-10 flex min-h-0 flex-1 min-h-screen flex-col px-4 sm:px-6 pt-16 sm:pt-20 pb-10 max-w-6xl mx-auto w-full">
         <div className="flex items-start justify-between gap-4 shrink-0 mb-3">
           <button
             type="button"
@@ -382,7 +646,7 @@ export default function ProjectDetailsUpdated() {
 
         {listLoading ? (
           <div className="rounded-xl bg-white/[0.06] backdrop-blur-md border border-white/10 p-5">
-            <p className="text-white/70 text-sm m-0">Loading project details from AWS...</p>
+            <p className="text-white/70 text-sm m-0">Loading project details...</p>
           </div>
         ) : loadError || !project ? (
           <div className="rounded-xl bg-white/[0.06] backdrop-blur-md border border-red-300/30 p-5">
@@ -397,9 +661,9 @@ export default function ProjectDetailsUpdated() {
         ) : (
           <>
             <header className="shrink-0 mb-3">
-              <p className="text-xs uppercase tracking-[0.2em] text-white/50 mb-1">AWS project details</p>
+              <p className="text-xs uppercase tracking-[0.2em] text-white/50 mb-1">Project details</p>
               <h1 className="text-2xl sm:text-3xl font-semibold text-white tracking-tight mt-0 mb-1">
-                {project.name}
+                {displayTitle}
               </h1>
               <p className="text-white/60 text-sm m-0">
                 {project.researcherName
@@ -414,13 +678,14 @@ export default function ProjectDetailsUpdated() {
               </div>
             )}
 
-            <div className="flex flex-col lg:flex-row gap-4 flex-1 min-h-0">
-              <div className="flex-1 min-h-0 rounded-xl bg-white/[0.06] backdrop-blur-md border border-white/10 overflow-hidden relative">
+            <div className="flex flex-col lg:flex-row gap-4 lg:items-stretch">
+              <div className="w-full lg:flex-1 lg:min-w-0 min-h-[220px] flex flex-col rounded-xl bg-white/[0.06] backdrop-blur-md border border-white/10 overflow-hidden relative">
                 {volunteerView && volunteerConnected && (
                   <div className="absolute top-3 left-3 z-10 rounded-lg border border-amber-300/40 bg-amber-400/20 px-3 py-1.5">
                     <p className="text-amber-100 text-xs font-semibold m-0">★ This is you</p>
                   </div>
                 )}
+                <div className="flex-1 min-h-[200px] lg:min-h-0 relative w-full">
                 {hasAnyStars ? (
                   <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
                     <defs>
@@ -484,9 +749,10 @@ export default function ProjectDetailsUpdated() {
                     <p className="text-white/40 text-sm text-center px-4">{project.tasksPlaceholder}</p>
                   </div>
                 )}
+                </div>
               </div>
 
-              <div className="lg:w-[360px] shrink-0 flex flex-col gap-4 min-h-0 overflow-y-auto">
+              <div className="w-full lg:w-[360px] shrink-0 flex flex-col gap-4 lg:min-h-0">
                 {volunteerView && (
                   <div className="rounded-xl bg-white/[0.06] backdrop-blur-md border border-white/10 p-5 shrink-0">
                     {volunteerConnected ? (
@@ -521,52 +787,9 @@ export default function ProjectDetailsUpdated() {
                   </div>
                 )}
 
-                {isResearcher && (
-                  <div className="rounded-xl bg-white/[0.06] backdrop-blur-md border border-white/10 p-5 shrink-0">
-                    <h2 className="text-sm font-semibold text-white/90 uppercase tracking-wider mt-0 mb-3">
-                      Researcher overview
-                    </h2>
-                    {projectStatsLoading ? (
-                      <p className="text-sm text-white/70 m-0">Loading researcher statistics...</p>
-                    ) : projectStats ? (
-                      <div className="space-y-2 text-sm text-white/80">
-                        <p className="m-0">Project progress: {projectStats.progress ?? 0}%</p>
-                        <p className="m-0">Total contributors: {projectStats.totalContributors ?? 0}</p>
-                        <p className="m-0">Active contributors: {projectStats.activeContributors ?? 0}</p>
-                        <p className="m-0">Total tasks: {projectStats.totalTasks ?? 0}</p>
-                        <p className="m-0">Completed tasks: {projectStats.completedTasks ?? 0}</p>
-                        <p className="m-0">Failed tasks: {projectStats.failedTasks ?? 0}</p>
-                        <p className="m-0">Total runs: {projectStats.totalRuns ?? 0}</p>
-                        <p className="m-0">
-                          Avg task time: {(projectStats.averageTaskTime ?? 0).toFixed(1)}s
-                        </p>
-                      </div>
-                    ) : (
-                      <p className="text-sm text-white/70 m-0">
-                        Detailed researcher statistics are not available for this project yet.
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {isResearcher && (
-                  <div className="rounded-xl bg-white/[0.06] backdrop-blur-md border border-white/10 p-5 shrink-0">
-                    <h2 className="text-sm font-semibold text-white/90 uppercase tracking-wider mt-0 mb-3">
-                      Project settings
-                    </h2>
-                    <div className="space-y-2 text-sm text-white/75">
-                      <p className="m-0">Data source: AWS projects table</p>
-                      <p className="m-0">Project ID: {project.id}</p>
-                      <p className="m-0">Status: {projectStats?.status ?? "pending"}</p>
-                      <p className="m-0">Replication factor: not exposed in browse payload yet</p>
-                      <p className="m-0">Max verification attempts: not exposed in browse payload yet</p>
-                    </div>
-                  </div>
-                )}
-
                 <div className="rounded-xl bg-white/[0.06] backdrop-blur-md border border-white/10 p-5 shrink-0">
                   <div className="flex items-center gap-3 mb-2">
-                    <span className="text-sm font-semibold text-white/90">Project progress</span>
+                    <span className="text-sm font-semibold text-white/90 uppercase tracking-wider mt-0 mb-2">Project progress</span>
                     <span className="text-2xl font-bold text-white tabular-nums ml-auto">{displayedProgress}%</span>
                   </div>
                   <div className="h-3 rounded-full bg-white/15 overflow-hidden">
@@ -575,29 +798,19 @@ export default function ProjectDetailsUpdated() {
                       style={{ width: `${displayedProgress}%`, background: "linear-gradient(90deg, #a78bfa, #818cf8)" }}
                     />
                   </div>
-                  {projectStatsLoading ? (
-                    <p className="text-white/55 text-sm mt-3 mb-0">Loading project metrics...</p>
-                  ) : projectStats ? (
-                    <div className="text-white/70 text-sm mt-3 space-y-1">
-                      <p className="m-0">Total contributors: {projectStats.totalContributors ?? 0}</p>
-                      <p className="m-0">Active contributors: {projectStats.activeContributors ?? 0}</p>
-                    </div>
-                  ) : (
-                    <p className="text-white/55 text-sm mt-3 mb-0">{project.progressPlaceholder}</p>
-                  )}
                 </div>
 
                 <div className="rounded-xl bg-white/[0.06] backdrop-blur-md border border-white/10 p-5">
                   <h2 className="text-sm font-semibold text-white/90 uppercase tracking-wider mt-0 mb-2">Overview</h2>
-                  <p className="text-sm text-white/85 leading-relaxed m-0">{project.overview}</p>
+                  <p className="text-sm text-white/85 leading-relaxed m-0">{displayOverview}</p>
                 </div>
 
-                <div className="rounded-xl bg-white/[0.06] backdrop-blur-md border border-white/10 overflow-hidden shrink-0">
+                {/* <div className="rounded-xl bg-white/[0.06] backdrop-blur-md border border-white/10 overflow-hidden shrink-0">
                   <h2 className="text-sm font-semibold text-white/90 uppercase tracking-wider px-5 py-3.5 border-b border-white/10">
                     Tasks you completed
                   </h2>
                   {hasTasks ? (
-                    <ul className="list-none p-0 m-0 max-h-[180px] overflow-y-auto">
+                    <ul className="list-none p-0 m-0">
                       {tasks.map((task, i) => (
                         <li key={task.id}>
                           <button
@@ -619,46 +832,54 @@ export default function ProjectDetailsUpdated() {
                   ) : (
                     <p className="text-white/45 text-sm px-5 py-5 m-0">{project.tasksPlaceholder}</p>
                   )}
-                </div>
+                </div> */}
 
                 <div className="rounded-xl bg-white/[0.06] backdrop-blur-md border border-white/10 p-5">
                   <h2 className="text-sm font-semibold text-white/90 uppercase tracking-wider mt-0 mb-2">Why join</h2>
-                  <ul className="list-none p-0 m-0 space-y-2">
-                    {project.whyJoin.map((reason, i) => (
-                      <li key={`${reason}-${i}`} className="text-sm text-white/80 leading-relaxed">
-                        • {reason}
-                      </li>
-                    ))}
-                  </ul>
+                  {displayWhyJoin.length === 0 ? (
+                    <p className="text-sm text-white/55 m-0">No reasons listed yet.</p>
+                  ) : (
+                    <ul className="list-none p-0 m-0 space-y-2">
+                      {displayWhyJoin.map((reason, i) => (
+                        <li key={`${reason}-${i}`} className="text-sm text-white/80 leading-relaxed">
+                          • {reason}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
 
                 <div className="rounded-xl bg-white/[0.06] backdrop-blur-md border border-white/10 p-5">
                   <h2 className="text-sm font-semibold text-white/90 uppercase tracking-wider mt-0 mb-2">Learn more</h2>
-                  <ul className="list-none p-0 m-0 space-y-2">
-                    {project.learnMore.map((link, i) => (
-                      <li key={`${link.label}-${i}`}>
-                        {link.url ? (
-                          <a
-                            href={link.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-sm text-white/90 hover:text-white underline underline-offset-2"
-                          >
-                            {link.label}
-                          </a>
-                        ) : (
-                          <span className="text-sm text-white/60">{link.label}</span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
+                  {displayLearnMore.length === 0 ? (
+                    <p className="text-sm text-white/55 m-0">No external links listed.</p>
+                  ) : (
+                    <ul className="list-none p-0 m-0 space-y-2">
+                      {displayLearnMore.map((link, i) => (
+                        <li key={`${link.label}-${i}`}>
+                          {link.url ? (
+                            <a
+                              href={link.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-sm text-white/90 hover:text-white underline underline-offset-2"
+                            >
+                              {link.label}
+                            </a>
+                          ) : (
+                            <span className="text-sm text-white/80">{link.label}</span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
 
-                {project.tags.length > 0 && (
+                {displayTags.length > 0 && (
                   <div className="rounded-xl bg-white/[0.06] backdrop-blur-md border border-white/10 p-5">
                     <h2 className="text-sm font-semibold text-white/90 uppercase tracking-wider mt-0 mb-2">Tags</h2>
                     <div className="flex flex-wrap gap-2">
-                      {project.tags.map((tag) => (
+                      {displayTags.map((tag) => (
                         <span
                           key={tag}
                           className="px-2.5 py-1 rounded-md bg-white/15 text-white/80 text-xs border border-white/15"
@@ -680,8 +901,486 @@ export default function ProjectDetailsUpdated() {
                 )}
               </div>
             </div>
+
+            <div className="flex flex-col gap-6 mt-8 w-full">
+              {isProjectOwner && (
+                <div className="rounded-2xl bg-gradient-to-br from-indigo-500/15 to-violet-500/10 backdrop-blur-md border border-indigo-400/25 p-5 sm:p-6">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5 pb-4 border-b border-white/10">
+                    <div>
+                      <h2 className="text-base font-semibold text-white tracking-tight m-0">
+                        Your project
+                      </h2>
+                      <p className="text-white/50 text-xs m-0 mt-1">
+                        Detailed compute and verification metrics (not shown to volunteers).
+                      </p>
+                    </div>
+                    <span className="shrink-0 self-start sm:self-center text-xs font-semibold px-3 py-1 rounded-full border border-white/20 bg-white/10 text-white/90">
+                      Owner
+                    </span>
+                  </div>
+                  {projectStatsLoading ? (
+                    <p className="text-sm text-white/70 m-0">Loading analytics...</p>
+                  ) : projectStats ? (
+                    <>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <OwnerPanelSection title="Project & runs">
+                          <OwnerStatRow
+                            label="Project ID"
+                            value={<span className="font-mono text-xs">{project.id}</span>}
+                          />
+                          <OwnerStatRow
+                            label="Run status"
+                            value={projectStats.latestRunStatus ?? projectStats.status ?? "—"}
+                          />
+                          {projectStats.createdAt && (
+                            <OwnerStatRow
+                              label="Created"
+                              value={new Date(projectStats.createdAt).toLocaleDateString()}
+                            />
+                          )}
+                          {projectStats.updatedAt && (
+                            <OwnerStatRow
+                              label="Last activity"
+                              value={new Date(projectStats.updatedAt).toLocaleDateString()}
+                            />
+                          )}
+                          {projectStats.datasetType && (
+                            <OwnerStatRow label="Dataset type" value={projectStats.datasetType} />
+                          )}
+                        </OwnerPanelSection>
+
+                        <OwnerPanelSection title="Contributors">
+                          <OwnerStatRow
+                            label="Total (≥1 task completed)"
+                            value={(projectStats.totalContributors ?? 0).toLocaleString()}
+                          />
+                          <OwnerStatRow
+                            label="Active now"
+                            value={<span className="text-sky-300">{projectStats.activeContributors ?? 0}</span>}
+                          />
+                          {(projectStats.progress ?? 0) >= 100 &&
+                            projectStats.completedContributors != null && (
+                              <OwnerStatRow
+                                label="Completed cohort"
+                                value={
+                                  <span className="text-emerald-300">
+                                    {projectStats.completedContributors}
+                                  </span>
+                                }
+                              />
+                            )}
+                        </OwnerPanelSection>
+
+                        <OwnerPanelSection title="Tasks & timing">
+                          <OwnerStatRow
+                            label="Completed"
+                            value={
+                              <span className="text-emerald-300/90">
+                                {(projectStats.completedTasks ?? 0).toLocaleString()}
+                              </span>
+                            }
+                          />
+                          <OwnerStatRow
+                            label="Remaining"
+                            value={
+                              <span className="text-amber-300/90">
+                                {Math.max(
+                                  0,
+                                  (projectStats.totalTasks ?? 0) -
+                                    (projectStats.completedTasks ?? 0) -
+                                    (projectStats.failedTasks ?? 0)
+                                ).toLocaleString()}
+                              </span>
+                            }
+                          />
+                          {(projectStats.failedTasks ?? 0) > 0 && (
+                            <OwnerStatRow
+                              label="Failed"
+                              value={
+                                <span className="text-red-300/90">{projectStats.failedTasks}</span>
+                              }
+                            />
+                          )}
+                          <OwnerStatRow
+                            label="Total tasks"
+                            value={(projectStats.totalTasks ?? 0).toLocaleString()}
+                          />
+                          <OwnerStatRow label="Total runs" value={projectStats.totalRuns ?? 0} />
+                          {projectStats.averageTaskTime != null && (
+                            <OwnerStatRow
+                              label="Avg task time"
+                              value={`${projectStats.averageTaskTime.toFixed(1)}s`}
+                            />
+                          )}
+                        </OwnerPanelSection>
+
+                        <OwnerPanelSection title="Verification & data">
+                          <OwnerStatRow
+                            label="Chunk indices (tasks)"
+                            value={(projectStats.totalChunks ?? 0).toLocaleString()}
+                          />
+                          <OwnerStatRow
+                            label="Verified chunks"
+                            value={
+                              <span className="text-emerald-300/90">
+                                {(projectStats.verifiedChunks ?? 0).toLocaleString()}
+                              </span>
+                            }
+                          />
+                          {(projectStats.failedVerifications ?? 0) > 0 && (
+                            <OwnerStatRow
+                              label="Failed verifications"
+                              value={
+                                <span className="text-red-300/90">
+                                  {projectStats.failedVerifications}
+                                </span>
+                              }
+                            />
+                          )}
+                          <OwnerStatRow
+                            label="Replication factor"
+                            value={projectStats.replicationFactor ?? "—"}
+                          />
+                          <OwnerStatRow
+                            label="Max verify attempts"
+                            value={projectStats.maxVerificationAttempts ?? "—"}
+                          />
+                          {projectStats.awsTotalChunks != null && projectStats.awsTotalChunks > 0 && (
+                            <OwnerStatRow
+                              label="Chunk progress"
+                              value={`${projectStats.awsChunksCompleted ?? 0} / ${projectStats.awsTotalChunks}`}
+                            />
+                          )}
+                        </OwnerPanelSection>
+                      </div>
+
+                      {projectStats.latestRunId && (
+                        <div className="mt-5 pt-5 border-t border-white/10">
+                          <p className="text-xs text-white/45 uppercase tracking-wider m-0 mb-2">
+                            Exports
+                          </p>
+                          <button
+                            type="button"
+                            onClick={downloadResultsOwner}
+                            className="w-full sm:w-auto min-w-[200px] py-2.5 px-5 rounded-lg border font-medium text-sm bg-emerald-500/20 hover:bg-emerald-500/30 border-emerald-400/30 text-emerald-100 cursor-pointer"
+                          >
+                            Download results (latest run)
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <p className="text-sm text-white/70 m-0">
+                      Analytics will appear once this project is linked to compute runs.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {isProjectOwner && (
+                <div className="rounded-2xl bg-white/[0.06] backdrop-blur-md border border-white/10 overflow-hidden">
+                  <div className="px-5 sm:px-6 py-4 border-b border-white/10 bg-white/[0.03]">
+                    <h2 className="text-base font-semibold text-white tracking-tight m-0">
+                      Edit project
+                    </h2>
+                    <p className="text-white/50 text-xs m-0 mt-1">
+                      Title, description, tags, why join, and learn-more links shown to volunteers.
+                    </p>
+                  </div>
+                  <div className="p-5 sm:p-6">
+                    {saveProjectError && (
+                      <p className="text-sm text-red-200 m-0 mb-4 rounded-lg bg-red-500/10 border border-red-400/20 px-3 py-2">
+                        {saveProjectError}
+                      </p>
+                    )}
+                    {editingProject ? (
+                      <div className="space-y-6">
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
+                          <div className="space-y-4 min-w-0">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/45 m-0">
+                              Basic info
+                            </p>
+                            <label className="block">
+                              <span className="text-xs text-white/55">Title</span>
+                              <input
+                                type="text"
+                                value={editTitle}
+                                onChange={(e) => setEditTitle(e.target.value)}
+                                className="mt-1.5 w-full px-3 py-2.5 rounded-lg bg-white/10 border border-white/20 text-white text-sm"
+                                maxLength={500}
+                              />
+                            </label>
+                            <div className="block">
+                              <span className="text-xs text-white/55 block mb-1.5">
+                                Tags (required)
+                              </span>
+                              <TagMultiselectDropdown
+                                options={[...PROJECT_TAG_OPTIONS]}
+                                selected={editPresetTags}
+                                onChange={setEditPresetTags}
+                                buttonLabel="Suggested tags"
+                                emptyHint="No suggested tags match your search."
+                              />
+                              <div className="mt-3">
+                                <span className="text-[10px] text-white/45 uppercase tracking-wide block mb-1.5">
+                                  Custom tags
+                                </span>
+                                <div className="flex flex-col sm:flex-row gap-2">
+                                  <input
+                                    type="text"
+                                    placeholder="Add tag…"
+                                    value={editCustomTagInput}
+                                    onChange={(e) => setEditCustomTagInput(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        const t = editCustomTagInput.trim();
+                                        if (!t) return;
+                                        setEditExtraTags((prev) =>
+                                          prev.some((x) => x.toLowerCase() === t.toLowerCase()) ||
+                                          [...editPresetTags].some(
+                                            (x) => x.toLowerCase() === t.toLowerCase()
+                                          )
+                                            ? prev
+                                            : [...prev, t]
+                                        );
+                                        setEditCustomTagInput("");
+                                      }
+                                    }}
+                                    className="flex-1 min-w-0 px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white text-sm placeholder-white/40"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const t = editCustomTagInput.trim();
+                                      if (!t) return;
+                                      setEditExtraTags((prev) =>
+                                        prev.some((x) => x.toLowerCase() === t.toLowerCase()) ||
+                                        [...editPresetTags].some(
+                                          (x) => x.toLowerCase() === t.toLowerCase()
+                                        )
+                                          ? prev
+                                          : [...prev, t]
+                                      );
+                                      setEditCustomTagInput("");
+                                    }}
+                                    className="px-3 py-2 rounded-lg border border-white/25 text-white/85 text-sm hover:bg-white/10 cursor-pointer shrink-0 bg-transparent font-inherit"
+                                  >
+                                    Add
+                                  </button>
+                                </div>
+                                {editExtraTags.length > 0 && (
+                                  <ul className="flex flex-wrap gap-1.5 list-none m-0 mt-2 p-0">
+                                    {editExtraTags.map((tag) => (
+                                      <li key={tag}>
+                                        <span className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-md bg-violet-500/20 border border-violet-400/25 text-violet-100 text-xs">
+                                          {tag}
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              setEditExtraTags((prev) =>
+                                                prev.filter((x) => x !== tag)
+                                              )
+                                            }
+                                            className="p-0.5 rounded hover:bg-white/10 text-white/80 leading-none border-0 bg-transparent cursor-pointer font-inherit"
+                                            aria-label={`Remove ${tag}`}
+                                          >
+                                            ×
+                                          </button>
+                                        </span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                )}
+                              </div>
+                            </div>
+                            <label className="block">
+                              <span className="text-xs text-white/55">Why join (one reason per line, required)</span>
+                              <textarea
+                                value={editWhyJoinText}
+                                onChange={(e) => setEditWhyJoinText(e.target.value)}
+                                rows={4}
+                                className="mt-1.5 w-full px-3 py-2.5 rounded-lg bg-white/10 border border-white/20 text-white text-sm resize-y min-h-[88px]"
+                              />
+                            </label>
+                          </div>
+                          <div className="flex flex-col min-w-0 min-h-0">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/45 m-0 mb-2">
+                              Description
+                            </p>
+                            <label className="flex flex-col flex-1 min-h-[140px]">
+                              <span className="sr-only">Description</span>
+                              <textarea
+                                value={editDescription}
+                                onChange={(e) => setEditDescription(e.target.value)}
+                                rows={6}
+                                className="flex-1 w-full min-h-[140px] px-3 py-2.5 rounded-lg bg-white/10 border border-white/20 text-white text-sm resize-y"
+                              />
+                            </label>
+                          </div>
+                        </div>
+                        <div className="space-y-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/45 m-0">
+                            Learn more (optional — each row needs a label)
+                          </p>
+                          {editLearnMoreRows.map((row, i) => (
+                            <div
+                              key={i}
+                              className="flex flex-col sm:flex-row gap-2 sm:items-end flex-wrap"
+                            >
+                              <label className="flex-1 min-w-[140px] block">
+                                <span className="text-xs text-white/50">Label</span>
+                                <input
+                                  type="text"
+                                  value={row.label}
+                                  onChange={(e) => {
+                                    const v = e.target.value;
+                                    setEditLearnMoreRows((rows) =>
+                                      rows.map((r, j) => (j === i ? { ...r, label: v } : r))
+                                    );
+                                  }}
+                                  className="mt-1 w-full px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white text-sm"
+                                  placeholder="Paper, docs, …"
+                                />
+                              </label>
+                              <label className="flex-[2] min-w-[180px] block">
+                                <span className="text-xs text-white/50">URL (optional)</span>
+                                <input
+                                  type="text"
+                                  value={row.url}
+                                  onChange={(e) => {
+                                    const v = e.target.value;
+                                    setEditLearnMoreRows((rows) =>
+                                      rows.map((r, j) => (j === i ? { ...r, url: v } : r))
+                                    );
+                                  }}
+                                  className="mt-1 w-full px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white text-sm"
+                                  placeholder="https://…"
+                                />
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setEditLearnMoreRows((rows) => rows.filter((_, j) => j !== i))
+                                }
+                                className="px-3 py-2 rounded-lg border border-white/20 text-white/70 text-sm hover:bg-white/10 shrink-0"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setEditLearnMoreRows((rows) => [...rows, { label: "", url: "" }])
+                            }
+                            className="text-sm text-violet-200 hover:text-white underline underline-offset-2 bg-transparent border-0 cursor-pointer p-0 font-inherit"
+                          >
+                            + Add link
+                          </button>
+                        </div>
+                        <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-4 border-t border-white/10">
+                          <button
+                            type="button"
+                            onClick={cancelEditProject}
+                            disabled={saveProjectLoading}
+                            className="px-5 py-2.5 rounded-lg border border-white/25 text-white/85 text-sm cursor-pointer disabled:opacity-60"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void saveEditProject()}
+                            disabled={saveProjectLoading}
+                            className="px-5 py-2.5 rounded-lg bg-white/20 hover:bg-white/30 border border-white/30 text-white text-sm font-medium cursor-pointer disabled:opacity-60"
+                          >
+                            {saveProjectLoading ? "Saving…" : "Save changes"}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-5 items-start">
+                        <ul className="text-sm text-white/60 space-y-2 m-0 pl-4 list-disc marker:text-white/35">
+                          <li>Edit title, description, tags, why join, and learn-more links.</li>
+                          <li>Volunteers see the same overview on browse and project pages.</li>
+                        </ul>
+                        <button
+                          type="button"
+                          onClick={beginEditProject}
+                          className="w-full lg:w-auto shrink-0 py-2.5 px-6 rounded-lg bg-white/15 hover:bg-white/25 border border-white/25 text-white text-sm font-medium cursor-pointer whitespace-nowrap"
+                        >
+                          Edit listing
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {isResearcher && !isProjectOwner && (
+                <div className="rounded-2xl bg-white/[0.06] backdrop-blur-md border border-white/10 p-5 sm:p-6">
+                  <div className="mb-5 pb-4 border-b border-white/10">
+                    <h2 className="text-base font-semibold text-white tracking-tight m-0">
+                      Researcher overview
+                    </h2>
+                    <p className="text-white/50 text-xs m-0 mt-1">
+                      Summary metrics for projects you do not own.
+                    </p>
+                  </div>
+                  {projectStatsLoading ? (
+                    <p className="text-sm text-white/70 m-0">Loading researcher statistics...</p>
+                  ) : projectStats ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      <OwnerPanelSection title="Progress">
+                        <OwnerStatRow label="Project progress" value={`${projectStats.progress ?? 0}%`} />
+                        <OwnerStatRow
+                          label="Total contributors"
+                          value={(projectStats.totalContributors ?? 0).toLocaleString()}
+                        />
+                        <OwnerStatRow
+                          label="Active contributors"
+                          value={(projectStats.activeContributors ?? 0).toLocaleString()}
+                        />
+                      </OwnerPanelSection>
+                      <OwnerPanelSection title="Tasks">
+                        <OwnerStatRow
+                          label="Total tasks"
+                          value={(projectStats.totalTasks ?? 0).toLocaleString()}
+                        />
+                        <OwnerStatRow
+                          label="Completed"
+                          value={(projectStats.completedTasks ?? 0).toLocaleString()}
+                        />
+                        <OwnerStatRow label="Failed" value={(projectStats.failedTasks ?? 0).toLocaleString()} />
+                        <OwnerStatRow label="Total runs" value={projectStats.totalRuns ?? 0} />
+                        <OwnerStatRow
+                          label="Avg task time"
+                          value={`${(projectStats.averageTaskTime ?? 0).toFixed(1)}s`}
+                        />
+                      </OwnerPanelSection>
+                      <OwnerPanelSection title="Verification">
+                        <OwnerStatRow
+                          label="Verified chunks"
+                          value={(projectStats.verifiedChunks ?? 0).toLocaleString()}
+                        />
+                        <OwnerStatRow
+                          label="Replication factor"
+                          value={projectStats.replicationFactor ?? "—"}
+                        />
+                      </OwnerPanelSection>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-white/70 m-0">
+                      Detailed researcher statistics are not available for this project yet.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
           </>
         )}
+
+        <PageFooter className="w-full" />
       </div>
     </ConstellationStarfieldBackground>
   );

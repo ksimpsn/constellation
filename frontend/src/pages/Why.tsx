@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import ConstellationStarfieldBackground from '../components/ConstellationStarfieldBackground';
 import FlowNav from '../components/FlowNav';
+import PageFooter from '../components/PageFooter';
 import { useGoBack } from '../hooks/useGoBack';
 import { sections, accentBorder } from '../data/whySections';
 
@@ -22,7 +23,7 @@ export default function Why() {
   return (
     <ConstellationStarfieldBackground>
       <FlowNav />
-      <div className="relative z-10 flex flex-col items-center min-h-screen px-4 sm:px-6 py-16 sm:py-24 overflow-hidden">
+      <div className="relative z-10 flex min-h-0 flex-1 flex-col items-center min-h-screen px-4 sm:px-6 py-16 sm:py-24 overflow-hidden">
         {/* Soft ambient orbs, depth without clutter */}
         <div
           className="pointer-events-none absolute -top-32 left-1/2 h-[28rem] w-[min(90vw,42rem)] -translate-x-1/2 rounded-full bg-violet-600/20 blur-[100px]"
@@ -37,7 +38,7 @@ export default function Why() {
           aria-hidden
         />
 
-        <div className="relative max-w-4xl mx-auto w-full">
+        <div className="relative flex min-h-0 max-w-4xl flex-1 flex-col mx-auto w-full">
           {/* Hero */}
           <header className="text-center mb-12 sm:mb-16">
             <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.06] px-4 py-1.5 text-xs font-medium uppercase tracking-[0.2em] text-white/55 backdrop-blur-md mb-6">
@@ -184,6 +185,8 @@ export default function Why() {
               ← Back
             </button>
           </div>
+
+          <PageFooter className="w-full max-w-3xl mx-auto" />
         </div>
       </div>
     </ConstellationStarfieldBackground>

@@ -1389,6 +1389,9 @@ class ConstellationAPI:
             title: str = None,
             description: str = None,
             head_ip: str = None,
+            tags: list = None,
+            why_join: list = None,
+            learn_more: list = None,
     ) -> int:
         """
         Full pipeline for researcher-uploaded projects.
@@ -1461,6 +1464,9 @@ class ConstellationAPI:
             max_verification_attempts=max_verification_attempts,
             num_chunks=len(chunks),
             ip_address=head_ip,
+            tags=tags,
+            why_join=why_join,
+            learn_more=learn_more,
         )
         
         # Copy files to project directory, named by project_id (same hash as folder / results_<run_id>.json)

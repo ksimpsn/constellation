@@ -1084,7 +1084,10 @@ def create_project(researcher_id: str, title: str, description: str,
                    code_path: str, dataset_path: str, dataset_type: str,
                    func_name: str = "main", chunk_size: int = 1000,
                    replication_factor: int = 2, max_verification_attempts: int = 2,
-                   num_chunks: int = 0, ip_address: str = None):
+                   num_chunks: int = 0, ip_address: str = None,
+                   tags: list | None = None,
+                   why_join: list | None = None,
+                   learn_more: list | None = None):
     """
     Create a new project. When AWS_DATABASE_URL is set, creates in RDS and uploads code/dataset to S3.
     Returns a project-like object (with project_id, code_s3_path, dataset_s3_path, etc.).
@@ -1106,8 +1109,49 @@ def create_project(researcher_id: str, title: str, description: str,
             bucket_name=BUCKET_NAME,
             num_chunks=num_chunks,
             ip_address=ip_address,
+            tags=tags,
+            why_join=why_join,
+            learn_more=learn_more,
         )
     raise RuntimeError("AWS database not configured. Set AWS_DATABASE_URL to create projects.")
+
+
+def _average_task_runtime_seconds_for_project(session, project_id: str) -> float | None:
+    """
+    Mean task runtime for a project.
+
+    Uses TaskResult.runtime_seconds joined through Run (same project scope as other stats).
+    Falls back to Task.raw_runtime_seconds for completed tasks when result rows have no
+    runtime (e.g. legacy rows or paths that only set raw time on Task).
+    """
+    from sqlalchemy import func
+
+    pid = str(project_id)
+    avg_tr = (
+        session.query(func.avg(TaskResult.runtime_seconds))
+        .join(Task, TaskResult.task_id == Task.task_id)
+        .join(Run, Task.run_id == Run.run_id)
+        .filter(
+            Run.project_id == pid,
+            TaskResult.runtime_seconds.isnot(None),
+        )
+        .scalar()
+    )
+    if avg_tr is not None:
+        return float(avg_tr)
+    avg_raw = (
+        session.query(func.avg(Task.raw_runtime_seconds))
+        .join(Run, Task.run_id == Run.run_id)
+        .filter(
+            Run.project_id == pid,
+            Task.status == "completed",
+            Task.raw_runtime_seconds.isnot(None),
+        )
+        .scalar()
+    )
+    if avg_raw is not None:
+        return float(avg_raw)
+    return None
 
 
 def get_researcher_projects_with_stats(researcher_id: str) -> list:
@@ -1145,6 +1189,34 @@ def get_researcher_projects_with_stats(researcher_id: str) -> list:
             failed_tasks = sum(1 for t in all_tasks if t.status == "failed")
             progress = int((completed_tasks / total_tasks * 100)) if total_tasks > 0 else 0
 
+            # Total unique chunks (task_index) across all runs for this project
+            total_chunks = len({t.task_index for t in all_tasks}) if all_tasks else 0
+
+            # Verified chunks: distinct task_index values that have a verified TaskResult
+            verified_chunk_indices = (
+                session.query(distinct(Task.task_index))
+                .join(TaskResult, TaskResult.task_id == Task.task_id)
+                .join(Run, Task.run_id == Run.run_id)
+                .filter(
+                    Run.project_id == pid,
+                    TaskResult.verification_status == "verified",
+                )
+                .all()
+            )
+            verified_chunks = len(verified_chunk_indices)
+
+            # Failed verifications: TaskResult rows with a failed/disputed verification status
+            failed_verifications = (
+                session.query(func.count(TaskResult.task_result_id))
+                .join(Task, TaskResult.task_id == Task.task_id)
+                .join(Run, Task.run_id == Run.run_id)
+                .filter(
+                    Run.project_id == pid,
+                    TaskResult.verification_status.in_(["failed", "disputed"]),
+                )
+                .scalar()
+            ) or 0
+
             # Get unique contributors: users whose workers completed tasks in this project.
             # Join through Task (assigned_worker_id) rather than TaskResult.worker_id
             # to avoid missing contributors where worker_id was "worker-unknown".
@@ -1168,18 +1240,16 @@ def get_researcher_projects_with_stats(researcher_id: str) -> list:
                 .join(Run, Task.run_id == Run.run_id)
                 .filter(
                     Run.project_id == pid,
-                Task.status.in_(["assigned", "running"]),
+                    Task.status.in_(["assigned", "running"]),
                     Worker.user_id.isnot(None),
+                    Worker.status != "offline",
                 )
                 .all()
             )
             active_contributors = len([u[0] for u in active_task_users if u[0]])
             completed_contributors = total_contributors if progress >= 100 else None
 
-            avg_task_time = session.query(func.avg(TaskResult.runtime_seconds)).filter(
-                TaskResult.project_id == pid,
-                TaskResult.runtime_seconds.isnot(None),
-            ).scalar()
+            avg_task_time = _average_task_runtime_seconds_for_project(session, pid)
 
             result_url = None
             completed_runs = [r for r in runs if r.status == "completed" and r.results_s3_path]
@@ -1240,10 +1310,13 @@ def get_researcher_projects_with_stats(researcher_id: str) -> list:
                 "totalTasks": total_tasks,
                 "completedTasks": completed_tasks,
                 "failedTasks": failed_tasks,
+                "totalChunks": total_chunks,
+                "verifiedChunks": verified_chunks,
+                "failedVerifications": failed_verifications,
                     "createdAt": created_at.isoformat() if hasattr(created_at, "isoformat") and created_at else None,
                     "updatedAt": latest_updated.isoformat() if hasattr(latest_updated, "isoformat") and latest_updated else None,
                 "totalRuns": total_runs,
-                    "averageTaskTime": round(avg_task_time, 1) if avg_task_time else None,
+                    "averageTaskTime": round(avg_task_time, 1) if avg_task_time is not None else None,
                     "latestRunId": latest_run.run_id if latest_run else None,
                     "latestRunStatus": latest_run.status if latest_run else None,
                 }
@@ -1283,9 +1356,10 @@ def get_project_stats(project_id: str) -> dict | None:
         completed_task_users = (
             session.query(distinct(Worker.user_id))
             .join(Task, Task.assigned_worker_id == Worker.worker_id)
-            .join(TaskResult, TaskResult.task_id == Task.task_id)
+            .join(Run, Task.run_id == Run.run_id)
             .filter(
-                TaskResult.project_id == pid,
+                Run.project_id == pid,
+                Task.status == "completed",
                 Worker.user_id.isnot(None),
             )
             .all()
@@ -1300,16 +1374,39 @@ def get_project_stats(project_id: str) -> dict | None:
                 Run.project_id == pid,
                 Task.status.in_(["assigned", "running"]),
                 Worker.user_id.isnot(None),
+                Worker.status != "offline",
             )
             .all()
         )
         active_contributors = len([u[0] for u in active_task_users if u[0]])
         completed_contributors = total_contributors if progress >= 100 else None
 
-        avg_task_time = session.query(func.avg(TaskResult.runtime_seconds)).filter(
-            TaskResult.project_id == pid,
-            TaskResult.runtime_seconds.isnot(None),
-        ).scalar()
+        avg_task_time = _average_task_runtime_seconds_for_project(session, pid)
+
+        total_chunks = len({t.task_index for t in all_tasks}) if all_tasks else 0
+
+        verified_chunk_indices = (
+            session.query(distinct(Task.task_index))
+            .join(TaskResult, TaskResult.task_id == Task.task_id)
+            .join(Run, Task.run_id == Run.run_id)
+            .filter(
+                Run.project_id == pid,
+                TaskResult.verification_status == "verified",
+            )
+            .all()
+        )
+        verified_chunks = len(verified_chunk_indices)
+
+        failed_verifications = (
+            session.query(func.count(TaskResult.task_result_id))
+            .join(Task, TaskResult.task_id == Task.task_id)
+            .join(Run, Task.run_id == Run.run_id)
+            .filter(
+                Run.project_id == pid,
+                TaskResult.verification_status.in_(["failed", "disputed"]),
+            )
+            .scalar()
+        ) or 0
 
         if not aws_project and total_runs == 0 and total_tasks == 0:
             return None
@@ -1328,7 +1425,7 @@ def get_project_stats(project_id: str) -> dict | None:
 
         created_at = getattr(project_like, "created_at", None) or getattr(project_like, "date_created", None)
 
-        return {
+        result = {
             "id": pid,
             "status": getattr(project_like, "status", None) or "pending",
             "progress": progress,
@@ -1339,12 +1436,33 @@ def get_project_stats(project_id: str) -> dict | None:
             "completedTasks": completed_tasks,
             "failedTasks": failed_tasks,
             "totalRuns": total_runs,
-            "averageTaskTime": round(avg_task_time, 1) if avg_task_time else None,
+            "averageTaskTime": round(avg_task_time, 1) if avg_task_time is not None else None,
             "latestRunId": latest_run.run_id if latest_run else None,
             "latestRunStatus": latest_run.status if latest_run else None,
             "createdAt": created_at.isoformat() if hasattr(created_at, "isoformat") and created_at else None,
             "updatedAt": latest_updated.isoformat() if hasattr(latest_updated, "isoformat") and latest_updated else None,
+            "totalChunks": total_chunks,
+            "verifiedChunks": verified_chunks,
+            "failedVerifications": failed_verifications,
         }
+
+        if aws_project:
+            result["researcherId"] = getattr(aws_project, "researcher_id", None)
+            result["title"] = getattr(aws_project, "title", None)
+            result["description"] = getattr(aws_project, "description", None) or ""
+            result["tags"] = list(getattr(aws_project, "tags", None) or [])
+            result["whyJoin"] = list(getattr(aws_project, "why_join", None) or [])
+            result["learnMore"] = list(getattr(aws_project, "learn_more", None) or [])
+            result["replicationFactor"] = getattr(aws_project, "replication_factor", None) or 2
+            result["maxVerificationAttempts"] = getattr(aws_project, "max_verification_attempts", None) or 2
+            result["datasetType"] = getattr(aws_project, "dataset_type", None)
+            result["awsTotalChunks"] = getattr(aws_project, "aws_total_chunks", None)
+            result["awsChunksCompleted"] = getattr(aws_project, "aws_chunks_completed", None)
+        else:
+            result["researcherId"] = None
+            result["tags"] = []
+
+        return result
 
 
 def list_browse_projects(limit: int = 200) -> list:

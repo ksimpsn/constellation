@@ -26,19 +26,25 @@ from backend.core.database import (
     normalize_roles_input,
     set_user_roles,
     get_project_stats,
+    get_run,
+    get_task_results_for_run,
+    get_tasks_for_run,
 )
 from backend.core.database_aws import (
     init_aws_db,
     get_aws_project_ip,
     update_aws_project_ip,
+    update_aws_project_by_owner,
     list_aws_browse_projects,
     is_aws_db_configured,
+    get_aws_project,
     get_aws_session,
     AWSProject,
     AWSProjectUser,
     AWSResearcher,
 )
 from backend.core.server import Cluster
+import json
 import os
 import uuid
 import logging
@@ -52,7 +58,7 @@ app = Flask(__name__)
 # This fixes "failed to fetch" errors by allowing cross-origin requests
 CORS(app,
      origins="*",  # Allow all origins in development
-     methods=["GET", "POST", "OPTIONS", "PUT", "DELETE"],
+     methods=["GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE"],
      allow_headers=["Content-Type", "Authorization"],
      supports_credentials=False)
 
@@ -120,67 +126,83 @@ def browse_projects_list():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/projects/<project_id>/stats", methods=["GET", "OPTIONS"])
-def get_project_stats(project_id):
-    """Public project stats (progress, task counts) for any viewer."""
+@app.route("/api/projects/<project_id>", methods=["PATCH", "OPTIONS"])
+def patch_project_details(project_id):
+    """Update project title, description, and tags (owner researcher only)."""
+    if request.method == "OPTIONS":
+        return "", 200
     try:
-        from backend.core.database import Run, Task, TaskResult, Worker
-        from sqlalchemy import func, distinct
+        data = request.get_json(silent=True) or {}
+        user_id = data.get("user_id")
+        if not user_id:
+            return jsonify({"error": "user_id is required"}), 400
+        if not user_has_role(user_id, "researcher"):
+            return jsonify({"error": "Only researchers can update projects"}), 403
 
-        with get_session() as session:
-            all_tasks = session.query(Task).join(Run).filter(Run.project_id == project_id).all()
-            total_tasks = len(all_tasks)
-            completed_tasks = sum(1 for t in all_tasks if t.status == "completed")
-            failed_tasks = sum(1 for t in all_tasks if t.status == "failed")
-            progress = int((completed_tasks / total_tasks) * 100) if total_tasks > 0 else 0
+        title = data.get("title")
+        description = data.get("description")
+        tags = data.get("tags")
+        why_join = data.get("whyJoin")
+        learn_more = data.get("learnMore")
 
-            latest_run = (
-                session.query(Run)
-                .filter(Run.project_id == project_id)
-                .order_by(Run.created_at.desc())
-                .first()
-            )
-            status = (latest_run.status or "unknown") if latest_run else "unknown"
-            if status == "completed":
-                progress = 100
+        if (
+            title is None
+            and description is None
+            and tags is None
+            and why_join is None
+            and learn_more is None
+        ):
+            return jsonify({
+                "error": "Provide at least one of: title, description, tags, whyJoin, learnMore",
+            }), 400
+        if tags is not None and not isinstance(tags, list):
+            return jsonify({"error": "tags must be an array of strings"}), 400
+        if why_join is not None and not isinstance(why_join, list):
+            return jsonify({"error": "whyJoin must be an array of strings"}), 400
+        if learn_more is not None:
+            if not isinstance(learn_more, list):
+                return jsonify({"error": "learnMore must be an array of {label, url} objects"}), 400
+            for i, item in enumerate(learn_more):
+                if not isinstance(item, dict):
+                    return jsonify({"error": f"learnMore[{i}] must be an object"}), 400
+                if not str(item.get("label", "")).strip():
+                    return jsonify({
+                        "error": f"learnMore[{i}] needs a non-empty label (url may be blank)",
+                    }), 400
 
-            total_contributors = (
-                session.query(func.count(distinct(Worker.user_id)))
-                .join(Task, Task.assigned_worker_id == Worker.worker_id)
-                .join(Run, Task.run_id == Run.run_id)
-                .filter(
-                    Run.project_id == project_id,
-                    Task.status == "completed",
-                    Worker.user_id.isnot(None),
-                )
-                .scalar()
-            ) or 0
+        ok, err = update_aws_project_by_owner(
+            project_id,
+            user_id,
+            title=title,
+            description=description,
+            tags=tags,
+            why_join=why_join,
+            learn_more=learn_more,
+        )
+        if not ok:
+            if err and "not found" in err.lower():
+                return jsonify({"error": err}), 404
+            if err and "owner" in err.lower():
+                return jsonify({"error": err}), 403
+            return jsonify({"error": err or "Update failed"}), 400
 
-            active_contributors = (
-                session.query(func.count(distinct(Worker.user_id)))
-                .join(Task, Worker.worker_id == Task.assigned_worker_id)
-                .join(Run, Task.run_id == Run.run_id)
-                .filter(
-                    Run.project_id == project_id,
-                    Task.status.in_(["assigned", "running"]),
-                    Worker.user_id.isnot(None),
-                )
-                .scalar()
-            ) or 0
+        ap = get_aws_project(project_id) if is_aws_db_configured() else None
+        if not ap:
+            return jsonify({"ok": True}), 200
 
         return jsonify({
-            "project_id": project_id,
-            "progress": progress,
-            "status": status,
-            "totalTasks": total_tasks,
-            "completedTasks": completed_tasks,
-            "failedTasks": failed_tasks,
-            "totalContributors": total_contributors,
-            "activeContributors": active_contributors,
+            "ok": True,
+            "project": {
+                "id": str(ap.project_id),
+                "title": ap.title,
+                "description": ap.description or "",
+                "tags": list(getattr(ap, "tags", []) or []),
+                "whyJoin": list(getattr(ap, "why_join", []) or []),
+                "learnMore": list(getattr(ap, "learn_more", []) or []),
+            },
         }), 200
-
     except Exception as e:
-        logging.error(f"[ERROR] get_project_stats: {e}")
+        logging.error(f"[ERROR] patch_project_details: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -261,6 +283,35 @@ def submit_job():
     except (TypeError, ValueError):
         max_verification_attempts = 2
 
+    tags_raw = (request.form.get("tags") or "").strip()
+    why_join_raw = request.form.get("why_join") or ""
+    learn_more_raw = (request.form.get("learn_more") or "").strip() or "[]"
+
+    tags = [t.strip() for t in tags_raw.replace("\n", ",").split(",") if t.strip()]
+    why_join_lines = [ln.strip() for ln in why_join_raw.splitlines() if ln.strip()]
+
+    if not tags:
+        return jsonify({"error": "At least one tag is required (comma- or newline-separated)."}), 400
+    if not why_join_lines:
+        return jsonify({"error": "At least one 'Why join' reason is required (one per line)."}), 400
+
+    try:
+        learn_more_parsed = json.loads(learn_more_raw)
+    except json.JSONDecodeError:
+        return jsonify({"error": "Learn more must be valid JSON (array of {label, url} objects)."}), 400
+    if not isinstance(learn_more_parsed, list):
+        return jsonify({"error": "Learn more must be a JSON array."}), 400
+    learn_more = []
+    for i, item in enumerate(learn_more_parsed):
+        if not isinstance(item, dict):
+            return jsonify({"error": f"learn_more[{i}] must be an object with label and optional url"}), 400
+        lab = str(item.get("label", "")).strip()
+        if not lab:
+            return jsonify({
+                "error": f"learn_more[{i}] needs a non-empty label (url may be left blank)",
+            }), 400
+        learn_more.append({"label": lab, "url": str(item.get("url", "") or "").strip()})
+
     # Start Ray head on the researcher's machine (idempotent if already running)
     try:
         head_ip = api.start_ray_head()
@@ -282,6 +333,9 @@ def submit_job():
         max_verification_attempts=max_verification_attempts,
         researcher_id=user_id,
         head_ip=head_ip,
+        tags=tags,
+        why_join=why_join_lines,
+        learn_more=learn_more,
     )
     job_id, run_id, project_id, total_tasks = out
 
@@ -607,6 +661,74 @@ def get_volunteer_projects(volunteer_id):
         return jsonify({"projects": projects}), 200
     except Exception as e:
         logging.error(f"[ERROR] get_volunteer_projects: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/volunteer/<volunteer_id>/stats", methods=["GET", "OPTIONS"])
+def get_volunteer_stats(volunteer_id):
+    """GET /api/volunteer/<volunteer_id>/stats — profile aggregate stats for a volunteer."""
+    if request.method == "OPTIONS":
+        return "", 200
+    try:
+        user = get_user_by_id(volunteer_id)
+        if not user:
+            return jsonify({"error": f"User {volunteer_id} not found"}), 404
+        if not user_has_role(volunteer_id, "volunteer"):
+            return jsonify({"error": f"User {volunteer_id} does not have 'volunteer' role"}), 403
+
+        from backend.core.database import Run, Task, Worker
+        from sqlalchemy import distinct
+
+        with get_session() as session:
+            worker_ids = [
+                row[0]
+                for row in session.query(Worker.worker_id).filter(Worker.user_id == volunteer_id).all()
+            ]
+
+            projects_contributed = 0
+            sessions_contributed = 0
+            if worker_ids:
+                run_ids = [
+                    row[0]
+                    for row in (
+                        session.query(distinct(Task.run_id))
+                        .filter(
+                            Task.assigned_worker_id.in_(worker_ids),
+                            Task.status == "completed",
+                        )
+                        .all()
+                    )
+                ]
+                if run_ids:
+                    project_ids = [
+                        row[0]
+                        for row in (
+                            session.query(distinct(Run.project_id))
+                            .filter(Run.run_id.in_(run_ids))
+                            .all()
+                        )
+                    ]
+                    projects_contributed = len(project_ids)
+
+                sessions_contributed = (
+                    session.query(Task)
+                    .filter(
+                        Task.assigned_worker_id.in_(worker_ids),
+                        Task.status == "completed",
+                    )
+                    .count()
+                )
+
+        return jsonify({
+            "projectsContributed": projects_contributed,
+            "sessionsContributed": sessions_contributed,
+            "publications": 0,
+        }), 200
+
+    except Exception as e:
+        logging.error(f"[ERROR] get_volunteer_stats: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
