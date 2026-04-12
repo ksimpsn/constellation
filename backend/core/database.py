@@ -1145,13 +1145,16 @@ def get_researcher_projects_with_stats(researcher_id: str) -> list:
             failed_tasks = sum(1 for t in all_tasks if t.status == "failed")
             progress = int((completed_tasks / total_tasks * 100)) if total_tasks > 0 else 0
 
-            # Get unique contributors at user level (one user may own multiple workers).
+            # Get unique contributors: users whose workers completed tasks in this project.
+            # Join through Task (assigned_worker_id) rather than TaskResult.worker_id
+            # to avoid missing contributors where worker_id was "worker-unknown".
             completed_task_users = (
                 session.query(distinct(Worker.user_id))
                 .join(Task, Task.assigned_worker_id == Worker.worker_id)
-                .join(TaskResult, TaskResult.task_id == Task.task_id)
+                .join(Run, Task.run_id == Run.run_id)
                 .filter(
-                    TaskResult.project_id == pid,
+                    Run.project_id == pid,
+                    Task.status == "completed",
                     Worker.user_id.isnot(None),
                 )
                 .all()

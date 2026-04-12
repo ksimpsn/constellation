@@ -141,8 +141,12 @@ def get_project_stats(project_id):
             total_contributors = (
                 session.query(func.count(distinct(Worker.user_id)))
                 .join(Task, Task.assigned_worker_id == Worker.worker_id)
-                .join(TaskResult, TaskResult.task_id == Task.task_id)
-                .filter(TaskResult.project_id == project_id, Worker.user_id.isnot(None))
+                .join(Run, Task.run_id == Run.run_id)
+                .filter(
+                    Run.project_id == project_id,
+                    Task.status == "completed",
+                    Worker.user_id.isnot(None),
+                )
                 .scalar()
             ) or 0
 
@@ -1227,12 +1231,14 @@ def get_researcher_stats(researcher_id):
         total_contributors = 0
         if project_ids:
             with get_session() as session:
+                from backend.core.database import Run as _Run
                 contributor_rows = (
                     session.query(distinct(Worker.user_id))
                     .join(Task, Task.assigned_worker_id == Worker.worker_id)
-                    .join(TaskResult, TaskResult.task_id == Task.task_id)
+                    .join(_Run, Task.run_id == _Run.run_id)
                     .filter(
-                        TaskResult.project_id.in_(project_ids),
+                        _Run.project_id.in_(project_ids),
+                        Task.status == "completed",
                         Worker.user_id.isnot(None),
                     )
                     .all()
