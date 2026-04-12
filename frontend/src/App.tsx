@@ -12,7 +12,7 @@ import ResearcherDashboard from "./pages/ResearcherDashboard.tsx";
 import VolunteerConnect from "./pages/VolunteerConnect.tsx";
 import Signup from "./pages/Signup.tsx";
 import Login from "./pages/Login.tsx";
-import ProjectDetailsUpdated from "./pages/ProjectDetailsUpdated.tsx";
+import ProjectDetails from "./pages/ProjectDetailsUpdated.tsx";
 import Profile from "./pages/Profile.tsx";
 import ResearcherProfile from "./pages/ResearcherProfile.tsx";
 import Settings from "./pages/Settings.tsx";
@@ -39,7 +39,7 @@ function AppRoutes() {
         <Route path="/settings" element={<Settings />} />
         <Route path="/leaderboard" element={<Leaderboard />} />
         <Route path="/big-dipper" element={<BigDipperDemo />} />
-        <Route path="/project/:projectName" element={<ProjectDetailsUpdated />} />
+        <Route path="/project/:projectName" element={<ProjectDetails />} />
       </Routes>
   );
 }

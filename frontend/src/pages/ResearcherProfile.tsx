@@ -14,44 +14,6 @@ interface ResearcherStats {
   totalContributors: number;
 }
 
-interface ResearcherProjectRow {
-  id: string;
-  researcherId?: string;
-  title: string;
-  description: string;
-  status?: string;
-  datasetType?: string;
-  funcName?: string;
-  chunkSize?: number;
-  replicationFactor?: number;
-  maxVerificationAttempts?: number;
-  tags?: string[];
-  codePath?: string;
-  datasetPath?: string;
-  progress?: number;
-  resultUrl?: string | null;
-  totalContributors?: number;
-  activeContributors?: number;
-  totalTasks?: number;
-  completedTasks?: number;
-  failedTasks?: number;
-  createdAt?: string | null;
-  updatedAt?: string | null;
-  totalRuns?: number;
-  averageTaskTime?: number | null;
-  latestRunId?: string | null;
-  latestRunStatus?: string | null;
-}
-
-function formatWhen(iso: string | null | undefined): string {
-  if (!iso) return '—';
-  try {
-    return new Date(iso).toLocaleString();
-  } catch {
-    return iso;
-  }
-}
-
 export default function ResearcherProfile() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
@@ -60,7 +22,6 @@ export default function ResearcherProfile() {
     completedProjects: 0,
     totalContributors: 0,
   });
-  const [projects, setProjects] = useState<ResearcherProjectRow[]>([]);
   const [loading, setLoading] = useState(true);
   const researcherId = user?.user_id ?? null;
 
@@ -82,28 +43,15 @@ export default function ResearcherProfile() {
     const load = async () => {
       try {
         setLoading(true);
-        const [statsRes, projectsRes] = await Promise.all([
-          fetch(`${API_BASE_URL}/api/researcher/${researcherId}/stats`),
-          fetch(`${API_BASE_URL}/api/researcher/${researcherId}/projects`),
-        ]);
-
-        const projectsData = projectsRes.ok ? await projectsRes.json().catch(() => ({})) : {};
-        const list = (projectsData.projects || []) as ResearcherProjectRow[];
+        const statsRes = await fetch(`${API_BASE_URL}/api/researcher/${researcherId}/stats`);
 
         if (!cancelled) {
-          setProjects(projectsRes.ok ? list : []);
           if (statsRes.ok) {
             const data = await statsRes.json();
             setStats({
               totalProjects: data.totalProjects || 0,
               completedProjects: data.completedProjects || 0,
               totalContributors: data.totalContributors || 0,
-            });
-          } else if (projectsRes.ok) {
-            setStats({
-              totalProjects: list.length,
-              completedProjects: list.filter((p) => (p.progress ?? 0) >= 100).length,
-              totalContributors: list.reduce((sum, p) => sum + (p.totalContributors ?? 0), 0),
             });
           } else {
             setStats({ totalProjects: 0, completedProjects: 0, totalContributors: 0 });
@@ -192,136 +140,6 @@ export default function ResearcherProfile() {
               </div>
             </div>
           </div>
-        </div>
-
-        <div className="mt-12 w-full">
-          <h2 className="text-2xl font-bold text-white/90 m-0 mb-4 text-center">My projects</h2>
-          <p className="text-white/55 text-sm text-center m-0 mb-8 max-w-2xl mx-auto">
-            Submissions from <strong className="text-white/80">Submit a project</strong> are stored here with run progress and stored file paths.
-          </p>
-          {loading ? (
-            <p className="text-center text-white/60">Loading projects…</p>
-          ) : projects.length === 0 ? (
-            <div className="text-center p-8 rounded-2xl bg-white/5 border border-white/10">
-              <p className="text-white/70 m-0 mb-4">No projects yet.</p>
-              <Link
-                to="/submit"
-                className="inline-flex items-center justify-center py-3 px-6 rounded-xl font-medium text-white bg-white/20 hover:bg-white/30 border border-white/20 transition-colors no-underline"
-              >
-                Submit a project
-              </Link>
-            </div>
-          ) : (
-            <ul className="list-none m-0 p-0 flex flex-col gap-6">
-              {projects.map((p) => (
-                <li
-                  key={p.id}
-                  className="p-6 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10 text-left"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
-                    <div>
-                      <h3 className="text-xl font-semibold text-white/95 m-0">{p.title}</h3>
-                      <p className="text-xs text-white/45 font-mono m-0 mt-1 break-all">{p.id}</p>
-                    </div>
-                    <div className="flex flex-wrap gap-2 shrink-0">
-                      {p.status && (
-                        <span className="text-xs uppercase tracking-wide px-2.5 py-1 rounded-lg bg-white/10 text-white/75">
-                          {p.status}
-                        </span>
-                      )}
-                      {p.latestRunStatus && (
-                        <span className="text-xs uppercase tracking-wide px-2.5 py-1 rounded-lg bg-indigo-500/25 text-indigo-200 border border-indigo-400/30">
-                          Run: {p.latestRunStatus}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  {p.description ? (
-                    <p className="text-white/70 text-sm leading-relaxed m-0 mb-4 whitespace-pre-wrap">{p.description}</p>
-                  ) : null}
-                  <div
-                    className="h-2 rounded-full bg-white/10 overflow-hidden mb-4"
-                    role="progressbar"
-                    aria-valuenow={p.progress ?? 0}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                  >
-                    <div
-                      className="h-full bg-emerald-500/80 rounded-full transition-all duration-500"
-                      style={{ width: `${Math.min(100, Math.max(0, p.progress ?? 0))}%` }}
-                    />
-                  </div>
-                  <p className="text-xs text-white/50 m-0 mb-4">
-                    Progress: {p.completedTasks ?? 0} / {p.totalTasks ?? 0} tasks ({p.progress ?? 0}%)
-                    {p.totalContributors != null ? ` · ${p.totalContributors} contributor(s)` : null}
-                  </p>
-                  <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2 text-sm m-0">
-                    <div className="flex flex-col sm:flex-row sm:gap-2">
-                      <dt className="text-white/50 shrink-0">Dataset type</dt>
-                      <dd className="text-white/85 m-0 font-medium">{p.datasetType ?? '—'}</dd>
-                    </div>
-                    <div className="flex flex-col sm:flex-row sm:gap-2">
-                      <dt className="text-white/50 shrink-0">Function</dt>
-                      <dd className="text-white/85 m-0 font-medium">{p.funcName ?? '—'}</dd>
-                    </div>
-                    <div className="flex flex-col sm:flex-row sm:gap-2">
-                      <dt className="text-white/50 shrink-0">Rows per task</dt>
-                      <dd className="text-white/85 m-0 font-medium">{p.chunkSize ?? '—'}</dd>
-                    </div>
-                    <div className="flex flex-col sm:flex-row sm:gap-2">
-                      <dt className="text-white/50 shrink-0">Replication factor</dt>
-                      <dd className="text-white/85 m-0 font-medium">{p.replicationFactor ?? '—'}</dd>
-                    </div>
-                    <div className="flex flex-col sm:flex-row sm:gap-2">
-                      <dt className="text-white/50 shrink-0">Max verification attempts</dt>
-                      <dd className="text-white/85 m-0 font-medium">{p.maxVerificationAttempts ?? '—'}</dd>
-                    </div>
-                    <div className="flex flex-col sm:flex-row sm:gap-2">
-                      <dt className="text-white/50 shrink-0">Runs / latest run</dt>
-                      <dd className="text-white/85 m-0 font-medium break-all">
-                        {p.totalRuns ?? 0}
-                        {p.latestRunId ? ` · ${p.latestRunId}` : ''}
-                      </dd>
-                    </div>
-                    <div className="flex flex-col sm:flex-row sm:gap-2 sm:col-span-2">
-                      <dt className="text-white/50 shrink-0">Tags</dt>
-                      <dd className="text-white/85 m-0">
-                        {p.tags && p.tags.length > 0 ? p.tags.join(', ') : '—'}
-                      </dd>
-                    </div>
-                    <div className="flex flex-col sm:col-span-2 gap-1">
-                      <dt className="text-white/50">Stored code path</dt>
-                      <dd className="text-white/75 m-0 font-mono text-xs break-all">{p.codePath || '—'}</dd>
-                    </div>
-                    <div className="flex flex-col sm:col-span-2 gap-1">
-                      <dt className="text-white/50">Stored dataset path</dt>
-                      <dd className="text-white/75 m-0 font-mono text-xs break-all">{p.datasetPath || '—'}</dd>
-                    </div>
-                    {p.resultUrl ? (
-                      <div className="flex flex-col sm:col-span-2 gap-1">
-                        <dt className="text-white/50">Results</dt>
-                        <dd className="text-white/75 m-0 font-mono text-xs break-all">{p.resultUrl}</dd>
-                      </div>
-                    ) : null}
-                    <div className="flex flex-col sm:flex-row sm:gap-2">
-                      <dt className="text-white/50 shrink-0">Created</dt>
-                      <dd className="text-white/85 m-0">{formatWhen(p.createdAt)}</dd>
-                    </div>
-                    <div className="flex flex-col sm:flex-row sm:gap-2">
-                      <dt className="text-white/50 shrink-0">Updated</dt>
-                      <dd className="text-white/85 m-0">{formatWhen(p.updatedAt)}</dd>
-                    </div>
-                    {p.averageTaskTime != null ? (
-                      <div className="flex flex-col sm:flex-row sm:gap-2">
-                        <dt className="text-white/50 shrink-0">Avg task time (s)</dt>
-                        <dd className="text-white/85 m-0 font-medium">{p.averageTaskTime}</dd>
-                      </div>
-                    ) : null}
-                  </dl>
-                </li>
-              ))}
-            </ul>
-          )}
         </div>
 
         <div className="flex flex-wrap gap-4 justify-center mt-10">
