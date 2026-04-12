@@ -1167,7 +1167,7 @@ def get_researcher_projects_with_stats(researcher_id: str) -> list:
     result = []
 
     with SessionLocal() as session:
-        from sqlalchemy import func, distinct
+        from sqlalchemy import func, distinct, or_
 
         for project in projects:
             pid = getattr(project, "project_id", None)
@@ -1192,14 +1192,18 @@ def get_researcher_projects_with_stats(researcher_id: str) -> list:
             # Total unique chunks (task_index) across all runs for this project
             total_chunks = len({t.task_index for t in all_tasks}) if all_tasks else 0
 
-            # Verified chunks: distinct task_index values that have a verified TaskResult
+            # Verified chunks: TaskResult rows from consensus upsert (verification_status)
+            # or legacy rows before that column was set (NULL).
             verified_chunk_indices = (
                 session.query(distinct(Task.task_index))
                 .join(TaskResult, TaskResult.task_id == Task.task_id)
                 .join(Run, Task.run_id == Run.run_id)
                 .filter(
                     Run.project_id == pid,
-                    TaskResult.verification_status == "verified",
+                    or_(
+                        TaskResult.verification_status == "verified",
+                        TaskResult.verification_status.is_(None),
+                    ),
                 )
                 .all()
             )
@@ -1337,7 +1341,7 @@ def get_project_stats(project_id: str) -> dict | None:
     aws_project = get_aws_project(pid) if is_aws_db_configured() else None
 
     with SessionLocal() as session:
-        from sqlalchemy import func, distinct
+        from sqlalchemy import func, distinct, or_
 
         runs = session.query(Run).filter_by(project_id=pid).all()
         total_runs = len(runs)
@@ -1391,7 +1395,10 @@ def get_project_stats(project_id: str) -> dict | None:
             .join(Run, Task.run_id == Run.run_id)
             .filter(
                 Run.project_id == pid,
-                TaskResult.verification_status == "verified",
+                or_(
+                    TaskResult.verification_status == "verified",
+                    TaskResult.verification_status.is_(None),
+                ),
             )
             .all()
         )

@@ -241,6 +241,8 @@ class ConstellationAPI:
                         task.status = "pending"
                         task.assigned_worker_id = None
                         task.assigned_at = None
+                        task.started_at = None
+                        task.completed_at = None
                         task.raw_result_data = None
                         task.raw_runtime_seconds = None
                         task.error_message = (
@@ -371,6 +373,8 @@ class ConstellationAPI:
                 task.status = "pending"
                 task.assigned_worker_id = None
                 task.assigned_at = None
+                task.started_at = None
+                task.completed_at = None
                 task.raw_result_data = None
                 task.raw_runtime_seconds = None
                 task.error_message = "Re-queued: assigned volunteer node disconnected from cluster"
@@ -506,6 +510,7 @@ class ConstellationAPI:
                     existing.result_data = verified_item.get("output")
                     existing.runtime_seconds = verified_item.get("runtime_seconds")
                     existing.completed_at = datetime.utcnow()
+                    existing.verification_status = "verified"
                 else:
                     session.add(TaskResult(
                         task_id=canonical_task_id,
@@ -514,6 +519,7 @@ class ConstellationAPI:
                         result_data=verified_item.get("output"),
                         runtime_seconds=verified_item.get("runtime_seconds"),
                         completed_at=datetime.utcnow(),
+                        verification_status="verified",
                     ))
             session.commit()
 
@@ -848,7 +854,10 @@ class ConstellationAPI:
             bucket["task_ids"].append(item["task_id"])
 
         best = max(groups.values(), key=lambda g: g["count"])
-        if best["count"] >= max(1, replication_factor):
+        # Majority across replicas: e.g. RF=1 → 1 agreeing output; RF=2 → both must match;
+        # RF=3 → at least 2 agreeing (same rule as server._verify_replicated_results).
+        threshold = (max(1, int(replication_factor)) // 2) + 1
+        if best["count"] >= threshold:
             return True, best["output"], best["task_ids"]
 
         return False, None, []

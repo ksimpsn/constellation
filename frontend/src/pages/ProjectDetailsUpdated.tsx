@@ -958,7 +958,7 @@ export default function ProjectDetailsUpdated() {
                             label="Active now"
                             value={<span className="text-sky-300">{projectStats.activeContributors ?? 0}</span>}
                           />
-                          {(projectStats.progress ?? 0) >= 100 &&
+                          {/* {(projectStats.progress ?? 0) >= 100 &&
                             projectStats.completedContributors != null && (
                               <OwnerStatRow
                                 label="Completed cohort"
@@ -968,7 +968,7 @@ export default function ProjectDetailsUpdated() {
                                   </span>
                                 }
                               />
-                            )}
+                            )} */}
                         </OwnerPanelSection>
 
                         <OwnerPanelSection title="Tasks & timing">
@@ -1045,10 +1045,10 @@ export default function ProjectDetailsUpdated() {
                             label="Max verify attempts"
                             value={projectStats.maxVerificationAttempts ?? "—"}
                           />
-                          {projectStats.awsTotalChunks != null && projectStats.awsTotalChunks > 0 && (
+                          {projectStats.totalChunks != null && projectStats.totalChunks > 0 && (
                             <OwnerStatRow
                               label="Chunk progress"
-                              value={`${projectStats.awsChunksCompleted ?? 0} / ${projectStats.awsTotalChunks}`}
+                              value={`${projectStats.verifiedChunks ?? 0} / ${projectStats.totalChunks}`}
                             />
                           )}
                         </OwnerPanelSection>
