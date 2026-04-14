@@ -226,7 +226,7 @@ export default function BrowseProjectsAws() {
         )}
 
         <div
-          className="flex-1 overflow-y-auto grid gap-5 w-full pb-12 items-start"
+          className="flex-1 overflow-y-auto grid gap-5 w-full pb-12 items-stretch"
           style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}
         >
           {!listLoading && filteredProjects.length === 0 ? (
@@ -242,43 +242,77 @@ export default function BrowseProjectsAws() {
               return (
                 <div
                   key={proj.id}
-                  className={`rounded-xl backdrop-blur-sm border transition-all flex flex-col overflow-hidden cursor-pointer ${
+                  className={`rounded-xl backdrop-blur-sm border transition-all flex flex-col overflow-hidden ${
                     isExpanded
-                      ? "bg-white/10 border-white/25 shadow-[0_0_32px_rgba(255,255,255,0.08)]"
-                      : "bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20"
+                      ? "h-auto min-h-0 bg-white/10 border-white/25 shadow-[0_0_32px_rgba(255,255,255,0.08)]"
+                      : "h-[288px] bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20 cursor-pointer"
                   }`}
-                  onClick={() =>
-                    setExpandedId((id) => (id === proj.id ? null : proj.id))
-                  }
+                  onClick={() => !isExpanded && setExpandedId(proj.id)}
                 >
-                  <div className="p-5">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <h2 className="text-xl font-semibold text-white/90 m-0">{proj.title}</h2>
+                  <div
+                    className={`p-5 ${isExpanded ? "" : "flex flex-col h-full min-h-0 overflow-hidden"}`}
+                    onClick={(e) => isExpanded && e.stopPropagation()}
+                  >
+                    <div className="flex items-start justify-between gap-2 min-w-0">
+                      <div className="min-w-0 flex-1">
+                        <h2 className="text-xl font-semibold text-white/90 m-0 line-clamp-2 break-words">
+                          {proj.title}
+                        </h2>
                         {proj.researcherName && (
-                          <p className="text-white/45 text-xs mt-1 m-0">
+                          <p
+                            className="text-white/45 text-xs mt-1 m-0 truncate"
+                            title={proj.researcherName}
+                          >
                             Lead researcher: {proj.researcherName}
                           </p>
                         )}
                       </div>
+                      {isExpanded && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setExpandedId(null);
+                          }}
+                          className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+                          aria-label="Close"
+                        >
+                          ×
+                        </button>
+                      )}
                     </div>
 
-                    <div className="flex flex-wrap gap-1.5 mt-2">
+                    <div className="flex flex-wrap gap-1.5 mt-2 min-h-0 max-h-[2.75rem] overflow-hidden shrink-0">
                       {proj.tags.map((tag) => (
                         <span
                           key={tag}
-                          className="px-2 py-0.5 rounded-md bg-white/15 text-white/70 text-xs border border-white/15"
+                          className="px-2 py-0.5 rounded-md bg-white/15 text-white/70 text-xs border border-white/15 max-w-full truncate"
+                          title={tag}
                         >
                           {tag}
                         </span>
                       ))}
                     </div>
 
-                    <p className="mt-2.5 text-white/70 text-[15px] line-clamp-2">{proj.description}</p>
-
-                    {isExpanded && (
+                    {!isExpanded ? (
+                      <>
+                        <p className="mt-2.5 text-white/70 text-[15px] line-clamp-3 min-h-0 flex-1 break-words">
+                          {proj.description}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setExpandedId(proj.id);
+                          }}
+                          className="mt-auto pt-3 shrink-0 w-full px-4 py-2.5 rounded-lg bg-white/15 hover:bg-white/25 border border-white/25 text-white/95 text-sm font-medium transition-colors text-center cursor-pointer"
+                        >
+                          Learn more
+                        </button>
+                      </>
+                    ) : (
                       <div className="mt-4 space-y-4">
-                        {/* <p className="text-white/80 text-[15px] leading-relaxed">{proj.description}</p> */}
+                        <p className="text-white/80 text-[15px] leading-relaxed">{proj.description}</p>
 
                         <div>
                           <h3 className="text-sm font-semibold text-white/90 uppercase tracking-wider mb-2">
@@ -302,7 +336,7 @@ export default function BrowseProjectsAws() {
 
                         <div>
                           <h3 className="text-sm font-semibold text-white/90 uppercase tracking-wider mb-2">
-                            Learn more
+                            External resources
                           </h3>
                           {missingLearnMore ? (
                             <p className="text-white/65 text-[14px] leading-relaxed m-0">
