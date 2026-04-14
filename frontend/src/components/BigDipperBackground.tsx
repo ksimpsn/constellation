@@ -287,7 +287,7 @@ export function BigDipperBackground({ className = "", limit, onlyIds, scale: sca
       <svg
         className="absolute inset-0 w-full h-full"
         viewBox="0 0 1000 600"
-        preserveAspectRatio="xMidYMid meet"
+        preserveAspectRatio="xMidYMid slice"
       >
         <defs>
           <radialGradient id="starGlow" cx="50%" cy="50%" r="50%">

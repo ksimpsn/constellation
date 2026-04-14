@@ -23,8 +23,13 @@ export default function Home() {
     console.log("Starting local compute node...");
   };
   return (
-    <div className="relative min-h-screen bg-gradient-to-br from-indigo-950 via-slate-900 to-purple-950">
-      <BigDipperBackground scale={1.4} />
+    <div className="relative min-h-screen min-h-[100dvh] w-full">
+      <div
+        className="fixed inset-0 z-0 pointer-events-none bg-gradient-to-br from-indigo-950 via-slate-900 to-purple-950"
+        aria-hidden
+      >
+        <BigDipperBackground scale={1.4} />
+      </div>
       <FlowNav />
       <div className="relative z-10 flex flex-col min-h-screen px-5 sm:px-8 pt-20 pb-24">
         <div className="flex flex-1 flex-col items-center justify-center antialiased">

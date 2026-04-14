@@ -53,19 +53,19 @@ export default function ConstellationStarfieldBackground({ children }: Constella
   return (
     <div
       data-constellation-background
-      style={{
-        position: 'relative',
-        width: '100%',
-        minHeight: '100vh',
-        overflowX: 'hidden',
-        overflowY: 'visible',
-        background: 'linear-gradient(to bottom right, #0f172a 0%, #581c87 50%, #0f172a 100%)',
-      }}
+      className="relative min-h-screen min-h-[100dvh] w-full overflow-x-hidden overflow-y-visible"
     >
+      {/* Full-viewport layer so gradient + stars always cover the window (including while scrolling). */}
+      <div
+        className="fixed inset-0 z-0 overflow-hidden pointer-events-none"
+        aria-hidden
+        style={{
+          background: 'linear-gradient(to bottom right, #0f172a 0%, #581c87 50%, #0f172a 100%)',
+        }}
+      >
       {/* Constellation Lines */}
       <svg
-        className="absolute pointer-events-none"
-        style={{ top: 0, left: 0, width: '100%', height: '100%' }}
+        className="absolute inset-0 h-full w-full pointer-events-none"
       >
         <defs>
           <linearGradient id="constellationLineGradient" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -94,7 +94,7 @@ export default function ConstellationStarfieldBackground({ children }: Constella
       </svg>
 
       {/* Animated Starfield Background */}
-      <div className="absolute inset-0" style={{ inset: 0 }}>
+      <div className="absolute inset-0">
         {stars.filter((star) => !star.isLarge).map((star, i) => (
           <div
             key={`small-${i}`}
@@ -113,7 +113,7 @@ export default function ConstellationStarfieldBackground({ children }: Constella
         ))}
       </div>
 
-      <div className="absolute inset-0" style={{ inset: 0 }}>
+      <div className="absolute inset-0">
         {stars.filter((star) => star.isLarge).map((star, i) => (
           <div
             key={`large-${i}`}
@@ -136,9 +136,10 @@ export default function ConstellationStarfieldBackground({ children }: Constella
       <div className="absolute rounded-full animate-swirl" style={{ top: '25%', left: '25%', width: 8, height: 8, background: '#60a5fa', opacity: 0.6 }} />
       <div className="absolute rounded-full animate-swirl-delayed" style={{ top: '33%', right: '33%', width: 4, height: 4, background: '#c084fc', opacity: 0.4 }} />
       <div className="absolute rounded-full animate-swirl-reverse" style={{ bottom: '25%', left: '33%', width: 6, height: 6, background: '#818cf8', opacity: 0.5 }} />
+      </div>
 
       {/* Content: flex column fills viewport so footers can sit at the bottom */}
-      <div className="relative z-10 flex min-h-screen flex-col">
+      <div className="relative z-10 flex min-h-screen min-h-[100dvh] w-full flex-col">
         <div className="flex min-h-0 flex-1 flex-col">{children}</div>
       </div>
 
