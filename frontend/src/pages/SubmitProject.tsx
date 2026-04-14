@@ -11,6 +11,142 @@ import { API_BASE_URL } from "../api/config";
 import TagMultiselectDropdown from "../components/TagMultiselectDropdown";
 import { PROJECT_TAG_OPTIONS } from "../constants/projectTags";
 
+interface SemgrepFinding {
+  rule_id: string;
+  message: string;
+  path: string;
+  start_line: number;
+  end_line: number;
+  severity: string | null;
+  confidence: string | null;
+}
+
+interface SemgrepScan {
+  status: "completed" | "skipped" | "error";
+  findings_count: number;
+  has_high_severity: boolean;
+  findings: SemgrepFinding[];
+  reason?: string;
+}
+
+function SemgrepScanPanel({ scan }: { scan: SemgrepScan }) {
+  const SEVERITY_STYLES: Record<string, { border: string; bg: string; badge: string; text: string }> = {
+    ERROR: {
+      border: "border-red-500/40",
+      bg: "bg-red-500/10",
+      badge: "bg-red-500/20 text-red-300 border-red-400/30",
+      text: "text-red-300",
+    },
+    WARNING: {
+      border: "border-amber-400/40",
+      bg: "bg-amber-400/10",
+      badge: "bg-amber-400/20 text-amber-200 border-amber-300/30",
+      text: "text-amber-200",
+    },
+    INFO: {
+      border: "border-sky-400/40",
+      bg: "bg-sky-400/10",
+      badge: "bg-sky-400/20 text-sky-200 border-sky-300/30",
+      text: "text-sky-200",
+    },
+  };
+
+  const defaultStyle = {
+    border: "border-white/20",
+    bg: "bg-white/5",
+    badge: "bg-white/10 text-white/70 border-white/20",
+    text: "text-white/70",
+  };
+
+  if (scan.status === "skipped" || scan.status === "error") {
+    return (
+      <div className="mt-5 p-4 rounded-xl border border-white/10 bg-white/5 text-white/60">
+        <p className="m-0 text-sm font-medium text-white/80 mb-1">Security Scan</p>
+        <p className="m-0 text-sm">
+          {scan.status === "skipped"
+            ? "Skipped — Semgrep not installed on the server."
+            : "Scan encountered an error."}
+          {scan.reason && (
+            <span className="ml-1 text-white/40 text-xs">({scan.reason})</span>
+          )}
+        </p>
+      </div>
+    );
+  }
+
+  const noFindings = scan.findings_count === 0;
+
+  return (
+    <div
+      className={`mt-5 p-4 rounded-xl border ${
+        noFindings
+          ? "border-emerald-400/30 bg-emerald-500/10"
+          : scan.has_high_severity
+          ? "border-red-500/30 bg-red-500/8"
+          : "border-amber-400/30 bg-amber-400/8"
+      } text-white/90`}
+    >
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-base font-semibold">Security Scan</span>
+        {noFindings ? (
+          <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+            ✓ No issues found
+          </span>
+        ) : (
+          <span
+            className={`text-xs font-medium px-2 py-0.5 rounded-full border ${
+              scan.has_high_severity
+                ? "bg-red-500/20 text-red-300 border-red-400/30"
+                : "bg-amber-400/20 text-amber-200 border-amber-300/30"
+            }`}
+          >
+            {scan.findings_count} finding{scan.findings_count !== 1 ? "s" : ""}
+          </span>
+        )}
+      </div>
+
+      {noFindings ? (
+        <p className="m-0 text-sm text-emerald-200/80">
+          Your uploaded code passed all Semgrep security checks.
+        </p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {scan.findings.map((f, i) => {
+            const sev = (f.severity || "").toUpperCase();
+            const style = SEVERITY_STYLES[sev] ?? defaultStyle;
+            return (
+              <div
+                key={i}
+                className={`rounded-lg border ${style.border} ${style.bg} p-3`}
+              >
+                <div className="flex flex-wrap items-center gap-2 mb-1">
+                  {f.severity && (
+                    <span
+                      className={`text-[11px] font-semibold px-1.5 py-0.5 rounded border ${style.badge}`}
+                    >
+                      {f.severity.toUpperCase()}
+                    </span>
+                  )}
+                  {f.confidence && (
+                    <span className="text-[11px] text-white/40 font-mono">
+                      confidence: {f.confidence}
+                    </span>
+                  )}
+                  <span className="text-[11px] text-white/40 font-mono ml-auto">
+                    {f.path}:{f.start_line}
+                  </span>
+                </div>
+                <p className={`m-0 text-sm ${style.text}`}>{f.message}</p>
+                <p className="m-0 text-[11px] text-white/35 font-mono mt-0.5">{f.rule_id}</p>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function SubmitProject() {
   const goBack = useGoBack();
   const { user } = useAuth();
@@ -30,12 +166,13 @@ export default function SubmitProject() {
   const [maxVerificationAttempts, setMaxVerificationAttempts] = useState<number>(1);
   const [message, setMessage] = useState("");
 
-  // Track job ID, run ID, project ID, status, and results
+  // Track job ID, run ID, project ID, status, results, and semgrep scan
   const [jobId, setJobId] = useState<number | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<string | null>(null);
   const [jobResults, setJobResults] = useState<any | null>(null);
+  const [semgrepScan, setSemgrepScan] = useState<SemgrepScan | null>(null);
   const pollingIntervalRef = useRef<number | null>(null);
 
   const handleSubmit = async () => {
@@ -116,6 +253,9 @@ export default function SubmitProject() {
       const result = await response.json();
 
       if (!response.ok) {
+        if (result.semgrep_scan) {
+          setSemgrepScan(result.semgrep_scan);
+        }
         setMessage("Error: " + (result.error ?? "Unknown error"));
         return;
       }
@@ -125,6 +265,7 @@ export default function SubmitProject() {
       setProjectId(result.project_id ?? null);
       setJobStatus("submitted");
       setJobResults(null);
+      setSemgrepScan(result.semgrep_scan ?? null);
       const taskMsg = result.total_tasks != null ? ` (${result.total_tasks} tasks created)` : "";
       setMessage(`Project submitted. Run ID: ${result.run_id ?? result.job_id}${taskMsg}`);
     } catch (err) {
@@ -519,6 +660,8 @@ export default function SubmitProject() {
               )}
             </div>
           )}
+
+          {semgrepScan !== null && <SemgrepScanPanel scan={semgrepScan} />}
         </div>
 
         <div className="mt-10 shrink-0">

@@ -44,14 +44,25 @@ from backend.core.database_aws import (
     AWSResearcher,
 )
 from backend.core.server import Cluster
+from backend.analysis.semgrep import semgrep_findings, SemgrepError
 import json
 import os
+import sys
 import uuid
 import logging
 import ray
 import socket
 from datetime import datetime
 from flask_cors import CORS
+
+# In-memory cache: project_id -> semgrep scan dict
+_project_semgrep_cache: dict = {}
+
+# Resolve semgrep binary: prefer the one co-located with this Python executable
+# so it works even when the venv is not activated.
+_SEMGREP_BIN = os.path.join(os.path.dirname(sys.executable), "semgrep")
+if not os.path.isfile(_SEMGREP_BIN) and not os.path.isfile(_SEMGREP_BIN + ".exe"):
+    _SEMGREP_BIN = "semgrep"  # fall back to PATH
 
 app = Flask(__name__)
 # CORS configuration - allow all origins for development
@@ -312,6 +323,58 @@ def submit_job():
             }), 400
         learn_more.append({"label": lab, "url": str(item.get("url", "") or "").strip()})
 
+    # Run Semgrep static analysis on the uploaded Python file
+    _semgrep_scan_pending: dict = {}
+    try:
+        findings = semgrep_findings(py_path, config="p/security-audit", semgrep_bin=_SEMGREP_BIN)
+        _semgrep_scan_pending = {
+            "status": "completed",
+            "findings_count": len(findings),
+            "has_high_severity": any(
+                (f.severity or "").upper() in ("ERROR", "WARNING") for f in findings
+            ),
+            "findings": [
+                {
+                    "rule_id": f.rule_id,
+                    "message": f.message,
+                    "path": os.path.basename(f.path),
+                    "start_line": f.start_line,
+                    "end_line": f.end_line,
+                    "severity": f.severity,
+                    "confidence": f.confidence,
+                }
+                for f in findings
+            ],
+        }
+        logging.info(
+            f"[SEMGREP] Scan completed: {len(findings)} finding(s) for {py_file.filename}"
+        )
+    except SemgrepError as e:
+        logging.warning(f"[SEMGREP] Scan skipped: {e}")
+        _semgrep_scan_pending = {
+            "status": "skipped",
+            "reason": str(e),
+            "findings_count": 0,
+            "has_high_severity": False,
+            "findings": [],
+        }
+    except Exception as e:
+        logging.warning(f"[SEMGREP] Scan failed unexpectedly: {e}")
+        _semgrep_scan_pending = {
+            "status": "error",
+            "reason": str(e),
+            "findings_count": 0,
+            "has_high_severity": False,
+            "findings": [],
+        }
+
+    # Block submission if semgrep found any issues
+    if _semgrep_scan_pending.get("status") == "completed" and _semgrep_scan_pending.get("findings_count", 0) > 0:
+        return jsonify({
+            "error": "Project rejected: security issues found in uploaded code.",
+            "semgrep_scan": _semgrep_scan_pending,
+        }), 400
+
     # Start Ray head on the researcher's machine (idempotent if already running)
     try:
         head_ip = api.start_ray_head()
@@ -339,6 +402,9 @@ def submit_job():
     )
     job_id, run_id, project_id, total_tasks = out
 
+    # Associate the semgrep scan with the now-known project_id
+    _project_semgrep_cache[str(project_id)] = _semgrep_scan_pending
+
     return jsonify({
         "message": "Job submitted successfully",
         "job_id": job_id,
@@ -346,6 +412,7 @@ def submit_job():
         "project_id": project_id,
         "total_tasks": total_tasks,
         "head_ip": head_ip,
+        "semgrep_scan": _semgrep_scan_pending,
     }), 200
 
 @app.route("/status/<int:job_id>", methods=["GET"])
@@ -361,6 +428,19 @@ def get_status(job_id):
         "job_id": job_id,
         "status": status
     }), 200
+
+
+@app.route("/api/semgrep/<project_id>", methods=["GET"])
+def get_semgrep_results(project_id):
+    """
+    Endpoint: GET /api/semgrep/<project_id>
+    Purpose: Retrieve cached Semgrep scan results for a submitted project.
+    Output: semgrep scan dict (status, findings_count, has_high_severity, findings[])
+    """
+    scan = _project_semgrep_cache.get(str(project_id))
+    if scan is None:
+        return jsonify({"error": "No semgrep scan found for this project"}), 404
+    return jsonify(scan), 200
 
 
 @app.route("/progress/<int:job_id>", methods=["GET"])
