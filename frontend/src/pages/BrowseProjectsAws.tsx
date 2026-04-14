@@ -35,7 +35,17 @@ export default function BrowseProjectsAws() {
     let cancelled = false;
 
     fetch(`${API_BASE_URL}/api/projects/browse`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then(async (r) => {
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          const detail =
+            typeof (data as { error?: unknown }).error === "string"
+              ? (data as { error: string }).error
+              : r.statusText || String(r.status);
+          throw new Error(detail);
+        }
+        return data;
+      })
       .then((data: { projects?: unknown[] }) => {
         if (cancelled) return;
         const rawProjects = Array.isArray(data?.projects) ? data.projects : [];
