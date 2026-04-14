@@ -5,14 +5,14 @@ import PageFooter from "../components/PageFooter";
 import PageBackButton from "../components/PageBackButton";
 import { API_BASE_URL } from "../api/config";
 
-type Contributor = { username: string; value: number };
-
 type WorkerApiRow = {
   worker_id?: string;
   user_id?: string;
   worker_name?: string;
   tasks_completed?: number;
   cpu_cores?: number;
+  /** Cumulative task CPU time for this worker row (SQLite workers.total_cpu_time_seconds). */
+  total_cpu_time_seconds?: number;
 };
 
 function shuffled<T>(arr: T[]): T[] {
@@ -24,6 +24,18 @@ function shuffled<T>(arr: T[]): T[] {
     out[j] = tmp;
   }
   return out;
+}
+
+/** Format seconds for leaderboard display (workers.total_cpu_time_seconds is per-machine; we sum per user). */
+function formatComputeTimeSeconds(total: number): string {
+  if (!Number.isFinite(total) || total <= 0) return "0s";
+  const sec = Math.round(total);
+  const s = sec % 60;
+  const m = Math.floor(sec / 60) % 60;
+  const h = Math.floor(sec / 3600);
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
 }
 
 export default function Leaderboard() {
@@ -53,14 +65,17 @@ export default function Leaderboard() {
   }, []);
 
   const aggregates = useMemo(() => {
-    const byVolunteer = new Map<string, { username: string; projects: number; cores: number }>();
+    const byVolunteer = new Map<
+      string,
+      { username: string; projects: number; computeTimeSeconds: number }
+    >();
     for (const w of workers) {
       const key = (w.user_id || w.worker_name || w.worker_id || "").trim();
       if (!key) continue;
       const username = (w.worker_name || w.user_id || w.worker_id || "Volunteer").trim();
-      const prev = byVolunteer.get(key) || { username, projects: 0, cores: 0 };
+      const prev = byVolunteer.get(key) || { username, projects: 0, computeTimeSeconds: 0 };
       prev.projects += Number(w.tasks_completed || 0);
-      prev.cores = Math.max(prev.cores, Number(w.cpu_cores || 0));
+      prev.computeTimeSeconds += Number(w.total_cpu_time_seconds || 0);
       byVolunteer.set(key, prev);
     }
     return Array.from(byVolunteer.values());
@@ -84,7 +99,7 @@ export default function Leaderboard() {
   const mostCompute = useMemo(
     () =>
       aggregates
-        .map((v) => ({ username: v.username, value: v.cores }))
+        .map((v) => ({ username: v.username, value: v.computeTimeSeconds }))
         .sort((a, b) => b.value - a.value)
         .slice(0, 10),
     [aggregates]
@@ -100,7 +115,7 @@ export default function Leaderboard() {
   );
 
   const formatValue = (value: number, type: string) => {
-    if (type === "compute") return `${value} cores`;
+    if (type === "compute") return formatComputeTimeSeconds(value);
     if (type === "time") return `${value} tasks`;
     return `${value} projects`;
   };
@@ -229,7 +244,7 @@ export default function Leaderboard() {
           />
           <ContributorList
             contributors={mostCompute}
-            title="Most Compute"
+            title="Most compute time"
             valueType="compute"
             accentColor="rgb(196, 181, 253)"
           />
