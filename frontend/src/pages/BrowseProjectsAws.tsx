@@ -6,6 +6,7 @@ import PageFooter from "../components/PageFooter";
 import { API_BASE_URL } from "../api/config";
 import TagMultiselectDropdown from "../components/TagMultiselectDropdown";
 import { PROJECT_TAG_OPTIONS } from "../constants/projectTags";
+import { SHOWCASE_PROJECT_ID, showcaseProjectBrowse } from "../constants/showcaseProject";
 
 interface LearnMoreLink {
   label: string;
@@ -64,7 +65,14 @@ export default function BrowseProjectsAws() {
               typeof p.researcherName === "string" ? p.researcherName : undefined,
           };
         });
-        setProjects(mapped);
+        const fromApi = mapped.filter((p) => String(p.id) !== SHOWCASE_PROJECT_ID);
+        const showcase: Project = {
+          ...showcaseProjectBrowse,
+          tags: [...showcaseProjectBrowse.tags],
+          whyJoin: [...showcaseProjectBrowse.whyJoin],
+          learnMore: showcaseProjectBrowse.learnMore.map((l) => ({ ...l })),
+        };
+        setProjects([showcase, ...fromApi]);
       })
       .catch((err: unknown) => {
         if (cancelled) return;

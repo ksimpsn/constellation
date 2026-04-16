@@ -10,9 +10,14 @@ import { hasResearcherRole } from "../auth/session";
 import { useAuth } from "../context/AuthContext";
 import TagMultiselectDropdown from "../components/TagMultiselectDropdown";
 import { PROJECT_TAG_OPTIONS } from "../constants/projectTags";
+import {
+  SHOWCASE_PROJECT_ID,
+  showcaseProjectBrowse,
+  getShowcaseProjectStats,
+} from "../constants/showcaseProject";
 
 type Task = { id: number; title: string; description: string };
-type ConstellationStar = { id: number; x: number; y: number; isYours: boolean };
+type ConstellationStar = { id: number; x: number; y: number; kind: "team" | "you" };
 
 interface LearnMoreLink {
   label: string;
@@ -58,6 +63,7 @@ interface WorkerRecord {
 interface ProjectStats {
   id: string | number;
   progress?: number;
+  participantCount?: number;
   totalContributors?: number;
   activeContributors?: number;
   completedContributors?: number | null;
@@ -172,7 +178,7 @@ export default function ProjectDetailsUpdated() {
   const [projectStats, setProjectStats] = useState<ProjectStats | null>(null);
   const [projectStatsLoading, setProjectStatsLoading] = useState(false);
   const [statsVersion, setStatsVersion] = useState(0);
-  const [hoveredTaskIndex, setHoveredTaskIndex] = useState<number | null>(null);
+  const [hoveredTaskIndex] = useState<number | null>(null);
   const [editingProject, setEditingProject] = useState(false);
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
@@ -192,10 +198,14 @@ export default function ProjectDetailsUpdated() {
       .then((data: { projects?: unknown[] }) => {
         if (cancelled) return;
         const rawProjects = Array.isArray(data?.projects) ? data.projects : [];
-        const mapped = rawProjects.map(parseProject);
+        const fromApi = rawProjects
+          .map(parseProject)
+          .filter((p) => String(p.id) !== SHOWCASE_PROJECT_ID);
+        const showcaseParsed = parseProject(showcaseProjectBrowse);
+        const merged = [showcaseParsed, ...fromApi];
         const match =
-          mapped.find((p) => normalize(p.title) === normalize(requestedProject)) ??
-          mapped.find((p) => String(p.id) === requestedProject) ??
+          merged.find((p) => normalize(p.title) === normalize(requestedProject)) ??
+          merged.find((p) => String(p.id) === requestedProject) ??
           null;
 
         if (!match) {
@@ -254,6 +264,12 @@ export default function ProjectDetailsUpdated() {
       return;
     }
 
+    if (String(project.id) === SHOWCASE_PROJECT_ID) {
+      setProjectStats(getShowcaseProjectStats());
+      setProjectStatsLoading(false);
+      return;
+    }
+
     let cancelled = false;
     setProjectStatsLoading(true);
     fetch(`${API_BASE_URL}/api/projects/${encodeURIComponent(project.id)}/stats`)
@@ -271,6 +287,8 @@ export default function ProjectDetailsUpdated() {
         setProjectStats({
           id: p.id as string | number,
           progress: Number(p.progress ?? 0),
+          participantCount:
+            p.participantCount == null ? undefined : Number(p.participantCount),
           totalContributors: Number(p.totalContributors ?? 0),
           activeContributors: Number(p.activeContributors ?? 0),
           completedContributors:
@@ -387,8 +405,10 @@ export default function ProjectDetailsUpdated() {
 
   const tasks = project?.completedTasks ?? [];
   const volunteerView = !!isVolunteer && !hasResearcherRole(user?.role ?? "");
-  const connectedStarCount = volunteerView && volunteerConnected ? 1 : 0;
   const displayedProgress = Math.max(0, Math.min(100, projectStats?.progress ?? project?.progress ?? 0));
+  const showYouStar =
+    !!project &&
+    ((volunteerView && volunteerConnected) || project.id === SHOWCASE_PROJECT_ID);
 
   const isProjectOwner = Boolean(
     user?.user_id &&
@@ -566,32 +586,41 @@ export default function ProjectDetailsUpdated() {
     starPositions: ConstellationStar[];
     lines: Array<{ x1: number; y1: number; x2: number; y2: number }>;
   } => {
-    const numYour = tasks.length + connectedStarCount;
-    const numOther = 32;
-    const total = numYour + numOther;
-
     const seed = requestedProject.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
     const rnd = (i: number, j: number, offset: number) => {
       const x = Math.sin(seed + offset + i * 7 + j * 13) * 10000;
       return x - Math.floor(x);
     };
 
-    const yourPositions = Array.from({ length: numYour }, (_, i) => ({
+    let teamCount = 36;
+    if (projectStats?.participantCount != null && projectStats.participantCount > 0) {
+      teamCount = Math.min(120, Math.max(12, projectStats.participantCount));
+    } else if (projectStats?.totalContributors != null && projectStats.totalContributors >= 0) {
+      teamCount = Math.min(120, Math.max(12, projectStats.totalContributors + 1));
+    }
+
+    const team: ConstellationStar[] = Array.from({ length: teamCount }, (_, i) => ({
       id: i,
-      x: 20 + rnd(i, 0, 0) * 55,
-      y: 20 + rnd(i, 1, 0) * 60,
-      isYours: true as const,
+      x: 6 + rnd(i, 0, 10) * 88,
+      y: 6 + rnd(i, 1, 11) * 88,
+      kind: "team" as const,
     }));
 
-    const otherPositions = Array.from({ length: numOther }, (_, i) => ({
-      id: numYour + i,
-      x: 10 + rnd(i, 0, 100) * 80,
-      y: 10 + rnd(i, 1, 100) * 80,
-      isYours: false as const,
-    }));
+    const showYouStar =
+      (volunteerView && volunteerConnected) || project?.id === SHOWCASE_PROJECT_ID;
 
-    const positions = [...yourPositions, ...otherPositions];
-    if (total === 0) return { starPositions: [], lines: [] };
+    const positions: ConstellationStar[] = [...team];
+    if (showYouStar) {
+      positions.push({
+        id: teamCount,
+        x: 46 + rnd(0, 77, 400) * 0.12,
+        y: 42 + rnd(1, 77, 401) * 0.14,
+        kind: "you" as const,
+      });
+    }
+
+    if (positions.length === 0) return { starPositions: [], lines: [] };
+    if (positions.length < 3) return { starPositions: positions, lines: [] };
 
     const points = positions.map((p) => [p.x, p.y] as [number, number]);
     const delaunay = Delaunay.from(points);
@@ -625,7 +654,14 @@ export default function ProjectDetailsUpdated() {
     }
 
     return { starPositions: positions, lines: lineList };
-  }, [requestedProject, tasks.length, connectedStarCount]);
+  }, [
+    requestedProject,
+    projectStats?.participantCount,
+    projectStats?.totalContributors,
+    volunteerView,
+    volunteerConnected,
+    project?.id,
+  ]);
 
   const hasTasks = tasks.length > 0;
   const hasAnyStars = starPositions.length > 0;
@@ -680,9 +716,9 @@ export default function ProjectDetailsUpdated() {
 
             <div className="flex flex-col lg:flex-row gap-4 lg:items-stretch">
               <div className="w-full lg:flex-1 lg:min-w-0 min-h-[220px] flex flex-col rounded-xl bg-white/[0.06] backdrop-blur-md border border-white/10 overflow-hidden relative">
-                {volunteerView && volunteerConnected && (
-                  <div className="absolute top-3 left-3 z-10 rounded-lg border border-amber-300/40 bg-amber-400/20 px-3 py-1.5">
-                    <p className="text-amber-100 text-xs font-semibold m-0">★ This is you</p>
+                {showYouStar && (
+                  <div className="absolute top-3 left-3 z-10 rounded-lg border border-amber-300/50 bg-amber-500/25 px-3 py-1.5 shadow-[0_0_20px_rgba(250,204,21,0.35)]">
+                    <p className="text-amber-50 text-xs font-semibold m-0 tracking-wide">★ This is you</p>
                   </div>
                 )}
                 <div className="flex-1 min-h-[200px] lg:min-h-0 relative w-full">
@@ -693,9 +729,16 @@ export default function ProjectDetailsUpdated() {
                         <stop offset="0%" stopColor="rgba(255,255,255,0.25)" />
                         <stop offset="100%" stopColor="rgba(255,255,255,0.4)" />
                       </linearGradient>
-                      <filter id="starGlowYellow" x="-50%" y="-50%" width="200%" height="200%">
-                        <feGaussianBlur in="SourceGraphic" stdDeviation="1.5" result="blur" />
+                      <radialGradient id="youStarCore" cx="50%" cy="50%" r="50%">
+                        <stop offset="0%" stopColor="#fffbeb" />
+                        <stop offset="45%" stopColor="#fde047" />
+                        <stop offset="100%" stopColor="#eab308" />
+                      </radialGradient>
+                      <filter id="starGlowYou" x="-120%" y="-120%" width="340%" height="340%">
+                        <feGaussianBlur in="SourceGraphic" stdDeviation="2.2" result="blur" />
+                        <feGaussianBlur in="blur" stdDeviation="1.5" result="blur2" />
                         <feMerge>
+                          <feMergeNode in="blur2" />
                           <feMergeNode in="blur" />
                           <feMergeNode in="SourceGraphic" />
                         </feMerge>
@@ -723,24 +766,32 @@ export default function ProjectDetailsUpdated() {
                       />
                     ))}
 
-                    {starPositions.map((star, i) => {
-                      const isYours = star.isYours;
-                      const isHovered = isYours && hoveredTaskIndex === i;
-                      const isDimmed = hoveredTaskIndex !== null && !(isYours && hoveredTaskIndex === i);
-                      const r = isYours ? (isHovered ? 1.8 : 1.2) : 0.65;
-                      const fill = isYours ? "#fef08a" : "rgba(255,255,255,0.95)";
-                      const filter = isYours ? "url(#starGlowYellow)" : "url(#starGlowWhite)";
+                    {starPositions.map((star) => {
+                      const isYou = star.kind === "you";
+                      const r = isYou ? 2.35 : 0.62;
+                      const fill = isYou ? "url(#youStarCore)" : "rgba(255,255,255,0.95)";
+                      const filter = isYou ? "url(#starGlowYou)" : "url(#starGlowWhite)";
                       return (
-                        <circle
-                          key={star.id}
-                          cx={star.x}
-                          cy={star.y}
-                          r={r}
-                          fill={fill}
-                          filter={filter}
-                          className="transition-all duration-300 pointer-events-none"
-                          style={{ opacity: isDimmed ? 0.25 : 1 }}
-                        />
+                        <g key={star.id}>
+                          {isYou && (
+                            <circle
+                              cx={star.x}
+                              cy={star.y}
+                              r={r + 1.4}
+                              fill="rgba(250,204,21,0.2)"
+                              className="pointer-events-none animate-pulse"
+                              style={{ opacity: 0.9 }}
+                            />
+                          )}
+                          <circle
+                            cx={star.x}
+                            cy={star.y}
+                            r={r}
+                            fill={fill}
+                            filter={filter}
+                            className="transition-all duration-300 pointer-events-none"
+                          />
+                        </g>
                       );
                     })}
                   </svg>
