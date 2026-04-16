@@ -5,7 +5,7 @@ import { useView } from "../context/ViewContext";
 import { useAuth } from "../context/AuthContext";
 import { hasResearcherRole } from "../auth/session";
 
-// Security uses same page as home "Privacy & Security" link (/security), not /security-research
+// Privacy & Security lives at /security
 const discoverLinks = [
   { path: "/", label: "Home" },
   { path: "/why", label: "Why Constellation" },
