@@ -15,7 +15,6 @@ function createWindow() {
   if (isDev) {
     // Load Vite dev server
     win.loadURL(process.env.ELECTRON_START_URL);
-    win.webContents.openDevTools();
   } else {
     // Load built app from /dist
     const indexPath = path.join(process.resourcesPath, "app", "dist", "index.html");
