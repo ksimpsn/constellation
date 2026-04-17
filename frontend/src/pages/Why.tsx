@@ -164,9 +164,11 @@ export default function Why() {
           {/* Footer CTA */}
           <div className="mt-14 sm:mt-16 rounded-2xl border border-white/12 bg-gradient-to-br from-white/[0.07] to-transparent p-8 sm:p-10 text-center backdrop-blur-md shadow-[0_8px_40px_rgba(0,0,0,0.3)] ring-1 ring-white/5">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-400/85 mb-2">Next</p>
-            <h3 className="text-xl sm:text-2xl font-semibold text-white/95 mb-2">How we keep you safe</h3>
-            <p className="text-sm sm:text-base text-white/65 max-w-md mx-auto mb-6">
-              Sandboxing, isolation, and a zero-access mindset, designed for research you can trust.
+            <h3 className="text-xl sm:text-2xl font-semibold text-white/95 mb-2">Privacy &amp; security</h3>
+            <p className="text-sm sm:text-base text-white/65 max-w-xl mx-auto mb-6 leading-relaxed">
+              We focus on what the platform actually does: organizational trust where you already have it,
+              Semgrep scanning on uploaded code, and replicated verification of task outputs, alongside policies
+              and review that your institution controls.
             </p>
             <Link
               to="/security"

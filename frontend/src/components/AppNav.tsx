@@ -5,7 +5,7 @@ import ProfileMenu from "./ProfileMenu";
 const navLinks = [
   { path: "/", label: "Home" },
   { path: "/why", label: "Why" },
-  { path: "/security", label: "Security" },
+  { path: "/security", label: "Privacy & Security" },
   { path: "/browse", label: "Browse" },
   { path: "/submit", label: "Submit" },
 ];

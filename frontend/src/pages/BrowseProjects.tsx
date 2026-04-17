@@ -457,8 +457,12 @@ export default function BrowseProjects() {
                             </ul>
                           ) : (
                             <p className="text-white/70 text-[14px] leading-relaxed m-0">
-                              Contribute spare compute to help this team process datasets and runs. Your device
-                              runs small, sandboxed tasks orchestrated by Constellation.
+                              Contribute spare compute to help this team process datasets and runs. For Semgrep on
+                              uploaded code, replication, and cross-worker verification, see{" "}
+                              <Link to="/security" className="text-emerald-200/90 hover:text-white underline-offset-2">
+                                Privacy &amp; Security
+                              </Link>
+                              .
                             </p>
                           )}
                         </div>

@@ -39,6 +39,8 @@ from backend.core.database_aws import (
     is_aws_db_configured,
     get_aws_project,
     get_aws_session,
+    batch_get_user_display_names,
+    get_volunteer_user_project_stats,
     AWSProject,
     AWSProjectUser,
     AWSResearcher,
@@ -916,11 +918,27 @@ def _task_to_dict(t):
     }
 
 
-def _worker_to_dict(w):
+def _worker_to_dict(w, display_name_map: dict | None = None):
+    """
+    Serialize a Worker row. When display_name_map is provided (username -> real name from RDS),
+    includes display_name for UI (leaderboard, dashboards).
+    """
+    uid = (w.user_id or "").strip()
+    display_name = None
+    if display_name_map and uid and uid in display_name_map:
+        display_name = display_name_map[uid]
+    if not display_name:
+        display_name = (
+            (w.worker_name or "").strip()
+            or uid
+            or (w.worker_id or "").strip()
+            or "Volunteer"
+        )
     return {
         "worker_id": w.worker_id,
         "user_id": w.user_id,
         "worker_name": w.worker_name,
+        "display_name": display_name,
         "ip_address": w.ip_address,
         "status": w.status,
         "cpu_cores": w.cpu_cores,
@@ -986,9 +1004,11 @@ def list_tasks_for_run(run_id):
 
 # @app.route("/api/workers", methods=["GET"])
 def list_workers():
-    """GET /api/workers - list all workers."""
+    """GET /api/workers - list all workers (includes display_name from RDS when configured)."""
     workers = get_all_workers()
-    return jsonify({"workers": [_worker_to_dict(w) for w in workers]}), 200
+    uids = list({(w.user_id or "").strip() for w in workers if w.user_id})
+    name_map = batch_get_user_display_names(uids) if uids and is_aws_db_configured() else {}
+    return jsonify({"workers": [_worker_to_dict(w, name_map) for w in workers]}), 200
 
 
 # @app.route("/api/runs/<run_id>/results/download", methods=["GET"])
@@ -1185,11 +1205,27 @@ def _task_to_dict(t):
     }
 
 
-def _worker_to_dict(w):
+def _worker_to_dict(w, display_name_map: dict | None = None):
+    """
+    Serialize a Worker row. When display_name_map is provided (username -> real name from RDS),
+    includes display_name for UI (leaderboard, dashboards).
+    """
+    uid = (w.user_id or "").strip()
+    display_name = None
+    if display_name_map and uid and uid in display_name_map:
+        display_name = display_name_map[uid]
+    if not display_name:
+        display_name = (
+            (w.worker_name or "").strip()
+            or uid
+            or (w.worker_id or "").strip()
+            or "Volunteer"
+        )
     return {
         "worker_id": w.worker_id,
         "user_id": w.user_id,
         "worker_name": w.worker_name,
+        "display_name": display_name,
         "ip_address": w.ip_address,
         "status": w.status,
         "cpu_cores": w.cpu_cores,
@@ -1252,11 +1288,76 @@ def list_tasks_for_run(run_id):
     return jsonify({"tasks": [_task_to_dict(t) for t in tasks]}), 200
 
 
+def _build_leaderboard_entries():
+    """
+    Merge SQLite worker aggregates with RDS users + project_users so volunteers appear
+    on the leaderboard even when no local worker rows exist.
+    """
+    workers = get_all_workers()
+    uids = list({(w.user_id or "").strip() for w in workers if w.user_id})
+    name_map = batch_get_user_display_names(uids) if uids and is_aws_db_configured() else {}
+
+    by_key: dict[str, dict] = {}
+
+    for w in workers:
+        uid = (w.user_id or "").strip()
+        key = uid or (w.worker_name or "").strip() or (w.worker_id or "").strip()
+        if not key:
+            continue
+        if key not in by_key:
+            dn = name_map.get(uid) if uid else None
+            if not dn:
+                dn = (
+                    (w.worker_name or "").strip()
+                    or uid
+                    or (w.worker_id or "").strip()
+                    or "Volunteer"
+                )
+            by_key[key] = {
+                "username": key,
+                "display_name": dn,
+                "tasks_completed": 0,
+                "total_cpu_time_seconds": 0.0,
+                "projects_joined": 0,
+            }
+        e = by_key[key]
+        e["tasks_completed"] += int(w.tasks_completed or 0)
+        e["total_cpu_time_seconds"] += float(w.total_cpu_time_seconds or 0)
+        if uid and name_map.get(uid):
+            e["display_name"] = name_map[uid]
+
+    if is_aws_db_configured():
+        for row in get_volunteer_user_project_stats():
+            un = row["username"]
+            if un not in by_key:
+                by_key[un] = {
+                    "username": un,
+                    "display_name": row["name"],
+                    "tasks_completed": 0,
+                    "total_cpu_time_seconds": 0.0,
+                    "projects_joined": row["project_count"],
+                }
+            else:
+                by_key[un]["projects_joined"] = row["project_count"]
+                if row.get("name"):
+                    by_key[un]["display_name"] = row["name"] or by_key[un]["display_name"]
+
+    return list(by_key.values())
+
+
 @app.route("/api/workers", methods=["GET"])
 def list_workers():
-    """GET /api/workers - list all workers."""
+    """GET /api/workers - list all workers (includes display_name from RDS when configured)."""
     workers = get_all_workers()
-    return jsonify({"workers": [_worker_to_dict(w) for w in workers]}), 200
+    uids = list({(w.user_id or "").strip() for w in workers if w.user_id})
+    name_map = batch_get_user_display_names(uids) if uids and is_aws_db_configured() else {}
+    return jsonify({"workers": [_worker_to_dict(w, name_map) for w in workers]}), 200
+
+
+@app.route("/api/leaderboard", methods=["GET"])
+def get_leaderboard():
+    """GET /api/leaderboard - merged SQLite + RDS aggregates for the public leaderboard."""
+    return jsonify({"entries": _build_leaderboard_entries()}), 200
 
 
 @app.route("/api/workers/disconnect", methods=["POST"])

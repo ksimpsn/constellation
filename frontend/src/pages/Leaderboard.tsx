@@ -5,14 +5,12 @@ import PageFooter from "../components/PageFooter";
 import PageBackButton from "../components/PageBackButton";
 import { API_BASE_URL } from "../api/config";
 
-type WorkerApiRow = {
-  worker_id?: string;
-  user_id?: string;
-  worker_name?: string;
-  tasks_completed?: number;
-  cpu_cores?: number;
-  /** Cumulative task CPU time for this worker row (SQLite workers.total_cpu_time_seconds). */
-  total_cpu_time_seconds?: number;
+type LeaderboardEntry = {
+  username: string;
+  display_name: string;
+  projects_joined: number;
+  tasks_completed: number;
+  total_cpu_time_seconds: number;
 };
 
 function shuffled<T>(arr: T[]): T[] {
@@ -39,17 +37,17 @@ function formatComputeTimeSeconds(total: number): string {
 }
 
 export default function Leaderboard() {
-  const [workers, setWorkers] = useState<WorkerApiRow[]>([]);
+  const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`${API_BASE_URL}/api/workers`)
+    fetch(`${API_BASE_URL}/api/leaderboard`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((data: { workers?: WorkerApiRow[] }) => {
+      .then((data: { entries?: LeaderboardEntry[] }) => {
         if (cancelled) return;
-        setWorkers(Array.isArray(data?.workers) ? data.workers : []);
+        setEntries(Array.isArray(data?.entries) ? data.entries : []);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -65,26 +63,18 @@ export default function Leaderboard() {
   }, []);
 
   const aggregates = useMemo(() => {
-    const byVolunteer = new Map<
-      string,
-      { username: string; projects: number; computeTimeSeconds: number }
-    >();
-    for (const w of workers) {
-      const key = (w.user_id || w.worker_name || w.worker_id || "").trim();
-      if (!key) continue;
-      const username = (w.worker_name || w.user_id || w.worker_id || "Volunteer").trim();
-      const prev = byVolunteer.get(key) || { username, projects: 0, computeTimeSeconds: 0 };
-      prev.projects += Number(w.tasks_completed || 0);
-      prev.computeTimeSeconds += Number(w.total_cpu_time_seconds || 0);
-      byVolunteer.set(key, prev);
-    }
-    return Array.from(byVolunteer.values());
-  }, [workers]);
+    return entries.map((e) => ({
+      username: (e.display_name || e.username || "Volunteer").trim(),
+      projectsJoined: Number(e.projects_joined || 0),
+      tasksCompleted: Number(e.tasks_completed || 0),
+      computeTimeSeconds: Number(e.total_cpu_time_seconds || 0),
+    }));
+  }, [entries]);
 
   const baseProjects = useMemo(
     () =>
       aggregates
-        .map((v) => ({ username: v.username, value: v.projects }))
+        .map((v) => ({ username: v.username, value: v.projectsJoined }))
         .sort((a, b) => b.value - a.value)
         .slice(0, 10),
     [aggregates]
@@ -105,10 +95,10 @@ export default function Leaderboard() {
     [aggregates]
   );
 
-  const mostTime = useMemo(
+  const mostTasks = useMemo(
     () =>
       aggregates
-        .map((v) => ({ username: v.username, value: v.projects }))
+        .map((v) => ({ username: v.username, value: v.tasksCompleted }))
         .sort((a, b) => b.value - a.value)
         .slice(0, 10),
     [aggregates]
@@ -116,7 +106,7 @@ export default function Leaderboard() {
 
   const formatValue = (value: number, type: string) => {
     if (type === "compute") return formatComputeTimeSeconds(value);
-    if (type === "time") return `${value} tasks`;
+    if (type === "tasks") return `${value} tasks`;
     return `${value} projects`;
   };
 
@@ -173,7 +163,7 @@ export default function Leaderboard() {
   return (
     <ConstellationStarfieldBackground>
       <FlowNav />
-      <div className="relative z-10 flex min-h-0 flex-1 flex-col px-6 pt-24 pb-16 max-w-7xl mx-auto w-full min-h-screen">
+      <div className="relative z-10 flex min-h-0 flex-1 flex-col px-6 pt-24 pb-16 max-w-7xl mx-auto w-full min-h-screen font-sans antialiased">
         <div className="mb-6">
           <PageBackButton />
         </div>
@@ -183,8 +173,10 @@ export default function Leaderboard() {
             Top Contributors
           </div>
           <h1
-            className="text-4xl md:text-6xl font-bold tracking-tight m-0"
+            className="text-4xl md:text-6xl font-bold tracking-tight m-0 font-sans"
             style={{
+              fontFamily:
+                "'Space Grotesk', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
               background: "linear-gradient(135deg, #fefce8 0%, #fef3c7 25%, #fde68a 50%, #fcd34d 75%, #fbbf24 100%)",
               WebkitBackgroundClip: "text",
               WebkitTextFillColor: "transparent",
@@ -194,9 +186,9 @@ export default function Leaderboard() {
           >
             Leaderboard
           </h1>
-          {allZeroProjects && (
+          {allZeroProjects && aggregates.length > 0 && (
             <p className="text-white/50 text-sm mt-2 m-0">
-              All volunteers currently have 0 projects contributed, so podium order is randomized.
+              Everyone has 0 projects joined so far, so podium order is randomized.
             </p>
           )}
           {loadError && (
@@ -234,11 +226,17 @@ export default function Leaderboard() {
         {/* Category columns */}
         {loading ? (
           <p className="text-white/60 text-center">Loading leaderboard...</p>
+        ) : loadError ? null : aggregates.length === 0 ? (
+          <p className="text-white/55 text-center max-w-lg mx-auto">
+            No volunteers to show yet. When people join projects (RDS) or connect workers to this cluster,
+            they will appear here. Ensure the API has <code className="text-white/80">AWS_DATABASE_URL</code>{" "}
+            set if you expect names and project counts from the cloud database.
+          </p>
         ) : (
           <div className="flex flex-wrap justify-center gap-6">
           <ContributorList
             contributors={mostProjects}
-            title="Most Projects"
+            title="Most projects joined"
             valueType="projects"
             accentColor="rgb(125, 211, 252)"
           />
@@ -249,9 +247,9 @@ export default function Leaderboard() {
             accentColor="rgb(196, 181, 253)"
           />
           <ContributorList
-            contributors={mostTime}
-            title="Most Tasks Completed"
-            valueType="time"
+            contributors={mostTasks}
+            title="Most tasks completed"
+            valueType="tasks"
             accentColor="rgb(134, 239, 172)"
           />
           </div>

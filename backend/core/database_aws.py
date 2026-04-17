@@ -22,6 +22,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     create_engine,
+    func,
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -272,6 +273,62 @@ def get_aws_user_by_id(user_id: str) -> Optional[SimpleNamespace]:
             if email is None:
                 email = getattr(r, "email", None)
         return SimpleNamespace(user_id=user_id, role=role, name=name, email=email)
+
+
+def get_volunteer_user_project_stats() -> list[dict]:
+    """
+    Each row: username, name (display), project_count = distinct projects in project_users.
+    Includes volunteers with zero joins (count 0).
+    """
+    if not is_aws_db_configured():
+        return []
+    with get_aws_session() as session:
+        rows = (
+            session.query(
+                AWSUser.username,
+                AWSUser.name,
+                func.count(func.distinct(AWSProjectUser.project_id)),
+            )
+            .outerjoin(AWSProjectUser, AWSProjectUser.username == AWSUser.username)
+            .group_by(AWSUser.username, AWSUser.name)
+            .all()
+        )
+        out = []
+        for r in rows:
+            un = str(r[0])
+            nm = (r[1] or un or "").strip() or un
+            out.append({"username": un, "name": nm, "project_count": int(r[2] or 0)})
+        return out
+
+
+def batch_get_user_display_names(usernames: list[str]) -> dict[str, str]:
+    """
+    Map username -> display name from RDS `users` and `researchers` in one round trip.
+    Mirrors merge logic in get_aws_user_by_id: prefer volunteer row name, then researcher name.
+    """
+    if not is_aws_db_configured():
+        return {}
+    cleaned = list(dict.fromkeys([u.strip() for u in usernames if u and str(u).strip()]))
+    if not cleaned:
+        return {}
+    with get_aws_session() as session:
+        user_rows = session.query(AWSUser).filter(AWSUser.username.in_(cleaned)).all()
+        researcher_rows = session.query(AWSResearcher).filter(AWSResearcher.username.in_(cleaned)).all()
+        users_by = {u.username: u for u in user_rows}
+        researchers_by = {r.username: r for r in researcher_rows}
+        out: dict[str, str] = {}
+        for uid in cleaned:
+            u = users_by.get(uid)
+            r = researchers_by.get(uid)
+            name = uid
+            email = None
+            if u:
+                name = getattr(u, "name", None) or uid
+                email = getattr(u, "email", None)
+            if r and (name == uid or email is None):
+                name = getattr(r, "name", None) or name
+            out[uid] = (str(name).strip() if name else uid) or uid
+        return out
 
 
 def get_aws_user_by_email(email: str) -> Optional[SimpleNamespace]:
